@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: deal-rater-postgres
+    environment:
+      POSTGRES_USER: dealrater
+      POSTGRES_PASSWORD: dealrater
+      POSTGRES_DB: dealrater
+    ports:
+      - "5432:5432"
+    volumes:
+      - deal-rater-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dealrater -d dealrater"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  deal-rater-pgdata:

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Deal Rater — settings</title>
+    <style>
+      body {
+        font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        max-width: 640px;
+        margin: 40px auto;
+        padding: 0 20px;
+        color: #16212c;
+      }
+      h1 { font-size: 20px; margin-bottom: 4px; }
+      h2 { font-size: 15px; margin: 28px 0 8px; }
+      p { margin: 8px 0; }
+      label { display: block; margin: 14px 0 4px; font-weight: 600; font-size: 13px; }
+      input[type="url"] { width: 100%; padding: 8px; font: inherit; box-sizing: border-box; }
+      .row { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+      .row label { margin: 0; font-weight: 400; font-size: 14px; }
+      .notice {
+        border-left: 3px solid #b3541e;
+        background: #fdf6f0;
+        padding: 12px 14px;
+        margin: 20px 0;
+        font-size: 13.5px;
+      }
+      .muted { color: #5c6b7a; font-size: 13px; }
+      button { font: inherit; padding: 8px 16px; margin-top: 16px; cursor: pointer; }
+      #saved { margin-left: 10px; color: #1f6b3a; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>Deal Rater</h1>
+    <p class="muted">Captures the Marketplace vehicle listing you are viewing, when you ask it to.</p>
+
+    <div class="notice">
+      <strong>Please read before using this.</strong>
+      <p>
+        Collecting listing data from Facebook Marketplace with a tool is against Meta's terms of
+        service, whether or not it runs in your own browser under your own session. Facebook may
+        restrict or suspend your account for it. That risk falls on you, not on this extension.
+      </p>
+      <p>
+        This extension acts only when you click Capture. It does not run searches on its own, does
+        not monitor listings in the background, and does nothing at all while you are just browsing.
+      </p>
+      <p>
+        Marketplace shows asking prices, not sale prices. Anything built on this data describes how
+        vehicles are <em>advertised</em>, not what they sell for.
+      </p>
+    </div>
+
+    <h2>What is stored about sellers</h2>
+    <p class="muted">
+      Two things, and only two: an irreversible hash of the seller's Facebook ID, and a count of
+      their active vehicle listings. Names, profile links, profile photos and join dates are never
+      read or sent. Phone numbers and email addresses in a listing description are replaced with
+      <code>[PHONE]</code> and <code>[EMAIL]</code> before the description leaves your browser.
+    </p>
+
+    <h2>Settings</h2>
+    <label for="apiBaseUrl">Backend URL</label>
+    <input id="apiBaseUrl" type="url" placeholder="http://localhost:8000" />
+
+    <div class="row">
+      <input id="enabled" type="checkbox" />
+      <label for="enabled">Show the Capture button on listing pages</label>
+    </div>
+
+    <div class="row">
+      <input id="devMode" type="checkbox" />
+      <label for="devMode">Developer mode — adds a "Save fixture" button for test snapshots</label>
+    </div>
+
+    <p class="muted">
+      Saved fixtures contain the whole page, including personal data. Scrub them with
+      <code>npm run scrub-fixture</code> before committing.
+    </p>
+
+    <button id="save" type="button">Save</button>
+    <span id="saved" hidden>Saved</span>
+
+    <script src="options.js"></script>
+  </body>
+</html>

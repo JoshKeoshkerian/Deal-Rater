@@ -1,0 +1,240 @@
+"""Persistence model for step 2 (extraction only).
+
+Four layers, deliberately separated so that time-series does not have to be
+retrofitted later (spec 4.4):
+
+  identity     `listings`, `sellers`            upserted, stable keys
+  observation  `listing_observations`,          APPEND ONLY, one row per scrape
+               `seller_observations`
+  provenance   `captures`                       one row per user click
+  telemetry    `extraction_reports`             scraper health (spec 4.6)
+
+Nothing volatile is ever updated in place. The single exception is
+`listings.last_observed_at`, which is a cursor over the observation rows rather
+than data in its own right.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# JSONB on Postgres, plain JSON elsewhere so the suite can run without a server.
+JsonCol = JSON().with_variant(JSONB(), "postgresql")
+
+TZDateTime = DateTime(timezone=True)
+
+# Matches the BIGINT identity columns in the migration, which is the source of
+# truth for the real database. The SQLite variant is required because SQLite
+# only auto-increments a column declared exactly INTEGER PRIMARY KEY.
+PkType = BigInteger().with_variant(Integer(), "sqlite")
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Capture(Base):
+    """One user click. Groups a target listing with the comps found for it."""
+
+    __tablename__ = "captures"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    client_capture_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), unique=True, nullable=False)
+
+    # The API is client-agnostic (spec 8.1.4). These two columns are the only
+    # place the identity of the caller is recorded, and nothing branches on them.
+    client_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    client_version: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    captured_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    comp_search_query: Mapped[dict | None] = mapped_column(JsonCol)
+    comp_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # False when a `required` field failed to extract anywhere in the capture —
+    # an unambiguous scraper failure. `expected` misses are often real data (a
+    # listing with no price) and do not flip this; watch their fill rate instead.
+    # Derived server-side from extraction_reports, never sent by a client.
+    extraction_ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    observations: Mapped[list[ListingObservation]] = relationship(back_populates="capture")
+
+
+class Listing(Base):
+    """Identity anchor for a listing. Holds only what does not change."""
+
+    __tablename__ = "listings"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="facebook_marketplace")
+    source_listing_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    first_observed_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    # Cursor, not data. Every observation still exists as its own row.
+    last_observed_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    vin: Mapped[str | None] = mapped_column(String(17))
+
+    # Fuzzy identity for relisting detection (spec 4.4). Computed at ingest and
+    # stored now; the matching logic that consumes it is phase three.
+    relisting_key: Mapped[str | None] = mapped_column(String(40))
+
+    __table_args__ = (
+        UniqueConstraint("source", "source_listing_id", name="uq_listings_source_id"),
+        Index("ix_listings_vin", "vin"),
+        Index("ix_listings_relisting_key", "relisting_key"),
+    )
+
+
+class Seller(Base):
+    """Privacy-minimal seller identity (spec 8.2).
+
+    Two fields ever leave the browser: this hash and an integer count. Display
+    names, profile URLs, photos and join dates are never transmitted or stored.
+    The hash is a pseudonym, not an anonymisation: it is computed client-side
+    with a pepper shipped in the client bundle, which is not secret. Rotation is
+    possible via hash_version.
+    """
+
+    __tablename__ = "sellers"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    seller_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    hash_version: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("seller_hash", "hash_version", name="uq_sellers_hash_version"),
+    )
+
+
+class ListingObservation(Base):
+    """Append-only. One row per listing per capture, target or comp alike.
+
+    Comps and targets share this table on purpose: a comp today is a target
+    tomorrow, and unifying them is what makes the section-1 dataset accumulate
+    from every click rather than only from the car being evaluated.
+    """
+
+    __tablename__ = "listing_observations"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("listings.id", ondelete="CASCADE"), nullable=False
+    )
+    capture_id: Mapped[int] = mapped_column(
+        ForeignKey("captures.id", ondelete="CASCADE"), nullable=False
+    )
+    observed_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)  # 'target' | 'comp'
+
+    # --- spec 4.1 target listing fields -------------------------------------
+    price_cents: Mapped[int | None] = mapped_column(Integer)
+    currency: Mapped[str | None] = mapped_column(String(8))
+    mileage: Mapped[int | None] = mapped_column(Integer)
+    mileage_unit: Mapped[str | None] = mapped_column(String(4))  # 'mi' | 'km'
+    year: Mapped[int | None] = mapped_column(SmallInteger)
+    make: Mapped[str | None] = mapped_column(String(64))
+    model: Mapped[str | None] = mapped_column(String(128))
+    trim_text: Mapped[str | None] = mapped_column(String(128))
+    title_status: Mapped[str | None] = mapped_column(String(32))
+    description: Mapped[str | None] = mapped_column(Text)
+    photo_count: Mapped[int | None] = mapped_column(Integer)
+    posted_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+    # Kept verbatim: "listed 3 weeks ago" is coarser than a timestamp, and
+    # rounding it into posted_at loses the fact that it was ever approximate.
+    posted_relative_text: Mapped[str | None] = mapped_column(String(64))
+    price_changed: Mapped[bool | None] = mapped_column(Boolean)
+    location_text: Mapped[str | None] = mapped_column(String(255))
+    latitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[float | None] = mapped_column(Numeric(9, 6))
+    listing_url: Mapped[str | None] = mapped_column(Text)
+
+    seller_id: Mapped[int | None] = mapped_column(ForeignKey("sellers.id", ondelete="SET NULL"))
+
+    # Which extraction tier produced each field, e.g. {"price": "json_payload"}.
+    # The early-warning signal for scraper decay (spec 4.6): fields degrading
+    # from json_payload to text_pattern precedes them going null entirely.
+    field_strategies: Mapped[dict] = mapped_column(JsonCol, nullable=False, default=dict)
+
+    # Normalised pre-validation blob, so a parsing fix can be re-derived against
+    # observations already collected instead of needing a fresh scrape.
+    raw_extract: Mapped[dict | None] = mapped_column(JsonCol)
+
+    capture: Mapped[Capture] = relationship(back_populates="observations")
+
+    __table_args__ = (
+        UniqueConstraint("listing_id", "capture_id", name="uq_observation_listing_capture"),
+        Index("ix_observations_listing_time", "listing_id", "observed_at"),
+        Index("ix_observations_capture", "capture_id"),
+        Index("ix_observations_seller", "seller_id"),
+    )
+
+
+class SellerObservation(Base):
+    """Append-only count of a seller's concurrently active vehicle listings."""
+
+    __tablename__ = "seller_observations"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    seller_id: Mapped[int] = mapped_column(
+        ForeignKey("sellers.id", ondelete="CASCADE"), nullable=False
+    )
+    capture_id: Mapped[int] = mapped_column(
+        ForeignKey("captures.id", ondelete="CASCADE"), nullable=False
+    )
+    observed_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    active_vehicle_listing_count: Mapped[int | None] = mapped_column(Integer)
+
+    __table_args__ = (
+        UniqueConstraint("seller_id", "capture_id", name="uq_seller_observation_capture"),
+    )
+
+
+class ExtractionReport(Base):
+    """Scraper self-check output (spec 4.6).
+
+    Written even when the capture itself fails validation, because a capture
+    that fails validation is exactly the event worth knowing about.
+    """
+
+    __tablename__ = "extraction_reports"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    capture_id: Mapped[int] = mapped_column(
+        ForeignKey("captures.id", ondelete="CASCADE"), nullable=False
+    )
+    observed_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    expectation: Mapped[str] = mapped_column(String(16), nullable=False)
+    strategies_attempted: Mapped[list | None] = mapped_column(JsonCol)
+    # Coarse structural fingerprint of the page, so a spike in reports can be
+    # correlated with a specific Facebook layout change.
+    page_signature: Mapped[str | None] = mapped_column(String(64))
+
+    __table_args__ = (
+        Index("ix_reports_capture", "capture_id"),
+        Index("ix_reports_field_time", "field_name", "observed_at"),
+    )

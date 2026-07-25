@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Deal Rater — Marketplace listing capture",
+  "version": "0.1.0",
+  "description": "Captures the Marketplace vehicle listing you are looking at, on request, when you click Capture.",
+  "minimum_chrome_version": "116",
+
+  "permissions": ["storage"],
+
+  "host_permissions": [
+    "https://www.facebook.com/marketplace/*",
+    "https://web.facebook.com/marketplace/*",
+    "http://localhost:8000/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.facebook.com/marketplace/*",
+        "https://web.facebook.com/marketplace/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+
+  "action": {
+    "default_title": "Deal Rater"
+  }
+}

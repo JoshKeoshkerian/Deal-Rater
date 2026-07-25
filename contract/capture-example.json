@@ -1,0 +1,121 @@
+{
+  "client": {
+    "name": "chrome-extension",
+    "version": "0.1.0"
+  },
+  "capture": {
+    "client_capture_id": "3f1a5c8e-9b2d-4e77-8a10-6c4f2b9d1e33",
+    "captured_at": "2026-07-25T12:00:00.000Z",
+    "comp_search_query": {
+      "query": "2014 Toyota Camry",
+      "derived_from": { "year": 2014, "make": "Toyota", "model": "Camry" },
+      "source": "same_origin_fetch"
+    }
+  },
+  "target": {
+    "source": "facebook_marketplace",
+    "source_listing_id": "100000000000001",
+    "listing_url": "https://www.facebook.com/marketplace/item/100000000000001/",
+    "role": "target",
+    "price_cents": 1290000,
+    "currency": "USD",
+    "mileage": 96400,
+    "mileage_unit": "mi",
+    "year": 2014,
+    "make": "Toyota",
+    "model": "Camry",
+    "trim_text": "SE",
+    "title_status": "clean",
+    "description": "Runs great, cold AC, clean title in hand. Call [PHONE].",
+    "photo_count": 12,
+    "posted_at": "2026-07-04T12:00:00.000Z",
+    "posted_relative_text": "Listed 3 weeks ago",
+    "price_changed": null,
+    "location_text": "Tulsa, OK",
+    "latitude": 36.15398,
+    "longitude": -95.992775,
+    "vin": "1HGCM82633A004352",
+    "seller": {
+      "seller_hash": "9f2c4b7a1e6d8035c4a9f2b7e1d6803549f2c4b7a1e6d803549f2c4b7a1e6d80",
+      "hash_version": 1,
+      "active_vehicle_listing_count": 3
+    },
+    "field_strategies": {
+      "source_listing_id": "url_path",
+      "listing_url": "url_path",
+      "price_cents": "json_payload",
+      "mileage": "json_payload",
+      "year": "json_payload",
+      "make": "json_payload",
+      "model": "json_payload",
+      "location_text": "json_payload",
+      "photo_count": "json_payload",
+      "posted_at": "json_payload",
+      "description": "json_payload",
+      "vin": "text_pattern",
+      "seller_hash": "json_payload"
+    },
+    "raw_extract": {
+      "title": "2014 Toyota Camry SE",
+      "price_text": null,
+      "mileage_text": null,
+      "posted_text": null,
+      "page_signature": "1a2b3c4d"
+    }
+  },
+  "comps": [
+    {
+      "source": "facebook_marketplace",
+      "source_listing_id": "200000000000002",
+      "listing_url": "https://www.facebook.com/marketplace/item/200000000000002/",
+      "role": "comp",
+      "price_cents": 1250000,
+      "currency": "USD",
+      "mileage": 88000,
+      "mileage_unit": "mi",
+      "year": 2014,
+      "make": "Toyota",
+      "model": "Camry",
+      "trim_text": "SE",
+      "title_status": null,
+      "description": null,
+      "photo_count": null,
+      "posted_at": null,
+      "posted_relative_text": null,
+      "price_changed": null,
+      "location_text": "Broken Arrow, OK",
+      "latitude": null,
+      "longitude": null,
+      "vin": null,
+      "seller": null,
+      "field_strategies": {
+        "source_listing_id": "json_payload",
+        "listing_url": "url_path",
+        "price_cents": "json_payload",
+        "mileage": "json_payload"
+      },
+      "raw_extract": {
+        "title": "2014 Toyota Camry SE",
+        "subtitles": ["88K miles"]
+      }
+    }
+  ],
+  "extraction_report": [
+    {
+      "scope": "target",
+      "field_name": "price_changed",
+      "status": "missing",
+      "expectation": "optional",
+      "strategies_attempted": ["aria_dom", "text_pattern"],
+      "page_signature": "1a2b3c4d"
+    },
+    {
+      "scope": "comp_card",
+      "field_name": "posted_at",
+      "status": "missing",
+      "expectation": "optional",
+      "strategies_attempted": ["json_payload", "text_pattern"],
+      "page_signature": "5e6f7a8b"
+    }
+  ]
+}

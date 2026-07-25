@@ -1,0 +1,153 @@
+/**
+ * One capture run. Triggered by an explicit click and by nothing else.
+ *
+ * Sequence: extract the listing the user has open, run one comp search for it,
+ * post both. There is no retry loop, no schedule, and no state carried between
+ * runs — when this function returns, the extension is idle again.
+ */
+
+import { buildCompSearch } from "../comps/build-query";
+import { runCompSearch } from "../comps/fetch-search";
+import { extractTargetListing } from "../extract/listing";
+import { collapseIssues } from "../extract/self-check";
+import type { SubmitCaptureResult } from "../shared/messages";
+import { sendToBackground } from "../shared/messages";
+import type { CapturePayload, ExtractionIssue, ObservationPayload } from "../shared/types";
+
+export const CLIENT_NAME = "chrome-extension";
+export const CLIENT_VERSION = "0.1.0";
+
+export interface CapturePayloadParts {
+  capturedAt: Date;
+  captureId: string;
+  target: ObservationPayload;
+  comps: ObservationPayload[];
+  issues: ExtractionIssue[];
+  compSearchQuery: Record<string, unknown> | null;
+}
+
+/**
+ * Assemble the wire payload.
+ *
+ * Split out from the run so that the contract can be tested without a browser.
+ * `contract/capture-example.json` is checked against both this function's
+ * output and the backend's Pydantic model, which is what stops the two sides
+ * drifting into a 422 that only shows up in production.
+ */
+export function buildCapturePayload(parts: CapturePayloadParts): CapturePayload {
+  return {
+    client: { name: CLIENT_NAME, version: CLIENT_VERSION },
+    capture: {
+      client_capture_id: parts.captureId,
+      captured_at: parts.capturedAt.toISOString(),
+      comp_search_query: parts.compSearchQuery,
+    },
+    target: parts.target,
+    comps: parts.comps,
+    extraction_report: collapseIssues(parts.issues),
+  };
+}
+
+export type StatusListener = (message: string) => void;
+
+export interface CaptureOutcome {
+  ok: boolean;
+  message: string;
+  compCount: number;
+  extractionOk: boolean;
+}
+
+export async function runCapture(onStatus: StatusListener = () => {}): Promise<CaptureOutcome> {
+  const capturedAt = new Date();
+
+  onStatus("Reading listing…");
+  const target = await extractTargetListing(document, location.href, capturedAt);
+
+  if (!target.usable) {
+    return {
+      ok: false,
+      message: "Could not identify this listing. Open a Marketplace item page and try again.",
+      compCount: 0,
+      extractionOk: false,
+    };
+  }
+
+  const issues: ExtractionIssue[] = [...target.issues];
+
+  const search = buildCompSearch(target.observation);
+  let comps: CapturePayload["comps"] = [];
+  let compSource = "none";
+
+  if (search === null) {
+    // Without make and model there is nothing to search for. Recorded rather
+    // than silently skipped, because it is the same shape of failure as a
+    // broken selector and belongs in the same telemetry.
+    issues.push({
+      scope: "comp_search",
+      field_name: "comp_search_query",
+      status: "missing",
+      expectation: "expected",
+      strategies_attempted: [],
+      page_signature: target.pageSignature,
+    });
+  } else {
+    onStatus("Searching comparable listings…");
+    const result = await runCompSearch(search.url, capturedAt);
+    compSource = result.source;
+
+    // A search page routinely includes the listing being evaluated. Keeping it
+    // would make the target its own comp in step 3.
+    comps = result.observations.filter(
+      (comp) => comp.source_listing_id !== target.observation.source_listing_id,
+    );
+
+    issues.push(...result.issues);
+
+    if (result.source === "none") {
+      issues.push({
+        scope: "comp_search",
+        field_name: "comp_results",
+        status: "missing",
+        expectation: "expected",
+        strategies_attempted: ["json_payload", "aria_dom"],
+        page_signature: target.pageSignature,
+      });
+    }
+  }
+
+  const payload = buildCapturePayload({
+    capturedAt,
+    captureId: crypto.randomUUID(),
+    target: target.observation,
+    comps,
+    issues,
+    compSearchQuery: search ? { ...search.query, source: compSource } : null,
+  });
+
+  onStatus("Saving…");
+  const result = await sendToBackground<SubmitCaptureResult>({
+    type: "SUBMIT_CAPTURE",
+    payload,
+  });
+
+  if (!result?.ok) {
+    return {
+      ok: false,
+      message: result?.error ?? "No response from the extension background worker.",
+      compCount: comps.length,
+      extractionOk: false,
+    };
+  }
+
+  const { response } = result;
+  const summary = response.duplicate
+    ? "Already captured."
+    : `Captured with ${comps.length} comparable listing${comps.length === 1 ? "" : "s"}.`;
+
+  return {
+    ok: true,
+    message: response.extraction_ok ? summary : `${summary} Some fields could not be read.`,
+    compCount: comps.length,
+    extractionOk: response.extraction_ok,
+  };
+}

@@ -1,0 +1,128 @@
+/**
+ * Content script entry point.
+ *
+ * Registered against `/marketplace/*` rather than `/marketplace/item/*`, and
+ * this is worth being explicit about because it looks like over-matching.
+ * Facebook is a single-page app: a user who lands on the Marketplace home page
+ * and clicks through to a listing never triggers a fresh injection, so a
+ * narrower pattern would leave the script absent on exactly the pages it is for.
+ * The scope stays inside Marketplace either way, and the button is mounted only
+ * on item pages.
+ *
+ * Route changes are watched with a MutationObserver rather than a timer. This
+ * is not data collection — nothing is read from the page until the user clicks
+ * — it only decides whether the button should be on screen.
+ */
+
+import { extractCompCards } from "../extract/comp-card";
+import type { BackgroundToContent, HarvestResult } from "../shared/messages";
+import { loadSettings } from "../shared/settings";
+import { runCapture } from "./run-capture";
+import { downloadPageSnapshot } from "./snapshot";
+import { mountTriggerButton, type TriggerButton } from "./trigger-button";
+
+const ROUTE_DEBOUNCE_MS = 300;
+
+let button: TriggerButton | null = null;
+let lastUrl = location.href;
+let running = false;
+
+function isItemPage(): boolean {
+  return /\/marketplace\/item\/\d+/.test(location.pathname);
+}
+
+function isSearchPage(): boolean {
+  return /\/marketplace\/(search|category)/.test(location.pathname);
+}
+
+async function handleClick(): Promise<void> {
+  if (running || !button) return;
+  running = true;
+  button.setBusy(true);
+
+  try {
+    const outcome = await runCapture((message) => button?.setStatus(message));
+    button.setStatus(outcome.message, outcome.ok ? "info" : "error");
+  } catch (error) {
+    button.setStatus(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    running = false;
+    button.setBusy(false);
+  }
+}
+
+async function syncButton(): Promise<void> {
+  const settings = await loadSettings();
+
+  if (!settings.enabled || !isItemPage()) {
+    button?.remove();
+    button = null;
+    return;
+  }
+
+  if (button) return;
+
+  button = mountTriggerButton(() => void handleClick());
+  if (button && settings.devMode) {
+    button.addExtraAction("Save fixture", downloadPageSnapshot);
+  }
+}
+
+function watchRoute(): void {
+  let timer: number | undefined;
+
+  const check = () => {
+    if (location.href === lastUrl) return;
+    lastUrl = location.href;
+    void syncButton();
+  };
+
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = window.setTimeout(check, ROUTE_DEBOUNCE_MS);
+  };
+
+  new MutationObserver(schedule).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+  window.addEventListener("popstate", check);
+}
+
+/**
+ * Respond to a comp harvest request from the service worker.
+ *
+ * Only reachable on a search page opened by the background-tab fallback, which
+ * itself only happens inside a capture the user started.
+ */
+chrome.runtime.onMessage.addListener((message: BackgroundToContent, _sender, sendResponse) => {
+  if (message?.type !== "HARVEST_COMPS") return false;
+
+  extractCompCards(document, location.href)
+    .then((result) =>
+      sendResponse({
+        ok: true,
+        observations: result.observations,
+        issues: result.issues,
+      } satisfies HarvestResult),
+    )
+    .catch((error: unknown) =>
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies HarvestResult),
+    );
+
+  return true;
+});
+
+if (isSearchPage()) {
+  // Tells the worker this tab is ready to be harvested. Ignored when the tab
+  // was opened by the user rather than by the fallback.
+  void chrome.runtime.sendMessage({ type: "CONTENT_READY", url: location.href }).catch(
+    () => undefined,
+  );
+}
+
+void syncButton();
+watchRoute();
