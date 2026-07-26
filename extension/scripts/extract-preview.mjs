@@ -69,7 +69,22 @@ async function main() {
   const path = resolve(process.cwd(), file);
   const html = await readFile(path, "utf8");
 
-  const window = new Window({ url: "https://www.facebook.com/" });
+  // A scrubbed fixture still has real <link rel="stylesheet"> and <script src>
+  // references to Facebook's asset CDN. happy-dom tries to actually fetch
+  // those on parse, which throws (no network in this script) into a code path
+  // that assumes a live window and crashes with a null defaultView. Nothing
+  // extracted here reads CSS or runs page JS, so loading is just disabled.
+  const window = new Window({
+    url: "https://www.facebook.com/",
+    settings: {
+      disableCSSFileLoading: true,
+      disableJavaScriptFileLoading: true,
+      // Disabled loading still dispatches an error event by default, and
+      // that dispatch is the crashing path (null defaultView) on a document
+      // this detached. Routing it to a "load" event instead avoids it.
+      handleDisabledFileLoadingAsSuccess: true,
+    },
+  });
   globalThis.DOMParser = window.DOMParser;
   const doc = new window.DOMParser().parseFromString(html, "text/html");
   const url = urlFor(file, html, isSearch);

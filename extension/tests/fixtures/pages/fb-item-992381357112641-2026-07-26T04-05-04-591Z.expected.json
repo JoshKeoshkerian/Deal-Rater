@@ -1,0 +1,32 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/992381357112641/",
+  "expect": {
+    "price_cents": 520000,
+    "year": 2013,
+    "make": "Mazda",
+    "model": "CX-5",
+    "mileage": 164522,
+    "photo_count": 36,
+    "location_text": "Decatur, IL"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "trim_text",
+    "title_status",
+    "description",
+    "photo_count",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

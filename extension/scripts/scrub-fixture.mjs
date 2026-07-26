@@ -31,7 +31,11 @@ const outputDir = resolve(root, "tests/fixtures/pages");
 
 /** Keys whose values are personal data and are never read by the extractor. */
 const IDENTITY_KEYS = [
-  "name",
+  // "name" is deliberately not here: it is too generic a key on Facebook's
+  // payload (UI components, categories, and other non-person nodes use it
+  // too), and a document-wide sweep on its captured values corrupted
+  // unrelated text elsewhere on the page. It is redacted only where it is
+  // reliably a person — inside an ACCOUNT_KEYS container, below.
   "first_name",
   "last_name",
   "full_name",
@@ -109,6 +113,24 @@ function fakeAccountId(real) {
   return accountIds.get(real);
 }
 
+// A single shared placeholder URL for every photo would make every photo
+// indistinguishable, and resolvePhotoCount's DOM fallback (fields/media.ts)
+// counts *distinct* CDN image URLs — collapsing them all to one silently
+// breaks photo_count on any fixture that relies on that tier. Each distinct
+// real URL (ignoring the size-variant query string, same as the extractor
+// does) gets its own stable fake one instead, keeping "scontent" in the
+// hostname so the extractor's own CDN-URL check still recognizes it.
+const photoUrls = new Map();
+function fakePhotoUrl(real) {
+  const base = real.split("?")[0];
+  if (!photoUrls.has(base)) {
+    photoUrls.set(base, `https://example.invalid/scontent-photo-${photoUrls.size + 1}.jpg`);
+  }
+  return photoUrls.get(base);
+}
+
+const PHOTO_COUNT_RE = /\b\d+\s+of\s+\d+\b/;
+
 // Facebook duplicates the seller's name and id inside double-encoded JSON
 // strings (e.g. `nfx_story_data`) that scrubJson never parses into, since it
 // only recurses into real objects/arrays. Rather than chase every field that
@@ -121,6 +143,21 @@ function redactString(value) {
   const after = value.replace(EMAIL_RE, "[EMAIL]").replace(PHONE_RE, "[PHONE]");
   if (after !== before) counters.contactDetails += 1;
   return after;
+}
+
+/** Applies redactString everywhere except inside application/json script bodies. */
+function redactOutsideJsonScripts(html) {
+  const re = /<script[^>]*type=["']application\/json["'][^>]*>[\s\S]*?<\/script>/gi;
+  let result = "";
+  let lastIndex = 0;
+  let match;
+  while ((match = re.exec(html)) !== null) {
+    result += redactString(html.slice(lastIndex, match.index));
+    result += match[0];
+    lastIndex = re.lastIndex;
+  }
+  result += redactString(html.slice(lastIndex));
+  return result;
 }
 
 function scrubJson(node) {
@@ -141,9 +178,18 @@ function scrubJson(node) {
     if (ACCOUNT_KEYS.has(key) && typeof value === "object" && value !== null) {
       const realId = typeof value["id"] === "string" ? value["id"] : null;
       const realUserId = typeof value["user_id"] === "string" ? value["user_id"] : null;
+      // "name" is only reliably a person's name when it is scoped to a
+      // seller/actor-shaped container like this one — see the IDENTITY_KEYS
+      // comment on why it is not redacted document-wide.
+      const realName = typeof value["name"] === "string" ? value["name"] : null;
       const scrubbed = scrubJson(value);
       if (realId) scrubbed["id"] = fakeAccountId(realId);
       if (realUserId) scrubbed["user_id"] = fakeAccountId(realUserId);
+      if (realName && realName.trim()) {
+        realNames.add(realName);
+        scrubbed["name"] = "[REDACTED]";
+        counters.identityValues += 1;
+      }
       out[key] = scrubbed;
       continue;
     }
@@ -155,8 +201,8 @@ function scrubJson(node) {
       counters.identityValues += 1;
       continue;
     }
-    if (/scontent|fbcdn/i.test(String(value))) {
-      out[key] = "https://example.invalid/photo.jpg";
+    if (typeof value === "string" && /scontent|fbcdn/i.test(value)) {
+      out[key] = fakePhotoUrl(value);
       continue;
     }
     out[key] = scrubJson(value);
@@ -198,15 +244,20 @@ async function main() {
     },
   );
 
-  // Scoped to <img> specifically: an untargeted `src=` replacement also
-  // rewrites <iframe src>, and happy-dom then tries to actually navigate the
-  // fake URL and crashes (null defaultView) — the element survives so photo
-  // counts still work, but only <img> needs a fake photo URL.
-  html = html.replace(/<img\b[^>]*>/gi, (imgTag) =>
-    imgTag.replace(/\ssrc=(["'])(?:https?:)?\/\/[^"']*\1/i, () => {
+  // Scoped by CDN domain rather than by element: <img src> is the common
+  // case, but FB also renders some carousels/icons as inline SVG <image>
+  // with xlink:href, which an <img>-only sweep misses entirely (523 leaked
+  // CDN URLs on the first fixture this ran against). Scoped to "scontent"
+  // specifically, not the broader "fbcdn" — static.xx.fbcdn.net is FB's
+  // CSS/JS asset host, and rewriting a <link rel="stylesheet" href> there
+  // makes happy-dom try to actually load the fake URL as a stylesheet and
+  // crash. "scontent" is the photo-CDN hostname prefix and nothing else.
+  html = html.replace(
+    /\s(src|href|xlink:href)=(["'])((?:https?:)?\/\/[^"']*scontent[^"']*)\2/gi,
+    (_m, attr, _q, url) => {
       counters.imagesBlanked += 1;
-      return ' src="https://example.invalid/photo.jpg"';
-    }),
+      return ` ${attr}="${fakePhotoUrl(url)}"`;
+    },
   );
 
   // iframes carry no photo data the extractor reads, but their src can carry
@@ -216,10 +267,13 @@ async function main() {
     tag.replace(/\ssrc=(["'])[^"']*\1/i, ""),
   );
 
-  // Alt text and accessible names routinely contain the seller's name.
-  html = html.replace(/\s(alt|aria-label|title)=(["'])[^"']*\2/gi, (_m, attr) =>
-    attr.toLowerCase() === "alt" ? ' alt=""' : ` ${attr}="[REDACTED]"`,
-  );
+  // Alt text and accessible names routinely contain the seller's name, but a
+  // carousel position label ("Photo 3 of 12") is just a count — resolvePhotoCount's
+  // DOM fallback (fields/media.ts) reads exactly this text, so it is spared.
+  html = html.replace(/\s(alt|aria-label|title)=(["'])([^"']*)\2/gi, (_m, attr, quote, value) => {
+    if (PHOTO_COUNT_RE.test(value)) return ` ${attr}=${quote}${value}${quote}`;
+    return attr.toLowerCase() === "alt" ? ' alt=""' : ` ${attr}="[REDACTED]"`;
+  });
 
   // The text of a link to a profile is, in practice, always a person's name.
   html = html.replace(
@@ -237,7 +291,13 @@ async function main() {
     `profile.php?id=${fakeAccountId(id)}`,
   );
 
-  html = redactString(html);
+  // Scoped to skip <script type="application/json"> bodies: each string value
+  // in there already went through redactString once, correctly, inside
+  // scrubJson. Re-running PHONE_RE over the whole document is what corrupted
+  // the JSON — it readily false-positives on bare (unquoted) numeric fields
+  // like revision ids, and the unquoted "[PHONE]" it splices in is not valid
+  // JSON, which broke ~35% of the payloads on the first fixture run here.
+  html = redactOutsideJsonScripts(html);
 
   // Last pass: any real account id or seller name discovered above, wherever
   // it still appears verbatim — including inside double-encoded JSON strings
