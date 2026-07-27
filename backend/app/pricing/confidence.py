@@ -163,8 +163,13 @@ def assess_confidence(
         if sensitivity is not None and sensitivity > params.MAX_ROBUST_DISAGREEMENT:
             limiters.append(Limiter.OUTLIER_SENSITIVE)
 
+        # Must agree with what the fit actually used, not just what was
+        # available: `estimate.restricted_to_trim_match` means regression.py
+        # fit on the trim-matched subset, and checking extrapolation against
+        # the wider set here would disagree with the fit it is describing.
+        used_points, _ = comp_set.preferred_fit_points(params.MIN_COMPS_FOR_SLOPE)
         mileages = [
-            d.candidate.mileage for d in comp_set.fit_points if d.candidate.mileage is not None
+            d.candidate.mileage for d in used_points if d.candidate.mileage is not None
         ]
         target_mileage = comp_set.target.mileage
         if mileages and target_mileage is not None:

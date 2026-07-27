@@ -429,6 +429,29 @@ class CompSet:
     def excluded(self) -> list[CompDecision]:
         return [d for d in self.decisions if not d.included]
 
+    def preferred_fit_points(self, min_points: int) -> tuple[list[CompDecision], bool]:
+        """`fit_points`, restricted to trim-matched comps when there are enough.
+
+        Spec 4.3: "Trim and drivetrain drive large price variance." Trim never
+        EXCLUDES a comp (a comp set that is 40% one trim and 60% another should
+        not lose the majority), but when the trim-matched comps alone are
+        sufficient to fit a slope, they are a more informative set to fit than
+        the full mixed-trim one -- the same reasoning the year-window ladder
+        already applies (prefer the narrowest set that still reaches a floor,
+        because every widening step trades comp quality for comp count).
+
+        Callers that need to reason about the fit (the regression itself, and
+        confidence's extrapolation check) MUST go through this rather than
+        reading `fit_points` directly, so both agree on which points the fit
+        actually used.
+
+        Returns (points to fit, whether the fit was restricted).
+        """
+        matched = [d for d in self.fit_points if d.trim_matches is True]
+        if len(matched) >= min_points:
+            return matched, True
+        return self.fit_points, False
+
     @property
     def trim_coverage(self) -> float:
         """Fraction of included comps whose trim could be compared at all."""

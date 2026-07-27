@@ -99,6 +99,15 @@ MIN_COMPS_FOR_ANY_ESTIMATE = 3
 # but useless, so below this the model reports a location-only estimate instead.
 MIN_COMPS_FOR_SLOPE = 6
 
+# A second regressor (model year, alongside mileage) costs a further degree of
+# freedom -- df = n-3 rather than n-2. UNCALIBRATED, set one comp above
+# MIN_COMPS_FOR_SLOPE for the same reason that constant is 6 and not lower: it
+# keeps df comfortably positive (>= 4) rather than merely non-zero. Year is
+# only ever ADDED as a candidate fit alongside the mileage-only one (see
+# `regression.py`), never required, so this floor only decides whether trying
+# it is worthwhile, not whether an estimate is published at all.
+MIN_COMPS_FOR_YEAR_TERM = 7
+
 # ---------------------------------------------------------------------------
 # Interval (spec 5.1)
 # ---------------------------------------------------------------------------

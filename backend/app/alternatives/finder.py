@@ -125,13 +125,14 @@ def find_alternatives(
     but never gates the underlying comparison, so `target_is_best` stays truthful
     even when nothing is displayed.
     """
-    # Each vehicle is priced at ITS OWN mileage. Using the target's expected
-    # price as the denominator for every comp was the first implementation, and
-    # it silently reduced to ranking by sticker price -- a high-mileage car
-    # scored well purely for being cheap, which is precisely the naive
-    # comparison this module claims not to make.
+    # Each vehicle is priced at ITS OWN mileage (and year, when the published
+    # fit uses one). Using the target's expected price as the denominator for
+    # every comp was the first implementation, and it silently reduced to
+    # ranking by sticker price -- a high-mileage car scored well purely for
+    # being cheap, which is precisely the naive comparison this module claims
+    # not to make.
     target_residual = estimate.residual_against_own_expectation(
-        target.price_cents, target.mileage
+        target.price_cents, target.mileage, target.year
     )
 
     if not estimate.has_estimate or target_residual is None:
@@ -149,7 +150,7 @@ def find_alternatives(
     for decision in comps:
         candidate = decision.candidate
         residual = estimate.residual_against_own_expectation(
-            candidate.price_cents, candidate.mileage
+            candidate.price_cents, candidate.mileage, candidate.year
         )
         if residual is None:
             continue

@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Capture, Listing, ListingObservation
-from .comps import CompCandidate
+from .comps import CompCandidate, normalize_key
 
 
 @dataclass(frozen=True)
@@ -45,16 +45,57 @@ class StoredCapture:
     target_price_changed: bool | None = None
 
 
+#: Tesla's Marketplace listings carry `model="Model"` for every one of the 3, S,
+#: X and Y -- different vehicles, different platforms, different price tiers --
+#: with the distinguishing letter sitting at the front of `trim_text` instead
+#: (verified against every captured Tesla row: all 41 have model="Model"). Left
+#: alone, spec 4.3's comp filter matches on `model` and treats trim only as a
+#: soft signal that never excludes, so a Model S becomes a valid mileage-fit
+#: comp for a Model 3 -- confirmed on captured data as a $0-$34,399 expected
+#: range for a $14,000 Model 3.
+#:
+#: A DB query across every captured make found this exact "generic model word,
+#: real identifier stuck in trim" pattern nowhere else with the same severity --
+#: other wide-trim-spread cases (BMW 7 Series' 740i/750i/760i, Lexus RC's
+#: 200t/300/350) are genuine trim variance within a correctly matched model, not
+#: a mismatched `model` field, so they are left to the trim-preference fit
+#: (below) rather than folded in here. Scoped to the one confirmed case rather
+#: than a guessed-at general rule.
+_TESLA_MODEL_LETTERS = {"3", "S", "X", "Y"}
+
+
+def _resolve_tesla_model(
+    make: str | None, model: str | None, trim_text: str | None
+) -> tuple[str | None, str | None]:
+    """Comp-matching (model, trim_text), correcting Tesla's generic `model` field.
+
+    Moves the letter out of `trim_text` rather than duplicating it, so a
+    display that joins model and trim reads "Model 3 Long Range" and not
+    "Model 3 3 Long Range".
+    """
+    if not model or normalize_key(make) != "tesla" or normalize_key(model) != "model":
+        return model, trim_text
+    if not trim_text or not trim_text.strip():
+        return model, trim_text
+    tokens = trim_text.strip().split()
+    first_token = tokens[0].upper()
+    if first_token not in _TESLA_MODEL_LETTERS:
+        return model, trim_text
+    rest = " ".join(tokens[1:])
+    return f"Model {first_token}", (rest or None)
+
+
 def _to_candidate(obs: ListingObservation, listing: Listing) -> CompCandidate:
     raw = obs.raw_extract or {}
     title = raw.get("title") if isinstance(raw, dict) else None
+    model, trim_text = _resolve_tesla_model(obs.make, obs.model, obs.trim_text)
     return CompCandidate(
         listing_id=listing.id,
         source_listing_id=listing.source_listing_id,
         year=obs.year,
         make=obs.make,
-        model=obs.model,
-        trim_text=obs.trim_text,
+        model=model,
+        trim_text=trim_text,
         price_cents=obs.price_cents,
         mileage=obs.mileage,
         location_text=obs.location_text,

@@ -30,14 +30,20 @@ def comp(i: int, *, price: int, mileage: int | None, **kw) -> CompCandidate:
     return CompCandidate(**base)  # type: ignore[arg-type]
 
 
-def target(mileage: int | None = 120_000, price: int = 1_100_000) -> CompCandidate:
+def target(
+    mileage: int | None = 120_000,
+    price: int = 1_100_000,
+    *,
+    year: int | None = 2016,
+    trim_text: str | None = "Touring",
+) -> CompCandidate:
     return CompCandidate(
         listing_id=999,
         source_listing_id="target",
-        year=2016,
+        year=year,
         make="Mazda",
         model="CX-5",
-        trim_text="Touring",
+        trim_text=trim_text,
         price_cents=price,
         mileage=mileage,
         location_text="St Louis, MO",
@@ -256,3 +262,159 @@ class TestOutlierSensitivity:
         est = build(target(), clean_line(4))
         assert est.kind is EstimatorKind.COMP_MEDIAN
         assert est.outlier_sensitivity is None
+
+
+class TestTrimPreferredFit:
+    """Regression tests for a real finding: restricting to trim-matched comps
+    narrows the interval MOST of the time, but not always, because a smaller,
+    more similar set can still leave the target's mileage outside the range it
+    covers. On real captured data (a 2017 RAV4), doing this unconditionally
+    took a 20.9% interval to 44.4% by dropping every high-mileage comp that
+    happened to carry a different trim. See the module docstring on why every
+    candidate is compared on half-width rather than trim match being an
+    override.
+    """
+
+    def test_restricting_to_trim_wins_when_it_narrows_the_interval(self):
+        # The Touring line is clean; the Sport comps mixed into the same
+        # mileage range are noise. Restricting to Touring recovers the clean
+        # fit instead of averaging it with noise that shares no trim.
+        touring = clean_line()
+        sport_noise = [
+            comp(
+                100 + i,
+                price=c.price_cents + (500_000 if i % 2 else -500_000),
+                mileage=c.mileage,
+                trim_text="Sport",
+            )
+            for i, c in enumerate(touring)
+        ]
+        mixed = build(target(120_000), touring + sport_noise)
+        touring_only = build(target(120_000), touring)
+
+        assert mixed.restricted_to_trim_match
+        assert mixed.n_fit_points == len(touring)
+        # Restricting recovers (approximately) the clean line's own fit --
+        # not exactly, because the guard against reading the input precision
+        # too finely (MIN_INTERVAL_HALF_WIDTH_FRACTION) can floor both alike.
+        assert mixed.expected_asking_cents == pytest.approx(
+            touring_only.expected_asking_cents, rel=0.01
+        )
+
+    def test_restricting_to_trim_is_declined_when_it_would_widen_the_interval(self):
+        # Touring comps only cover up to ~168k miles. A target at 300k miles
+        # restricted to Touring alone would extrapolate hugely; mixing in
+        # higher-mileage Sport comps that bracket the target keeps leverage
+        # low even though they are a different trim. The wider, more diverse
+        # set is the more informative one here, and the model should say so
+        # by not restricting.
+        touring = clean_line()
+        high_mileage_sport = [
+            comp(
+                200 + i,
+                price=int(1_800_000 - 2 * (250_000 + i * 15_000)),
+                mileage=250_000 + i * 15_000,
+                trim_text="Sport",
+            )
+            for i in range(6)
+        ]
+        est = build(target(300_000), touring + high_mileage_sport)
+
+        assert not est.restricted_to_trim_match
+        assert est.n_fit_points == len(touring) + len(high_mileage_sport)
+
+    def test_a_uniform_trim_comp_set_is_unaffected_by_the_choice(self):
+        # Every fixture elsewhere in this file uses a uniform trim, so the
+        # trim-matched subset and the full set are identical -- the two
+        # candidates tie on half-width, and the baseline wins the tie. Either
+        # answer would be defensible when restricting changes nothing; what
+        # matters is the published estimate is exactly the clean line's own
+        # fit either way, not which flag a tie happens to set.
+        est = build(target(120_000), clean_line())
+        assert est.expected_asking_cents == pytest.approx(2_000_000 - 8 * 120_000, rel=0.01)
+
+
+class TestYearTermFit:
+    """Model year as a second regressor. Optional: tried alongside the
+    mileage-only baseline and kept only when it narrows the interval (see the
+    module docstring)."""
+
+    def _year_varying_rows(self, n: int) -> list[tuple[int, int, int]]:
+        """(mileage, year, price) with price = f(mileage, year) exactly, and
+        mileage varying independently of year so neither absorbs the other."""
+        rows = []
+        for i in range(n):
+            year = 2013 + (i % 6)
+            mileage = 50_000 + ((i * 37) % 9) * 15_000
+            price = int(2_000_000 - 5 * mileage + 60_000 * (year - 2016))
+            rows.append((mileage, year, price))
+        return rows
+
+    def _comps(self, rows: list[tuple[int, int, int]]) -> list[CompCandidate]:
+        return [
+            comp(i, price=price, mileage=mileage, year=year)
+            for i, (mileage, year, price) in enumerate(rows)
+        ]
+
+    def test_a_year_term_is_used_when_it_narrows_the_interval(self):
+        rows = self._year_varying_rows(12)
+        est = estimate_expected_asking_price(
+            filter_comps(target(120_000, year=2016), self._comps(rows), year_window=10)
+        )
+        assert est.uses_year_term
+        assert est.slope_cents_per_year == pytest.approx(60_000.0, abs=1.0)
+        # Mileage alone leaves real, independent year-driven variance
+        # unexplained; adding year should recover a much tighter fit.
+        assert est.r_squared > 0.99
+
+    def test_a_year_term_is_skipped_below_the_comp_floor(self):
+        # Same underlying relationship as the test above, but at exactly
+        # MIN_COMPS_FOR_SLOPE -- one below MIN_COMPS_FOR_YEAR_TERM. The extra
+        # parameter is not attempted even though it would help, because there
+        # is not enough data to trust it.
+        assert params.MIN_COMPS_FOR_YEAR_TERM > params.MIN_COMPS_FOR_SLOPE
+        rows = self._year_varying_rows(params.MIN_COMPS_FOR_SLOPE)
+        est = estimate_expected_asking_price(
+            filter_comps(target(120_000, year=2016), self._comps(rows), year_window=10)
+        )
+        assert not est.uses_year_term
+        assert est.kind is EstimatorKind.MILEAGE_REGRESSION
+
+    def test_a_year_term_is_skipped_when_year_does_not_vary(self):
+        # Every comp shares the target's model year here (clean_line's
+        # default), so year carries no information to add -- confirmed
+        # directly rather than only inferred from the many other tests in
+        # this file that happen not to trigger it.
+        est = build(target(120_000), clean_line())
+        assert not est.uses_year_term
+
+    def test_predicting_at_a_different_year_uses_the_year_slope(self):
+        rows = self._year_varying_rows(12)
+        est = estimate_expected_asking_price(
+            filter_comps(target(120_000, year=2016), self._comps(rows), year_window=10)
+        )
+        assert est.uses_year_term
+        newer = est.predict_asking_cents(120_000, 2018)
+        older = est.predict_asking_cents(120_000, 2014)
+        # Constructed with a positive year slope (newer costs more).
+        assert newer > older
+
+    def test_predicting_without_a_year_fails_closed_when_the_fit_needs_one(self):
+        rows = self._year_varying_rows(12)
+        est = estimate_expected_asking_price(
+            filter_comps(target(120_000, year=2016), self._comps(rows), year_window=10)
+        )
+        assert est.uses_year_term
+        # Silently reusing the mileage-only line would drop a term the
+        # published fit relies on -- refusing is the honest response.
+        assert est.predict_asking_cents(120_000, None) is None
+
+    def test_residual_against_own_expectation_accepts_a_year(self):
+        rows = self._year_varying_rows(12)
+        est = estimate_expected_asking_price(
+            filter_comps(target(120_000, year=2016), self._comps(rows), year_window=10)
+        )
+        own_price = est.predict_asking_cents(150_000, 2015)
+        assert est.residual_against_own_expectation(own_price, 150_000, 2015) == pytest.approx(
+            0.0, abs=0.01
+        )

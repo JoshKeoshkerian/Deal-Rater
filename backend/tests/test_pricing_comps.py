@@ -418,3 +418,59 @@ class TestProgressiveYearWidening:
         comps = self._spread(2016, 3, [0, 1, -1])
         result = assess_listing(TARGET, comps, year_window=4)
         assert result.comp_set.year_window >= 4
+
+
+class TestPreferredFitPoints:
+    """`CompSet.preferred_fit_points` -- spec 4.3's comp-similarity principle
+    applied to which points a fit uses, not just which comps are kept."""
+
+    def _comp_set(self, matching: int, differing: int, unknown: int = 0):
+        # Mileage spread by 20k (crosses the 10k dedup bucket every time) and
+        # price varied per comp, so none of these collide as the same vehicle.
+        comps = [
+            comp(
+                source_listing_id=f"m{i}",
+                trim_text="Touring",
+                mileage=40_000 + i * 20_000,
+                price_cents=1_100_000 - i * 3_000,
+            )
+            for i in range(matching)
+        ] + [
+            comp(
+                source_listing_id=f"d{i}",
+                trim_text="Sport",
+                mileage=41_000 + i * 20_000,
+                price_cents=1_150_000 - i * 3_000,
+            )
+            for i in range(differing)
+        ] + [
+            comp(
+                source_listing_id=f"u{i}",
+                trim_text=None,
+                mileage=42_000 + i * 20_000,
+                price_cents=1_050_000 - i * 3_000,
+            )
+            for i in range(unknown)
+        ]
+        return filter_comps(TARGET, comps)
+
+    def test_restricts_when_enough_trim_matched_comps_exist(self):
+        cs = self._comp_set(matching=6, differing=4)
+        points, restricted = cs.preferred_fit_points(min_points=6)
+        assert restricted
+        assert len(points) == 6
+        assert all(d.trim_matches is True for d in points)
+
+    def test_falls_back_to_the_full_set_when_trim_matched_comps_are_too_few(self):
+        cs = self._comp_set(matching=3, differing=7)
+        points, restricted = cs.preferred_fit_points(min_points=6)
+        assert not restricted
+        assert points == cs.fit_points
+
+    def test_trim_unknown_comps_are_never_in_the_restricted_subset(self):
+        # Unknown is not a match: spec 4.3 costs confidence on an unclear trim
+        # rather than assuming it agrees.
+        cs = self._comp_set(matching=6, differing=0, unknown=4)
+        points, restricted = cs.preferred_fit_points(min_points=6)
+        assert restricted
+        assert len(points) == 6
