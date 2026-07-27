@@ -81,17 +81,23 @@
     <h2>Nearby markets</h2>
 
     <label for="extraMetroIds">Extra Marketplace location ids, one per line</label>
-    <textarea id="extraMetroIds" rows="4" placeholder="108013345886344&#10;108467719177678"></textarea>
+    <textarea id="extraMetroIds" rows="4" placeholder="tulsa&#10;108013345886344"></textarea>
 
     <p class="muted">
-      Facebook's search radius is fixed at 40 miles and cannot be changed per search,
-      so the only way to widen the comparison is to search neighbouring metros
-      separately. Each line here adds one more search per capture.
+      Leave this empty and nearby markets are chosen automatically, based on where the
+      listing is and which metros have comparable used-car markets — similar road-salt
+      exposure and price level, not just proximity. Searching stops as soon as there are
+      enough comparable listings, so a common car costs one or two searches.
     </p>
     <p class="muted">
-      To find an id: open Marketplace, switch the location to that city, and copy the
-      number out of the address bar —
-      <code>facebook.com/marketplace/<strong>108013345886344</strong>/search?…</code>
+      Fill it in only to override that choice with specific cities.
+    </p>
+    <p class="muted">
+      To find one: open Marketplace, switch the location to that city, and copy whatever
+      sits after <code>/marketplace/</code> in the address bar. Most cities use a name —
+      <code>facebook.com/marketplace/<strong>tulsa</strong>/search?…</code> — and some use
+      a 15-digit number. Both work. Anything else is silently ignored, because Facebook
+      answers an unrecognised location by returning your own metro again.
     </p>
 
     <button id="save" type="button">Save</button>

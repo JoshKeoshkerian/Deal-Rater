@@ -51,6 +51,16 @@ else:
         Path.cwd(),
     )
 
+# Spec 6.6's one LLM call is the only per-call cost in the product, so its
+# on/off state at startup is worth a single unambiguous line rather than
+# requiring a code read or a triggered evaluation to discover.
+if not settings.known_issues_enabled:
+    logger.info("Known-issues LLM call (spec 6.6): DISABLED (DEAL_RATER_KNOWN_ISSUES_ENABLED=false)")
+elif not settings.anthropic_api_key:
+    logger.info("Known-issues LLM call (spec 6.6): DISABLED (no Anthropic API key configured)")
+else:
+    logger.info("Known-issues LLM call (spec 6.6): ENABLED (model=%s)", settings.known_issues_model)
+
 app.include_router(health.router)
 app.include_router(captures.router)
 app.include_router(telemetry.router)

@@ -16,6 +16,7 @@ from ..schemas import (
     AlternativesOut,
     DealScoreOut,
     EvaluationOut,
+    KnownIssuesOut,
     NegotiationOut,
     PricingOut,
     ScoreComponentOut,
@@ -41,6 +42,24 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
     if pricing.anchors:
         base = pricing.anchors["strong_offer_cents"]
         suggested_offer = int(base * (1.0 - negotiation.extra_discount))
+
+    # Spec 6.6. Absent far more often than present -- no key, spec 10's gate, or
+    # a failed call -- so both halves are always emitted and exactly one of them
+    # is populated.
+    known = evaluation.known_issues
+    known_issues: KnownIssuesOut | None = None
+    if known.report is not None:
+        known_issues = KnownIssuesOut(
+            summary=known.report.summary,
+            failure_modes=list(known.report.failure_modes),
+            inspect=list(known.report.inspect),
+            ask=list(known.report.ask),
+            ownership_notes=list(known.report.ownership_notes),
+            model=known.llm_model,
+            mileage_band=known.mileage_band,
+            generated_at=known.generated_at,
+            cached=known.cache_hit,
+        )
 
     seller_risk: SellerRiskOut | None = None
     if evaluation.has_seller_section:
@@ -140,7 +159,7 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             ],
             withheld_as_implausible=evaluation.alternatives.withheld_as_implausible,
         ),
-        known_issues=evaluation.known_issues,
-        known_issues_unavailable_reason=evaluation.known_issues_unavailable_reason,
+        known_issues=known_issues,
+        known_issues_unavailable_reason=known.unavailable_reason,
         notices=list(evaluation.notices),
     )

@@ -15,7 +15,14 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from ..alternatives import find_alternatives
-from ..flags import assess_completeness, assess_scam_patterns, read_title_status
+from ..config import Settings, get_settings
+from ..flags import (
+    TitleReading,
+    assess_completeness,
+    assess_scam_patterns,
+    read_title_status,
+)
+from ..known_issues import KnownIssuesReading, evaluate_gate, fetch_known_issues
 from ..negotiation import assess_negotiation
 from ..nhtsa import assess_vehicle
 from ..pricing import assess_listing
@@ -43,20 +50,65 @@ __all__ = [
 ]
 
 
+def _known_issues(
+    session: Session,
+    capture: StoredCapture,
+    settings: Settings,
+    *,
+    title: TitleReading,
+    pricing_band: str | None,
+    offline: bool,
+) -> KnownIssuesReading:
+    """Spec 6.6's section, behind spec 10's gate.
+
+    The gate runs FIRST and unconditionally, before the cache is even consulted.
+    A salvage-title listing should report the salvage title whether or not the
+    answer for that vehicle happens to be sitting in the cache already -- spec
+    10's checks are about relevance as much as cost.
+    """
+    decision = evaluate_gate(
+        title=title,
+        description=capture.target_description,
+        pricing_band=pricing_band,
+        year=capture.target.year,
+        make=capture.target.make,
+        model=capture.target.model,
+    )
+    if not decision.allowed:
+        return KnownIssuesReading(
+            unavailable_reason=decision.reason,
+            skip_code=decision.code,
+        )
+
+    # The gate guarantees these three are present.
+    return fetch_known_issues(
+        session,
+        settings,
+        year=capture.target.year,
+        make=capture.target.make,
+        model=capture.target.model,
+        trim=capture.target.trim_text,
+        mileage=capture.target.mileage,
+        offline=offline,
+    )
+
+
 def evaluate_capture(
     session: Session,
     capture: StoredCapture,
     *,
     offline: bool = False,
+    settings: Settings | None = None,
 ) -> Evaluation:
     """Run every dimension over one stored capture.
 
     Order matters in one place only: pricing runs first, because the negotiation
-    interaction (spec 6.4), the scam discount signal (spec 6.3) and the
-    alternatives ranking (spec 6.5) all take the price residual as an input.
-    Nothing flows the other way -- no risk or negotiation finding is allowed to
-    move a price (spec 2).
+    interaction (spec 6.4), the scam discount signal (spec 6.3), the alternatives
+    ranking (spec 6.5) and spec 10's cost gate all take the price residual or its
+    band as an input. Nothing flows the other way -- no risk, negotiation or
+    known-issues finding is allowed to move a price (spec 2).
     """
+    settings = settings or get_settings()
     pricing = assess_listing(
         capture.target, capture.candidates, location_scoped=capture.location_scoped
     )
@@ -108,6 +160,18 @@ def evaluate_capture(
         scam=scam,
     )
 
+    # Last, and deliberately outside `compute_deal_score`: spec 6.6 is
+    # qualitative context, not a scored dimension (spec 5.2 lists four weights
+    # and this is none of them).
+    known_issues = _known_issues(
+        session,
+        capture,
+        settings,
+        title=title,
+        pricing_band=pricing.rating.band if pricing.rating else None,
+        offline=offline,
+    )
+
     return build_evaluation(
         pricing=pricing,
         negotiation=negotiation,
@@ -117,4 +181,5 @@ def evaluate_capture(
         scam=scam,
         alternatives=alternatives,
         deal_score=deal_score,
+        known_issues=known_issues,
     )

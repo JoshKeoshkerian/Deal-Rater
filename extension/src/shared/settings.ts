@@ -31,18 +31,10 @@ export const DEFAULT_SETTINGS: Settings = {
   enabled: true,
   devMode: false,
   disclosureAcceptedAt: null,
-  // Seeded with the launch markets spec 0 names -- "across Tulsa and St. Louis"
-  // -- rather than an arbitrary pick. The listing's OWN metro is always searched
-  // regardless, and is skipped here if it appears in this list, so a Tulsa
-  // listing does not search Tulsa twice.
-  //
-  // Editable in the options page. Anyone outside these markets should replace
-  // them: a St. Louis buyer gains nothing from Tulsa comps if they are shopping
-  // in Ohio.
-  extraMetroIds: [
-    "1008717732027946", // Tulsa, OK
-    "108013345886344", // St. Louis, MO
-  ],
+  // Empty by default: peers are now chosen automatically from the listing's own
+  // metro (see comps/metros.ts), which adapts to wherever the user is shopping
+  // rather than assuming St. Louis. Anything set here OVERRIDES that choice.
+  extraMetroIds: [],
 };
 
 export async function loadSettings(): Promise<Settings> {

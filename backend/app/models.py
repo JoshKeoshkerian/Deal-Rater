@@ -336,6 +336,96 @@ class VehicleSafetyLookup(Base):
     )
 
 
+class KnownIssuesEntry(Base):
+    """Cached ownership-cost context for one VEHICLE, not one listing (spec 6.6, 10).
+
+    Spec 10: "Cache known-issues text by YEAR/MAKE/MODEL/TRIM/MILEAGE-BAND, not
+    per listing. Every 2013 Focus at 90k miles gets the same answer, so most
+    calls collapse into cache hits almost immediately."
+
+    That is the whole cost model. The per-evaluation price of this feature is
+    not the price of a completion; it is the price of a completion divided by
+    how many listings share a row, and that ratio improves for as long as the
+    product runs. Keying by listing id would have made it a per-evaluation cost
+    forever.
+
+    KEY SHAPE
+    ---------
+    The unique key includes `llm_model` and `prompt_version` alongside the
+    vehicle. Changing either produces different text, so both belong to identity
+    rather than to the payload -- a prompt revision invalidates the cache by
+    missing it, with no purge step and no migration, and the superseded rows
+    stay readable for cost comparison between versions.
+
+    `trim` is an EMPTY STRING when unknown, never NULL, because NULLs do not
+    compare equal in a unique constraint and every no-trim listing would
+    otherwise write its own row on every evaluation.
+
+    COST INSTRUMENTATION (spec 10)
+    ------------------------------
+    "Instrument cost per evaluation from day one. This number determines whether
+    the product can be free, freemium, or paid."
+
+    `cost_microdollars` is what the generating call cost; `served_count` is how
+    many evaluations that one call has answered. Cost per evaluation across the
+    corpus is SUM(cost_microdollars) / SUM(served_count) -- both halves have to
+    be stored, because a cache hit is free and counting only calls would flatter
+    the number badly. `python -m app.cli.cost` reports it.
+    """
+
+    __tablename__ = "known_issues_entries"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+
+    # --- cache key ----------------------------------------------------------
+    model_year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    make: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    #: "" when the listing states no trim. See the class docstring.
+    trim: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    #: e.g. "75-100k", "200k+", "unknown". See known_issues/params.py.
+    mileage_band: Mapped[str] = mapped_column(String(16), nullable=False)
+    llm_model: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_version: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+    generated_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    # --- payload (spec 6.6: qualitative only, never a dollar figure) --------
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    failure_modes: Mapped[list] = mapped_column(JsonCol, nullable=False, default=list)
+    inspect: Mapped[list] = mapped_column(JsonCol, nullable=False, default=list)
+    ask: Mapped[list] = mapped_column(JsonCol, nullable=False, default=list)
+    ownership_notes: Mapped[list] = mapped_column(JsonCol, nullable=False, default=list)
+
+    #: How many bullets `known_issues/guard.py` removed for naming a money
+    #: figure. Non-zero means the model ignored an explicit instruction, which
+    #: is worth knowing about before it happens in a field the guard cannot
+    #: drop without discarding the whole answer.
+    currency_items_dropped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # --- cost (spec 10) -----------------------------------------------------
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    cost_microdollars: Mapped[int | None] = mapped_column(Integer)
+
+    #: Evaluations answered by this row, including the one that generated it.
+    served_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_served_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "model_year",
+            "make",
+            "model",
+            "trim",
+            "mileage_band",
+            "llm_model",
+            "prompt_version",
+            name="uq_known_issues_vehicle_key",
+        ),
+    )
+
+
 class ExtractionReport(Base):
     """Scraper self-check output (spec 4.6).
 

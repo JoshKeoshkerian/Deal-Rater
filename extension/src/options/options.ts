@@ -25,12 +25,14 @@ async function init(): Promise<void> {
       apiBaseUrl: apiBaseUrl.value.trim().replace(/\/$/, ""),
       enabled: enabled.checked,
       devMode: devMode.checked,
-      // Kept to plausible place ids only: a stray line would build a URL that
-      // 404s into an empty comp set, which looks identical to a dead market.
+      // Kept to forms Marketplace actually accepts: a 15-digit place id or a
+      // vanity slug. A 16-digit number is neither, and Facebook answers an
+      // unrecognised location by silently returning the account's own metro --
+      // which looks exactly like a market with nothing in it.
       extraMetroIds: extraMetroIds.value
         .split(/[\s,]+/)
-        .map((id) => id.trim())
-        .filter((id) => /^[A-Za-z0-9.-]{3,64}$/.test(id)),
+        .map((id) => id.trim().toLowerCase())
+        .filter((id) => /^(?:[0-9]{15}|[a-z][a-z0-9-]{2,40})$/.test(id)),
       disclosureAcceptedAt: settings.disclosureAcceptedAt ?? new Date().toISOString(),
     });
     saved.hidden = false;

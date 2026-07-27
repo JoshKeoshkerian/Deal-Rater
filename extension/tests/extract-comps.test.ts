@@ -342,11 +342,42 @@ describe("buildMetroSearch", () => {
 });
 
 describe("default nearby markets", () => {
-  it("seeds the launch markets spec 0 names", () => {
-    // Spec 0's premise test is run "across Tulsa and St. Louis", so these are
-    // the markets the project is scoped to rather than an arbitrary pick.
-    expect(DEFAULT_SETTINGS.extraMetroIds).toContain("1008717732027946"); // Tulsa
-    expect(DEFAULT_SETTINGS.extraMetroIds).toContain("108013345886344"); // St. Louis
+  it("ships empty so peers are chosen from the listing's own metro", () => {
+    // A seeded St. Louis/Tulsa pair would follow a user shopping in Ohio.
+    // Anything set here overrides the automatic choice rather than adding to it.
+    expect(DEFAULT_SETTINGS.extraMetroIds).toEqual([]);
+  });
+
+  it("accepts both forms Marketplace uses", () => {
+    // Confirmed from captured data: a "chicago" search returned Alsip,
+    // Naperville, Gurnee and Hammond; "108013345886344" returns St. Louis.
+    const t = {
+      source: "facebook_marketplace",
+      source_listing_id: "1",
+      role: "target",
+      year: 2016,
+      make: "Honda",
+      model: "Accord",
+    } as ObservationPayload;
+    expect(buildMetroSearch(t, "tulsa")?.url).toContain("/marketplace/tulsa/search/");
+    expect(buildMetroSearch(t, "108013345886344")?.url).toContain(
+      "/marketplace/108013345886344/search/",
+    );
+  });
+
+  it("rejects a 16-digit number, which is not a Marketplace location", () => {
+    // This cost a whole capture: Facebook answers an unrecognised location by
+    // silently returning the account's own metro, which is indistinguishable
+    // from a market with nothing in it.
+    const t = {
+      source: "facebook_marketplace",
+      source_listing_id: "1",
+      role: "target",
+      year: 2016,
+      make: "Honda",
+      model: "Accord",
+    } as ObservationPayload;
+    expect(buildMetroSearch(t, "1008717732027946")).toBeNull();
   });
 
   it("seeds only ids that will build a valid search", () => {

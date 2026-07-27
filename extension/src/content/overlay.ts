@@ -313,11 +313,42 @@ export function renderEvaluation(data: EvaluationResponse): void {
   }
   sheet.append(section("Better alternatives", altBody)!);
 
-  sheet.append(
-    section("What to check on this car", [
-      el("p", "muted", data.known_issues ?? data.known_issues_unavailable_reason),
-    ])!,
-  );
+  // Spec 7 item 7 / spec 6.6. Absent more often than present -- no API key,
+  // spec 10's cost gate, or a failed call -- so the reason is rendered in its
+  // place rather than an empty heading, and it explains itself.
+  const known = data.known_issues;
+  const knownBody: Node[] = [];
+  if (known) {
+    knownBody.push(el("p", undefined, known.summary));
+    // Any of these may legitimately be empty: plenty of cars have no
+    // documented widespread problem in a mileage range, and `list` returns
+    // null rather than an empty heading.
+    const groups: Array<[string, string[]]> = [
+      ["Known to go wrong", known.failure_modes],
+      ["Check on the viewing", known.inspect],
+      ["Ask the seller", known.ask],
+      ["Living with it", known.ownership_notes],
+    ];
+    for (const [label, items] of groups) {
+      const ul = list(items);
+      if (!ul) continue;
+      knownBody.push(el("p", "muted", label), ul);
+    }
+    if (
+      !known.failure_modes.length &&
+      !known.inspect.length &&
+      !known.ask.length &&
+      !known.ownership_notes.length
+    ) {
+      knownBody.push(
+        el("p", "muted", "No widespread model-specific problems documented for this mileage."),
+      );
+    }
+  } else if (data.known_issues_unavailable_reason) {
+    knownBody.push(el("p", "muted", data.known_issues_unavailable_reason));
+  }
+  const knownSection = section("What to check on this car", knownBody);
+  if (knownSection) sheet.append(knownSection);
 
   // Spec 7's liability framing, in the UI rather than only the terms.
   const notices = el("div", "notices");

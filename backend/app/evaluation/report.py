@@ -10,10 +10,14 @@ Spec 7:
     6. Better alternatives
     7. What to check on this specific car
 
-Item 7 is not built. It is spec 6.6's cached LLM call, which needs an API key and
-costs money per evaluation (spec 3's billing note). Spec 13 lists it under 6.6
-rather than step 8, and `known_issues` stays None with a reason attached so its
-absence is visible rather than silently missing.
+Item 7 is spec 6.6's cached LLM call -- the only non-deterministic part of this
+payload. It carries its own unavailable reason (see `app/known_issues`) because
+there are several ways for it to be absent (no API key, spec 10's cost gate, a
+failed call) and a renderer should not have to guess which.
+
+IT DOES NOT FEED THE SCORE. Spec 5.2's weights cover four dimensions and this is
+not one of them. Qualitative text that cannot be calibrated against spec 9's
+ground truth set must not be able to move a number that spec 9 has to calibrate.
 
 Item 4's "only when there is something to say" is honoured literally: the seller
 section is None when nothing fired, rather than an empty heading.
@@ -32,6 +36,8 @@ from dataclasses import dataclass, field
 
 from ..alternatives import AlternativesResult
 from ..flags import CompletenessReading, ScamAssessment, TitleReading
+from ..known_issues import KnownIssuesReading
+from ..known_issues.client import NOT_REQUESTED_REASON
 from ..negotiation import NegotiationAssessment
 from ..nhtsa import VehicleRiskAssessment
 from ..pricing import PricingAssessment
@@ -73,12 +79,9 @@ class Evaluation:
     negotiation: NegotiationAssessment
     alternatives: AlternativesResult
 
-    # 7. Spec 6.6, deliberately not built at this step.
-    known_issues: str | None = None
-    known_issues_unavailable_reason: str = (
-        "Model-specific known issues come from spec 6.6's cached LLM call, which "
-        "is not wired up: it needs a Claude API key and costs money per "
-        "evaluation (spec 3)."
+    # 7. Spec 6.6's cached, qualitative-only ownership context.
+    known_issues: KnownIssuesReading = field(
+        default_factory=lambda: KnownIssuesReading(unavailable_reason=NOT_REQUESTED_REASON)
     )
 
     notices: tuple[str, ...] = field(
@@ -127,6 +130,7 @@ def build_evaluation(
     scam: ScamAssessment,
     alternatives: AlternativesResult,
     deal_score: DealScore,
+    known_issues: KnownIssuesReading | None = None,
 ) -> Evaluation:
     """Assemble the finished evaluation. Pure composition; nothing is computed
     here that the dimension modules did not already decide."""
@@ -139,4 +143,5 @@ def build_evaluation(
         scam=scam,
         negotiation=negotiation,
         alternatives=alternatives,
+        known_issues=known_issues or KnownIssuesReading(),
     )

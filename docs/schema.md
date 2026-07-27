@@ -145,6 +145,42 @@ an in-place update is correct. A second labeller can disagree with the first on
 the same row, which is what keeps inter-rater disagreement separable from model
 error.
 
+## `known_issues_entries`
+
+Spec 6.6's cached LLM answer, and the whole of its cost model.
+
+The row is keyed by **vehicle, not listing** — `(model_year, make, model, trim,
+mileage_band, llm_model, prompt_version)` — which is spec 10's instruction
+verbatim: "cache known-issues text by year/make/model/trim/mileage-band, not per
+listing. Every 2013 Focus at 90k miles gets the same answer." The per-evaluation
+price of the feature is therefore the price of one completion *divided by how
+many listings share the row*, and that ratio improves for as long as the product
+runs. Keying by listing id would have made it a per-evaluation cost forever.
+
+`llm_model` and `prompt_version` are part of the key rather than the payload
+because changing either produces different text. A prompt revision then
+invalidates the cache by *missing* it — no purge step, no migration — and the
+superseded rows stay readable for cost comparison between versions.
+
+`trim` is `NOT NULL` with an empty-string sentinel. NULLs do not compare equal
+in a unique constraint, so a nullable column would let every no-trim listing
+insert its own duplicate row on every evaluation.
+
+**Cost instrumentation (spec 10).** `cost_microdollars` is what the generating
+call cost; `served_count` is how many evaluations that one call has answered.
+Cost per evaluation is `SUM(cost_microdollars) / SUM(served_count)` — both halves
+have to be stored, because a cache hit is free and dividing by *calls* would
+flatter the number by exactly the cache-hit rate, which is the bet spec 10 is
+making. `python -m app.cli.cost` reports both.
+
+`currency_items_dropped` counts bullets removed by `app/known_issues/guard.py`
+for stating a money figure against spec 6.6's explicit prohibition. Non-zero
+means the prompt is not holding on its own; the guard still is.
+
+This table holds **no listing- or seller-derived data** — it describes a vehicle
+model, not a car for sale — so it is deliberately outside the retention sweep
+below.
+
 ## Retention
 
 `app/retention.py` deletes observations past the window, then identity rows with

@@ -7,6 +7,9 @@
  */
 
 import { buildCompSearch, buildMetroSearch } from "../comps/build-query";
+import { nearestMetro, peersFor, verifyMetroResults } from "../comps/metros";
+import { countUsable, pendingPeers, shouldWiden } from "../comps/widen";
+import { loadBadMetroSlugs, rememberBadMetroSlug } from "../shared/metro-health";
 import { fetchDocument, runCompSearch } from "../comps/fetch-search";
 import { extractTargetListing } from "../extract/listing";
 import { collapseIssues } from "../extract/self-check";
@@ -136,6 +139,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
 
   const settings = await loadSettings();
   const metrosSearched: string[] = [];
+  const metrosFailed: string[] = [];
   const search = buildCompSearch(target.observation, target.locationId);
   let comps: CapturePayload["comps"] = [];
   let compSource = "none";
@@ -168,39 +172,77 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     }
 
     compSource = result.source;
-    let observations = result.observations;
     issues.push(...result.issues);
 
-    // Facebook's 40-mile radius is not settable per request, so a wider market
-    // is only reachable as SEPARATE searches centred on other metros. Each one
-    // costs a request, which is why the list is opt-in and short rather than a
-    // radius slider.
+    // Deduplicated AS WE GO, not afterwards.
     //
-    // Still one user-initiated action (spec 8.1): these fire on the same click,
-    // and nothing here schedules, repeats or broadens a search on its own.
-    for (const metroId of settings.extraMetroIds) {
-      // The listing's own metro is always searched above. Repeating it here
-      // would spend a request to fetch the same fifteen results again.
-      if (metroId === target.locationId) continue;
-      const metroSearch = buildMetroSearch(target.observation, metroId);
+    // Neighbouring metros overlap -- a St. Louis search and a Springfield search
+    // return many of the same cars -- so counting raw results treats the same
+    // listing as progress several times over. Widening then stops early
+    // believing it has enough: two captures reported 32 raw comps and only 27
+    // unique ones, having quit two peers in with six still available.
+    const seenIds = new Set<string>([target.observation.source_listing_id]);
+    let observations: ObservationPayload[] = [];
+    const absorb = (batch: ObservationPayload[]): void => {
+      for (const comp of batch) {
+        if (seenIds.has(comp.source_listing_id)) continue;
+        seenIds.add(comp.source_listing_id);
+        observations.push(comp);
+      }
+    };
+    absorb(result.observations);
+
+    // Facebook's 40-mile radius is not settable per request, so a wider market
+    // is only reachable as SEPARATE searches centred on other metros. Peers are
+    // chosen by market similarity, not just distance -- see comps/metros.ts.
+    //
+    // Widening is TIERED: it stops as soon as there are enough usable comps, so
+    // a common car costs one or two searches and only a scarce one walks the
+    // whole peer list. Every peer is another request on a single user click,
+    // and spec 8.1 makes that budget a binding constraint rather than a
+    // preference.
+    const home = nearestMetro(target.observation.latitude, target.observation.longitude);
+    const badSlugs = await loadBadMetroSlugs();
+    const manual = settings.extraMetroIds;
+    const autoPeers = home ? pendingPeers(peersFor(home), badSlugs) : [];
+
+    // A manual list is an override, not an addition: someone who typed metros
+    // in wants those and not a guess layered on top.
+    const queue = manual.length > 0 ? manual : autoPeers.map((m) => m.slug);
+
+    let remaining = queue.length;
+    for (const slug of queue) {
+      if (!shouldWiden(target.observation, observations, remaining--)) break;
+      // The listing's own metro is always searched above.
+      if (slug === target.locationId) continue;
+
+      const metroSearch = buildMetroSearch(target.observation, slug);
       if (!metroSearch) continue;
-      onStatus(`Searching nearby markets\u2026`);
+
+      onStatus("Searching nearby markets…");
       const extra = await runCompSearch(metroSearch.url, capturedAt);
-      observations = [...observations, ...extra.observations];
-      metrosSearched.push(metroId);
+
+      // An unresolvable slug silently returns the account's own metro rather
+      // than erroring, which is indistinguishable from an empty market. Check
+      // that the results actually came from where they were asked for.
+      const metro = autoPeers.find((m) => m.slug === slug);
+      if (metro) {
+        const places = extra.observations.map((o) => o.location_text ?? "");
+        if (!verifyMetroResults(metro, places)) {
+          await rememberBadMetroSlug(slug);
+          metrosFailed.push(slug);
+          continue;
+        }
+      }
+
+      absorb(extra.observations);
+      metrosSearched.push(slug);
     }
 
-    // A search page routinely includes the listing being evaluated. Keeping it
-    // would make the target its own comp in step 3. Duplicates ACROSS metros
-    // are left to the backend, whose comp filter already dedupes on content --
-    // overlapping metro searches legitimately return the same car twice.
-    const seenIds = new Set<string>();
-    comps = observations.filter((comp) => {
-      if (comp.source_listing_id === target.observation.source_listing_id) return false;
-      if (seenIds.has(comp.source_listing_id)) return false;
-      seenIds.add(comp.source_listing_id);
-      return true;
-    });
+    // Already deduplicated by `absorb`, and the target's own listing was seeded
+    // into `seenIds` so a search page returning it cannot make the target its
+    // own comp in step 3.
+    comps = observations;
 
     if (result.source === "none") {
       issues.push({
@@ -232,6 +274,11 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
           // Which metros were searched, so a comp set spanning several markets
           // is visible in the data rather than inferred from city names.
           extra_metros_searched: metrosSearched,
+          // Slugs that returned another market's listings, so an inferred slug
+          // that does not resolve is visible rather than looking like a thin
+          // market.
+          extra_metros_unresolved: metrosFailed,
+          usable_comp_estimate: countUsable(target.observation, comps),
         }
       : null,
   });

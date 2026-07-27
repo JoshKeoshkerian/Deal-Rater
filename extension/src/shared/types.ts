@@ -178,7 +178,24 @@ export interface EvaluationResponse {
     }>;
     withheld_as_implausible: number;
   };
-  known_issues: string | null;
-  known_issues_unavailable_reason: string;
+  /**
+   * Spec 6.6. Null whenever the section cannot be shown -- no API key, spec
+   * 10's cost gate, or a failed call -- and the reason then says which.
+   *
+   * QUALITATIVE ONLY: spec 6.6 forbids dollar estimates, and the backend
+   * strips any that slip through, so no field here carries a figure.
+   */
+  known_issues: {
+    summary: string;
+    failure_modes: string[];
+    inspect: string[];
+    ask: string[];
+    ownership_notes: string[];
+    model: string | null;
+    mileage_band: string | null;
+    generated_at: string | null;
+    cached: boolean;
+  } | null;
+  known_issues_unavailable_reason: string | null;
   notices: string[];
 }

@@ -131,6 +131,18 @@ running it is your call:
 .venv/bin/python -m app.retention
 ```
 
+## Known-issues LLM call (spec §6.6)
+
+The only per-call API cost in the product: a cached Claude call for qualitative
+"what to check on this specific car" text. Toggle it with
+`DEAL_RATER_KNOWN_ISSUES_ENABLED` in `.env` (defaults to `true`). When it's
+`false`, or when `DEAL_RATER_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` is unset,
+zero Anthropic API calls are made — the check happens before the SDK is even
+imported — and the rest of the evaluation is unaffected; the section just
+explains its own absence. The backend logs the effective state
+(`ENABLED`/`DISABLED`, and why) once at startup. See
+`backend/app/known_issues/` and spec §10 for the cost gate and cache behind it.
+
 ## Before shipping
 
 Read the current Chrome Web Store developer program policies before the manifest

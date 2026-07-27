@@ -296,6 +296,34 @@ class AlternativesOut(BaseModel):
     withheld_as_implausible: int
 
 
+class KnownIssuesOut(BaseModel):
+    """Spec 6.6/7.7: "what to check on this specific car".
+
+    QUALITATIVE ONLY. Spec 6.6: "Do not attach dollar estimates." No field here
+    may contain a figure, and `app/known_issues/guard.py` enforces that in code
+    rather than trusting the prompt.
+
+    Every list may legitimately be empty: plenty of vehicles have no documented
+    widespread problem in a given mileage range, and padding the list would be
+    exactly the unfalsifiable output spec 11 rejects.
+    """
+
+    summary: str
+    failure_modes: list[str]
+    inspect: list[str]
+    ask: list[str]
+    ownership_notes: list[str]
+
+    #: Which model produced this and for which mileage band, so an answer can be
+    #: traced and re-generated.
+    model: str | None
+    mileage_band: str | None
+    generated_at: datetime | None
+    #: True when this evaluation reused a stored answer and cost nothing. Spec
+    #: 10's cache-hit rate is what makes the feature affordable.
+    cached: bool
+
+
 class EvaluationOut(BaseModel):
     """Spec 7's output structure, in its order."""
 
@@ -309,8 +337,10 @@ class EvaluationOut(BaseModel):
     seller_risk: SellerRiskOut | None
     negotiation: NegotiationOut
     alternatives: AlternativesOut
-    known_issues: str | None
-    known_issues_unavailable_reason: str
+    #: Spec 6.6. None whenever the section cannot be shown -- no API key, spec
+    #: 10's cost gate, or a failed call -- and the reason then says which.
+    known_issues: KnownIssuesOut | None
+    known_issues_unavailable_reason: str | None
     #: Beta, asking-price and liability notices. Spec 7 requires the liability
     #: framing "in the UI, not just the terms", so it travels with the payload.
     notices: list[str]

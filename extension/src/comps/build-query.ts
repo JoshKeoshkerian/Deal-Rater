@@ -45,8 +45,19 @@ import type { ObservationPayload } from "../shared/types";
 const MARKETPLACE_ROOT = "https://www.facebook.com/marketplace";
 const SEARCH_BASE = `${MARKETPLACE_ROOT}/search/`;
 
-/** Place ids are numeric, but Facebook also accepts vanity slugs like "nyc". */
-const LOCATION_ID_RE = /^[A-Za-z0-9.-]{3,64}$/;
+/**
+ * A Marketplace location is either a 15-digit place id or a vanity slug.
+ *
+ * Both forms are confirmed from captured data: `/marketplace/chicago/search`
+ * returned Alsip, Naperville, Gurnee and Hammond, and
+ * `/marketplace/108013345886344/search` returns St. Louis metro. Facebook seems
+ * to use the slug wherever one exists and the numeric id otherwise.
+ *
+ * A 16-digit number is NOT one of these -- that mistake cost a whole capture,
+ * because an unrecognised path silently falls back to the account's own metro
+ * and looks identical to a market with nothing in it.
+ */
+const LOCATION_ID_RE = /^(?:[0-9]{15}|[a-z][a-z0-9-]{2,40})$/i;
 
 /**
  * Marketplace's "Vehicles" taxonomy id.
