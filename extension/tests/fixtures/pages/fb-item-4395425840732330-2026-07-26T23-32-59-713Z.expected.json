@@ -1,0 +1,29 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/4395425840732330/",
+  "expect": {
+    "price_cents": 1309000,
+    "year": 2016,
+    "make": "Audi",
+    "model": "Q3",
+    "mileage": 95385,
+    "photo_count": null,
+    "location_text": "St Louis, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

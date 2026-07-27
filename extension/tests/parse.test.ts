@@ -79,6 +79,53 @@ describe("parseVehicleTitle", () => {
     });
   });
 
+  describe("make repeated in the model slot", () => {
+    // Facebook's structured title emits "<year> <make> <make> · <model> <trim>"
+    // for some manufacturers. Taken verbatim it collapses every model of that
+    // make onto one key, so a Protege and a MAZDA3 become the same vehicle and
+    // step 3's comp matching silently compares unrelated cars.
+    it("drops the repeated make and promotes the real model", () => {
+      expect(parseVehicleTitle("2002 Mazda MAZDA · Protege5 Hatchback 4D")).toMatchObject({
+        year: 2002,
+        make: "Mazda",
+        model: "Protege5",
+        trim: "Hatchback 4D",
+      });
+    });
+
+    it("separates two models of the same make that previously collided", () => {
+      const protege = parseVehicleTitle("2002 Mazda MAZDA · Protege5 Hatchback 4D");
+      const mazda3 = parseVehicleTitle("2008 Mazda MAZDA · MAZDA3 2.0 Sedan 4D");
+      expect(mazda3.model).toBe("MAZDA3");
+      expect(protege.model).not.toBe(mazda3.model);
+    });
+
+    it("ignores case and punctuation when spotting the repeat", () => {
+      expect(parseVehicleTitle("2015 mercedes-benz Mercedes Benz C300")).toMatchObject({
+        make: "Mercedes-Benz",
+        model: "C300",
+      });
+    });
+
+    it("leaves a normal title untouched", () => {
+      expect(parseVehicleTitle("2014 Toyota Camry SE")).toMatchObject({
+        make: "Toyota",
+        model: "Camry",
+        trim: "SE",
+      });
+    });
+
+    it("keeps the make as the model when nothing else follows it", () => {
+      // "2016 Mazda Mazda" carries no real model; emptying the field would be
+      // worse than echoing what the page said.
+      expect(parseVehicleTitle("2016 Mazda Mazda")).toMatchObject({
+        make: "Mazda",
+        model: "Mazda",
+        trim: null,
+      });
+    });
+  });
+
   it("canonicalises abbreviated makes", () => {
     expect(parseVehicleTitle("2011 Chevy Silverado 1500").make).toBe("Chevrolet");
     expect(parseVehicleTitle("2013 VW Jetta").make).toBe("Volkswagen");

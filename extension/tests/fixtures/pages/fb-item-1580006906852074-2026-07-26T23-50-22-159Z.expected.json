@@ -1,0 +1,32 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1580006906852074/",
+  "expect": {
+    "price_cents": 1249900,
+    "year": 2021,
+    "make": "Toyota",
+    "model": "Corolla",
+    "mileage": 61651,
+    "photo_count": null,
+    "location_text": "St Louis, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "trim_text",
+    "title_status",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude",
+    "vin"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1247629410039730/",
+  "expect": {
+    "price_cents": 3500000,
+    "year": 2003,
+    "make": "Porsche",
+    "model": "911",
+    "mileage": 96000,
+    "photo_count": null,
+    "location_text": "St Louis, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "trim_text",
+    "title_status",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

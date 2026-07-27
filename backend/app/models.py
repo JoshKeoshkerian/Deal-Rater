@@ -211,6 +211,52 @@ class SellerObservation(Base):
     )
 
 
+class GroundTruthLabel(Base):
+    """A human verdict on one observed listing (spec 9.1).
+
+    Spec 9.1 is step 3's success criterion: "Evaluate 50 to 100 listings by hand
+    as an experienced buyer would (good deal / fair / overpriced / avoid). Score
+    with the engine and measure agreement." Spec 9.4 then uses the same set to
+    locate the discount curve's plateau and decline, which are placeholders
+    until it exists.
+
+    The label attaches to an OBSERVATION, not to a listing. A listing's asking
+    price changes over time and a verdict is a verdict about a price, so a label
+    pinned to the listing would silently become a claim about a different offer
+    after the next price drop.
+
+    Labels are entered by a person via `python -m app.cli.label`. Nothing in
+    this codebase writes a row here automatically, and nothing should: a
+    machine-generated label would make the agreement measurement circular, which
+    is the one thing spec 9 exists to prevent.
+    """
+
+    __tablename__ = "ground_truth_labels"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    observation_id: Mapped[int] = mapped_column(
+        ForeignKey("listing_observations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # 'good_deal' | 'fair' | 'overpriced' | 'avoid', per spec 9.1.
+    label: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    labeled_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    # Who labelled, so inter-rater disagreement is separable from model error if
+    # a second labeller is ever added. Free text, not a user account.
+    labeler: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Why. The disagreements are the useful part of spec 9.1 -- they locate the
+    # wrong weights -- and a verdict without a reason cannot do that work.
+    note: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        # One verdict per labeller per observed price. Re-labelling updates in
+        # place; this table is judgement, not time-series.
+        UniqueConstraint("observation_id", "labeler", name="uq_label_observation_labeler"),
+        Index("ix_labels_observation", "observation_id"),
+    )
+
+
 class ExtractionReport(Base):
     """Scraper self-check output (spec 4.6).
 

@@ -1,0 +1,27 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1675385477926238/",
+  "expect": {
+    "price_cents": 4695000,
+    "year": 2024,
+    "make": "Porsche",
+    "model": "Panamera",
+    "mileage": null,
+    "photo_count": null,
+    "location_text": "Lake St Louis, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "year",
+    "make",
+    "model",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

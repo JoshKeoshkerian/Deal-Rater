@@ -1,0 +1,28 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1239865998004348/",
+  "expect": {
+    "price_cents": 450000,
+    "year": 2013,
+    "make": "Honda",
+    "model": "Civic",
+    "mileage": null,
+    "photo_count": null,
+    "location_text": "Lake St Louis, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "year",
+    "make",
+    "model",
+    "title_status",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

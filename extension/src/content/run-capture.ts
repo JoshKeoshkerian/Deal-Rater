@@ -77,6 +77,9 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   const search = buildCompSearch(target.observation);
   let comps: CapturePayload["comps"] = [];
   let compSource = "none";
+  // Whether the comp set actually came back scoped to the target's location.
+  // Step 3 reads this: comps from an unknown market widen the interval.
+  let locationScoped = search?.query.origin !== null;
 
   if (search === null) {
     // Without make and model there is nothing to search for. Recorded rather
@@ -92,7 +95,16 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     });
   } else {
     onStatus("Searching comparable listings…");
-    const result = await runCompSearch(search.url, capturedAt);
+    let result = await runCompSearch(search.url, capturedAt);
+
+    // An unrecognised location parameter yields zero results rather than an
+    // error, which is indistinguishable from a genuinely empty market — the
+    // thing step 0 exists to measure. Retry unscoped so the two stay separable.
+    if (result.observations.length === 0 && search.fallbackUrl) {
+      result = await runCompSearch(search.fallbackUrl, capturedAt);
+      locationScoped = false;
+    }
+
     compSource = result.source;
 
     // A search page routinely includes the listing being evaluated. Keeping it
@@ -121,7 +133,9 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     target: target.observation,
     comps,
     issues,
-    compSearchQuery: search ? { ...search.query, source: compSource } : null,
+    compSearchQuery: search
+      ? { ...search.query, source: compSource, location_scoped: locationScoped }
+      : null,
   });
 
   onStatus("Saving…");

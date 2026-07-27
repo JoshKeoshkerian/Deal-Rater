@@ -1,0 +1,32 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/2312212042522266/",
+  "expect": {
+    "price_cents": 0,
+    "year": 2002,
+    "make": "Mazda",
+    "model": "Protege",
+    "mileage": 100000,
+    "photo_count": 4,
+    "location_text": "Florissant, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "trim_text",
+    "title_status",
+    "description",
+    "photo_count",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

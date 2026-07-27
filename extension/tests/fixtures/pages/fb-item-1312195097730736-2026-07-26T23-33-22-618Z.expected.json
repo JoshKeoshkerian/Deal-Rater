@@ -1,0 +1,27 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1312195097730736/",
+  "expect": {
+    "price_cents": 150000,
+    "year": null,
+    "make": "Mazda",
+    "model": "Cx5",
+    "mileage": null,
+    "photo_count": null,
+    "location_text": "Ste Genevieve, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "make",
+    "model",
+    "trim_text",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

@@ -59,7 +59,15 @@ export const FB_KEYS = {
   vehicleMake: ["vehicle_make", "make", "make_display_name"],
   vehicleModel: ["vehicle_model", "model", "model_display_name"],
   vehicleYear: ["vehicle_year", "year"],
-  vehicleCondition: ["vehicle_title_status", "title_status", "vehicle_condition"],
+  // "vehicle_condition" is deliberately not a fallback here: it is Facebook's
+  // physical/wear condition rating (e.g. "GOOD", "FAIR"), a different field
+  // from legal title branding. A 2016 Audi Q3 fixture had vehicle_title_status
+  // explicitly null and no title_status key, and this array's old third entry
+  // silently passed vehicle_condition's "GOOD" through as if it were the title
+  // status — a false "clean-sounding" signal on a listing with none stated,
+  // which matters more here than most fields since title status is a risk
+  // signal the product is built around.
+  vehicleCondition: ["vehicle_title_status", "title_status"],
 } as const;
 
 /** Search-result feed containers, used to scope comp card discovery. */

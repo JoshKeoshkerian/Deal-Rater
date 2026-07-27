@@ -1,0 +1,31 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1722983915702074/",
+  "expect": {
+    "price_cents": 220000,
+    "year": 2017,
+    "make": "Hyundai",
+    "model": "Elantra",
+    "mileage": 204000,
+    "photo_count": null,
+    "location_text": "Florissant, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "trim_text",
+    "title_status",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

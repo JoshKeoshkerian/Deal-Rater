@@ -1,0 +1,31 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/871405492153590/",
+  "expect": {
+    "price_cents": 799500,
+    "year": 2013,
+    "make": "Mazda",
+    "model": "Mazda3",
+    "mileage": 154000,
+    "photo_count": null,
+    "location_text": "St Louis, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "trim_text",
+    "title_status",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1228188699517022/",
+  "expect": {
+    "price_cents": 0,
+    "year": 2001,
+    "make": "Mitsubishi",
+    "model": "Eclipse",
+    "mileage": 146000,
+    "photo_count": 8,
+    "location_text": "Tilden, IL"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "trim_text",
+    "description",
+    "photo_count",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

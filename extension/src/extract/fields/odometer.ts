@@ -38,6 +38,7 @@ export function resolveMileage(
   recorder: ExtractionRecorder,
   node: JsonObject | null,
   block: Element | null,
+  descBlock: Element | null = null,
 ): ResolvedMileage {
   let unit: MileageUnit | null = null;
   let text: string | null = null;
@@ -77,6 +78,22 @@ export function resolveMileage(
       () => {
         if (!block) return null;
         const matched = matchDeepest(block, MILEAGE_RE);
+        if (!matched) return null;
+        const parsed = parseMileage(matched);
+        if (!parsed) return null;
+        unit = parsed.unit;
+        text = matched;
+        return parsed.value;
+      },
+    ],
+    [
+      "text_pattern",
+      () => {
+        // Sellers who skip the structured odometer field routinely still type
+        // it in prose ("Odometer: 7,444 mi (actual)"), which lives in the
+        // description, not the header block the tier above checks.
+        if (!descBlock) return null;
+        const matched = matchDeepest(descBlock, MILEAGE_RE);
         if (!matched) return null;
         const parsed = parseMileage(matched);
         if (!parsed) return null;

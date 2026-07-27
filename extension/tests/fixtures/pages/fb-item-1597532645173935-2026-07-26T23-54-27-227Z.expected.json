@@ -1,0 +1,30 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1597532645173935/",
+  "expect": {
+    "price_cents": 899500,
+    "year": 2015,
+    "make": "Mazda",
+    "model": "CX-5",
+    "mileage": 172582,
+    "photo_count": null,
+    "location_text": "Nashville, TN"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "title_status",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

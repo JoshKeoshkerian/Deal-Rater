@@ -127,6 +127,24 @@ counts and presence flags only. Two different listings rendered by the same
 layout share one, so a spike in reports can be attributed to a specific Facebook
 change rather than being an undifferentiated rise in failures.
 
+## `ground_truth_labels`
+
+The spec 9.1 validation set, and step 3's success criterion. Human verdicts
+only — `good_deal` / `fair` / `overpriced` / `avoid`, entered via
+`python -m app.cli.label`. Nothing in the codebase writes here automatically,
+because a machine-generated label would make the agreement measurement circular.
+
+The label attaches to an **observation, not a listing**. A listing's asking
+price changes over time and a verdict is a verdict about a price, so a label
+pinned to the listing would silently become a claim about a different offer
+after the next price drop.
+
+`(observation_id, labeler)` is unique: re-labelling updates in place. This table
+is judgement, not time-series, so it is the one place outside `listings` where
+an in-place update is correct. A second labeller can disagree with the first on
+the same row, which is what keeps inter-rater disagreement separable from model
+error.
+
 ## Retention
 
 `app/retention.py` deletes observations past the window, then identity rows with

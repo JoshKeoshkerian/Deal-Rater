@@ -1,0 +1,30 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/1534855758336098/",
+  "expect": {
+    "price_cents": 1055000,
+    "year": 2018,
+    "make": "Mazda",
+    "model": "Mazda3",
+    "mileage": 155000,
+    "photo_count": null,
+    "location_text": "St Charles, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "title_status",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

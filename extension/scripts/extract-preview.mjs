@@ -31,6 +31,26 @@ import { loadTs } from "./lib/load-ts.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * Facebook is an SPA: navigating between listings by clicking through (search
+ * results, "similar items") updates the visible DOM via React but does not
+ * re-emit the inline `<script type="application/json">` payloads, which stay
+ * frozen on whatever page last did a full load. A page saved in that state
+ * has a real, plausible-looking title but json_payload-tier fields that
+ * silently belong to a different listing — this has bitten this fixture
+ * effort three separate times. The catch is generic and cheap: the page's
+ * own listing id must appear somewhere in its own JSON payloads.
+ */
+function isStaleCapture(html, listingId) {
+  if (!listingId) return false;
+  const re = /<script[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  while ((match = re.exec(html)) !== null) {
+    if (match[1].includes(listingId)) return false;
+  }
+  return true;
+}
+
 function urlFor(file, html, isSearch) {
   if (isSearch) return "https://www.facebook.com/marketplace/search/";
   const fromCanonical = html.match(/rel=["']canonical["'][^>]*href=["']([^"']+)["']/i)?.[1];
@@ -88,6 +108,18 @@ async function main() {
   globalThis.DOMParser = window.DOMParser;
   const doc = new window.DOMParser().parseFromString(html, "text/html");
   const url = urlFor(file, html, isSearch);
+
+  if (!isSearch) {
+    const listingId = basename(file).match(/(\d{6,})/)?.[1] ?? null;
+    if (isStaleCapture(html, listingId)) {
+      console.log(
+        `\n  ⚠ STALE CAPTURE: listing id ${listingId} does not appear in any JSON payload ` +
+          `on this page. The title/DOM likely updated via client-side navigation while the ` +
+          `embedded JSON stayed frozen on a different listing — re-save with a hard reload ` +
+          `directly on this listing, not a click-through. Extraction below is unreliable.\n`,
+      );
+    }
+  }
 
   if (isSearch) {
     const { extractCompCards } = await loadTs(resolve(root, "src/extract/comp-card.ts"));

@@ -1,0 +1,31 @@
+{
+  "kind": "item",
+  "url": "https://www.facebook.com/marketplace/item/4288038298174923/",
+  "expect": {
+    "price_cents": 1146400,
+    "year": 2016,
+    "make": "Audi",
+    "model": "Q5",
+    "mileage": 129894,
+    "photo_count": null,
+    "location_text": "Lake St Louis, MO"
+  },
+  "requirePresent": [
+    "source_listing_id",
+    "listing_url",
+    "price_cents",
+    "currency",
+    "mileage",
+    "mileage_unit",
+    "year",
+    "make",
+    "model",
+    "trim_text",
+    "title_status",
+    "description",
+    "posted_at",
+    "location_text",
+    "latitude",
+    "longitude"
+  ]
+}

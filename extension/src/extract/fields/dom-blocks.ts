@@ -48,5 +48,8 @@ export function sellerListingsBlock(main: Element): Element | null {
 
 /** The description block, identified by its heading rather than its position. */
 export function descriptionBlock(main: Element): Element | null {
-  return sectionByHeading(main, /^description$|^details$|about this vehicle/i);
+  return sectionByHeading(
+    main,
+    /^description$|^details$|about this vehicle|seller.?s\s*description/i,
+  );
 }

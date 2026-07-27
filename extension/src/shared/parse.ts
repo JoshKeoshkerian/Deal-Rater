@@ -145,6 +145,9 @@ const MAKES = [
   "volkswagen", "volvo", "vw",
 ];
 
+/** Longest make in MULTI_WORD_MAKES, in whitespace-separated tokens. */
+const MAX_MAKE_TOKENS = 2;
+
 /** Display spelling for makes commonly written as an abbreviation. */
 const MAKE_CANONICAL: Record<string, string> = {
   chevy: "Chevrolet",
@@ -225,10 +228,54 @@ export function parseVehicleTitle(raw: string | null | undefined): ParsedVehicle
   if (make === null) return { year, make: null, model: null, trim: null };
 
   const parts = remainder.split(" ").filter(Boolean);
+
+  // Facebook's structured title repeats the make in the model slot for some
+  // manufacturers: "2002 Mazda MAZDA · Protege5 Hatchback 4D" and
+  // "2008 Mazda MAZDA · MAZDA3 2.0 Sedan 4D". Taking parts[0] verbatim yields
+  // model "MAZDA" with the real model buried in the trim, which collapses every
+  // one of that make's models onto a single key and silently destroys comp
+  // matching in step 3 — a Protege and a MAZDA3 become the same vehicle.
+  //
+  // Only an exact repeat of the make just matched is dropped, and only when
+  // something still follows it. That is narrow on purpose: "Ford Ford" is the
+  // bug, whereas a model legitimately containing its make ("Mazda MX-5" as
+  // written by a seller) still keeps a real model token either way.
+  //
+  // The repeat can span several tokens, because a two-word make may be written
+  // one way then the other: "mercedes-benz Mercedes Benz C300". Longest run
+  // first, so "Mercedes Benz" is consumed as a unit rather than leaving "Benz"
+  // behind as the model.
+  const maxRepeatTokens = Math.min(MAX_MAKE_TOKENS, parts.length - 1);
+  for (let n = maxRepeatTokens; n >= 1; n--) {
+    if (makeToken(parts.slice(0, n).join("")) === makeToken(make)) {
+      parts.splice(0, n);
+      break;
+    }
+  }
+
   const model = parts.length > 0 ? titleCase(parts[0]!) : null;
   const trim = parts.length > 1 ? parts.slice(1).join(" ") : null;
 
   return { year, make, model, trim };
+}
+
+/**
+ * Compare a make token to a canonical make ignoring case, spacing and
+ * punctuation, so "MAZDA"/"Mazda" and "Mercedes-Benz"/"mercedes benz" match.
+ */
+function makeToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * Normalised model key for comp matching.
+ *
+ * "CX-5", "Cx-5" and "CX5" are the same vehicle written three ways, and all
+ * three occur in captured data. Exported so step 3 groups on the same key the
+ * relisting hash already uses server-side.
+ */
+export function normalizeModel(value: string | null | undefined): string {
+  return value ? makeToken(value) : "";
 }
 
 /* -------------------------------------------------------------------------- */

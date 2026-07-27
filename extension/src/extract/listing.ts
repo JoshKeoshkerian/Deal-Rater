@@ -70,7 +70,7 @@ export async function extractTargetListing(
 
   const price = resolvePrice(recorder, node, headerBlock);
   const priceChanged = resolvePriceChanged(recorder, headerBlock);
-  const mileage = resolveMileage(recorder, node, headerBlock);
+  const mileage = resolveMileage(recorder, node, headerBlock, descBlock);
   const description = resolveDescription(recorder, node, doc, descBlock);
   const vehicle = resolveVehicle(recorder, { node, doc, block: headerBlock, description });
   const vin = resolveVin(recorder, description, vehicle.title);
