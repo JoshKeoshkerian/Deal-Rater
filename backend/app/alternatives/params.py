@@ -13,11 +13,11 @@ from __future__ import annotations
 # better-priced comps exist within a reasonable radius. Suppress when the target
 # is already the best available, and say so, since that is also useful."
 
-# The pricing rating at or below which the target counts as "average or worse".
-# Tied to the curve's FAIR_PRICE_RATING so the two move together: a target
-# sitting at a plainly fair price is the boundary case the spec describes.
-# UNCALIBRATED.
-SHOW_WHEN_RATING_AT_OR_BELOW = 60.0
+# "Average or worse" is decided by COMPARISON against the comp set, not by an
+# absolute threshold on the pricing curve -- see `finder._should_suppress` for
+# why the old `SHOW_WHEN_RATING_AT_OR_BELOW = 60.0` was removed. There is no
+# constant here because the median of the comp residuals is the threshold, and
+# it is recomputed per listing.
 
 # How much better a comp's own residual must be before it is worth naming.
 # Without a margin, a comp 0.4% cheaper would be presented as an alternative,

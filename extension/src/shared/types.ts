@@ -132,6 +132,15 @@ export interface EvaluationResponse {
     year_window_widened: boolean;
     confidence: string;
     confidence_reasons: string[];
+    /**
+     * The same limiters as codes, in the same order as `confidence_reasons`.
+     *
+     * That order is append order, not severity, and its first entries are the
+     * structural limiters that fire on every single evaluation. The overlay
+     * ranks by code to name the two problems that actually describe THIS comp
+     * set -- see `overlay/state.ts`.
+     */
+    confidence_limiters: string[];
     fallback_reasons: string[];
   };
   vehicle_risk: {
@@ -176,7 +185,20 @@ export interface EvaluationResponse {
       advantage: number;
       mileage_tradeoff: boolean;
     }>;
-    withheld_as_implausible: number;
+    /**
+     * Better-priced comps that are deliberately not recommended, each carrying
+     * its own reason. Shown with the reason attached or not at all: a count of
+     * withheld listings tells a buyer something exists, declines to say what,
+     * and reads as concealment.
+     */
+    withheld: Array<{
+      description: string;
+      url: string | null;
+      price_cents: number | null;
+      mileage: number | null;
+      location_text: string | null;
+      reason: string;
+    }>;
   };
   /**
    * Spec 6.6. Null whenever the section cannot be shown -- no API key, spec
@@ -197,5 +219,12 @@ export interface EvaluationResponse {
     cached: boolean;
   } | null;
   known_issues_unavailable_reason: string | null;
+  /**
+   * Which kind of absence. Codes prefixed `deployment_` are facts about the
+   * server (no API key, switched off, offline, call failed) and are never shown
+   * to a buyer -- the section is hidden instead. Every other code is spec 10's
+   * gate returning a VERDICT about the car, which is a finding.
+   */
+  known_issues_unavailable_code: string | null;
   notices: string[];
 }

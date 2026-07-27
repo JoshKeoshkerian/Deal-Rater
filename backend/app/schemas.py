@@ -242,6 +242,14 @@ class PricingOut(BaseModel):
     year_window_widened: bool
     confidence: str
     confidence_reasons: list[str]
+    #: The same limiters as machine-readable codes, in the same order.
+    #:
+    #: `confidence_reasons` is prose in append order, and the first entries are
+    #: the structural limiters that fire on EVERY evaluation (no recency
+    #: weighting, dealer filtering unavailable). A UI that leads with "the two
+    #: biggest problems with this comp set" has to rank them by what they mean,
+    #: which it cannot do from sentences.
+    confidence_limiters: list[str]
     fallback_reasons: list[str]
 
 
@@ -289,11 +297,27 @@ class AlternativeOut(BaseModel):
     mileage_tradeoff: bool
 
 
+class WithheldAlternativeOut(BaseModel):
+    """A better-priced comp that is not being recommended, and why.
+
+    Shown rather than counted: announcing "3 cheaper listings withheld" without
+    naming them tells a buyer something exists, declines to say what, and reads
+    as concealment. The reason travels with each listing.
+    """
+
+    description: str
+    url: str | None
+    price_cents: int | None
+    mileage: int | None
+    location_text: str | None
+    reason: str
+
+
 class AlternativesOut(BaseModel):
     message: str
     target_is_best: bool
     items: list[AlternativeOut]
-    withheld_as_implausible: int
+    withheld: list[WithheldAlternativeOut]
 
 
 class KnownIssuesOut(BaseModel):
@@ -341,6 +365,12 @@ class EvaluationOut(BaseModel):
     #: 10's cost gate, or a failed call -- and the reason then says which.
     known_issues: KnownIssuesOut | None
     known_issues_unavailable_reason: str | None
+    #: Which KIND of absence, so a UI can tell spec 10's VERDICTS (salvage
+    #: title, hard disqualifier, implausible discount -- findings a buyer needs)
+    #: from deployment facts (no API key, call disabled, offline, call failed --
+    #: which are about this server, not about the car, and should not be shown
+    #: to a buyer at all). None when the section is present.
+    known_issues_unavailable_code: str | None
     #: Beta, asking-price and liability notices. Spec 7 requires the liability
     #: framing "in the UI, not just the terms", so it travels with the payload.
     notices: list[str]

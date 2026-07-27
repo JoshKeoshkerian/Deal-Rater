@@ -10,7 +10,11 @@ import pytest
 
 from app.pricing import params
 from app.pricing.comps import CompCandidate, filter_comps
-from app.pricing.regression import EstimatorKind, estimate_expected_asking_price
+from app.pricing.regression import (
+    EstimatorKind,
+    _solve,
+    estimate_expected_asking_price,
+)
 from app.pricing.tdist import t_cdf, t_two_sided
 
 
@@ -386,6 +390,40 @@ class TestTrimPreferredFit:
         # fit either way, not which flag a tie happens to set.
         est = build(target(120_000), clean_line())
         assert est.expected_asking_cents == pytest.approx(2_000_000 - 8 * 120_000, rel=0.01)
+
+
+class TestTheLinearSolver:
+    """`_solve` underpins every multi-regressor fit, so its failure modes are
+    the fit's failure modes. A wrong answer here is a wrong price."""
+
+    def test_it_solves_a_known_system(self):
+        # 2x + y = 5, x + 3y = 10  ->  x = 1, y = 3
+        solved = _solve([[2.0, 1.0], [1.0, 3.0]], [5.0, 10.0])
+        assert solved is not None
+        assert solved[0] == pytest.approx(1.0)
+        assert solved[1] == pytest.approx(3.0)
+
+    def test_a_singular_system_returns_none_rather_than_raising(self):
+        # Second row is twice the first: no unique solution. The caller treats
+        # this as "this candidate fit has nothing to add", not as an error.
+        assert _solve([[1.0, 2.0], [2.0, 4.0]], [3.0, 6.0]) is None
+
+    def test_it_survives_the_scale_real_cross_products_arrive_at(self):
+        # Entries are sums of squared mileages, so they run to 1e10 and up. An
+        # absolute pivot epsilon would call this singular; the tolerance is
+        # relative for exactly this reason.
+        big = [[4.0e10, 1.0e9], [1.0e9, 2.0e10]]
+        solved = _solve(big, [8.0e10, 4.0e10])
+        assert solved is not None
+        assert all(abs(v) < 1e3 for v in solved)
+
+    def test_it_handles_a_system_needing_a_pivot_swap(self):
+        # A zero in the leading position forces partial pivoting; without the
+        # swap this divides by zero.
+        solved = _solve([[0.0, 2.0], [1.0, 1.0]], [4.0, 3.0])
+        assert solved is not None
+        assert solved[0] == pytest.approx(1.0)
+        assert solved[1] == pytest.approx(2.0)
 
 
 class TestYearTermFit:

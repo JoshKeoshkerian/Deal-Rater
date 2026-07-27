@@ -86,6 +86,79 @@ class TestNormalisation:
         )
 
 
+class TestEngineDisplacementSurvivesNormalisation:
+    """The regression that made 2.0T and 3.0T the same trim.
+
+    Flattening every non-alphanumeric split "2.0t" into "2" and "0t", and the
+    bare "2" was then dropped as a number -- so every Audi and Subaru
+    displacement trim collapsed onto the single token "0t", which was the 15th
+    most common token across the stored trim strings.
+    """
+
+    def test_different_displacements_are_different_trims(self):
+        assert not trims_agree(trim_tokens("2.0T Premium Plus"), trim_tokens("3.0T Premium Plus"))
+
+    def test_the_displacement_survives_as_one_token(self):
+        assert trim_tokens("2.0T Premium Plus Sport Utility 4D") == frozenset(
+            {"2.0t", "premium", "plus"}
+        )
+
+    def test_the_collapsed_token_is_gone(self):
+        assert "0t" not in trim_tokens("2.0T Premium")
+
+    def test_bare_integers_are_still_dropped(self):
+        # Body-style leftovers, bed lengths and stock numbers, not trim levels.
+        assert trim_tokens("Sport 4D") == frozenset({"sport"})
+
+
+class TestListingNoiseIsNotTrim:
+    """Trim is the leftover remainder of a title split, so it carries whatever
+    the seller wrote. Every string below is a real stored value."""
+
+    def test_mileage_claims_are_stripped(self):
+        lt = trim_tokens("LT")
+        assert trims_agree(trim_tokens("LT \U0001f918 74173 Miles"), lt)
+        assert trims_agree(trim_tokens("Lt - 66k Miles"), lt)
+
+    def test_emoji_is_stripped(self):
+        assert trims_agree(trim_tokens("Sport \U0001f525"), trim_tokens("Sport"))
+
+    def test_dealer_stock_numbers_are_stripped(self):
+        assert trims_agree(trim_tokens("GLI Autobahn - 515266A"), trim_tokens("GLI Autobahn"))
+
+    def test_an_option_package_is_not_a_different_trim(self):
+        # "EX-L w/Honda Sensing" is an EX-L. Treating the package as part of the
+        # trim level splits one trim into two.
+        assert trims_agree(
+            trim_tokens("EX-L w/Honda Sensing Sport Utility 4D"), trim_tokens("EX-L")
+        )
+
+    def test_location_bleed_is_stripped(self):
+        assert trims_agree(
+            trim_tokens("EX-L 4D Passenger Van FWD in Chesterfield MO 142150 Miles"),
+            trim_tokens("EX-L"),
+        )
+
+    def test_body_style_differences_do_not_split_a_trim(self):
+        assert trims_agree(trim_tokens("EX-L Sedan 4D"), trim_tokens("EX-L Minivan 4D"))
+        assert trims_agree(trim_tokens("1500 LT Pickup 4D 5 3/4 ft"), trim_tokens("LT"))
+
+    def test_drivetrain_does_not_split_a_trim(self):
+        # Drivetrain is parsed separately (`parse_drivetrain`) and recorded as
+        # its own signal, so leaving it in the trim comparison would count one
+        # signal twice and report a false mismatch on most listings.
+        assert trims_agree(trim_tokens("Grand Touring AWD"), trim_tokens("Grand Touring"))
+        assert trims_agree(trim_tokens("Sport 4x4"), trim_tokens("Sport"))
+
+    def test_quattro_is_kept_because_it_is_branding_not_drivetrain(self):
+        assert "quattro" in trim_tokens("2.0 TFSI quattro Premium")
+
+    def test_pure_noise_normalises_to_nothing(self):
+        # Which `filter_comps` reads as "not comparable" rather than as a match.
+        assert trim_tokens("Sport Utility 4D") == frozenset()
+        assert trim_tokens("Sedan 4D") == frozenset()
+
+
 class TestInertHooks:
     """Drivetrain and transmission are parsed but never filter at step 3."""
 
@@ -122,10 +195,22 @@ class TestIdentityExclusion:
         # Jackson MO) came back as two of its own comps under different listing
         # ids. The extension's id-based filter could not see it. Left in, the
         # residual is pinned toward zero by the car itself.
-        target = comp(source_listing_id="1479107233432192", year=2014, model="CX-9",
-                      mileage=183_745, price_cents=550_000, location_text="Jackson, MO")
-        twin = comp(source_listing_id="1036449108716104", year=2014, model="CX-9",
-                    mileage=183_000, price_cents=550_000, location_text="Jackson, MO")
+        target = comp(
+            source_listing_id="1479107233432192",
+            year=2014,
+            model="CX-9",
+            mileage=183_745,
+            price_cents=550_000,
+            location_text="Jackson, MO",
+        )
+        twin = comp(
+            source_listing_id="1036449108716104",
+            year=2014,
+            model="CX-9",
+            mileage=183_000,
+            price_cents=550_000,
+            location_text="Jackson, MO",
+        )
         result = filter_comps(target, [twin])
         assert result.included == []
         assert result.excluded[0].exclusion is Exclusion.SAME_VEHICLE_AS_TARGET
@@ -134,8 +219,12 @@ class TestIdentityExclusion:
         # Real defect: capture 1 listed the same Arnold MO CX-5 twice, once as
         # "gt" and once as "grand touring awd -".
         a = comp(source_listing_id="a", trim_text="gt", price_cents=1_249_000, mileage=134_000)
-        b = comp(source_listing_id="b", trim_text="grand touring awd -",
-                 price_cents=1_249_000, mileage=134_000)
+        b = comp(
+            source_listing_id="b",
+            trim_text="grand touring awd -",
+            price_cents=1_249_000,
+            mileage=134_000,
+        )
         result = filter_comps(TARGET, [a, b])
         assert len(result.included) == 1
         assert result.excluded[0].exclusion is Exclusion.DUPLICATE_OF_ANOTHER_COMP
@@ -427,31 +516,35 @@ class TestPreferredFitPoints:
     def _comp_set(self, matching: int, differing: int, unknown: int = 0):
         # Mileage spread by 20k (crosses the 10k dedup bucket every time) and
         # price varied per comp, so none of these collide as the same vehicle.
-        comps = [
-            comp(
-                source_listing_id=f"m{i}",
-                trim_text="Touring",
-                mileage=40_000 + i * 20_000,
-                price_cents=1_100_000 - i * 3_000,
-            )
-            for i in range(matching)
-        ] + [
-            comp(
-                source_listing_id=f"d{i}",
-                trim_text="Sport",
-                mileage=41_000 + i * 20_000,
-                price_cents=1_150_000 - i * 3_000,
-            )
-            for i in range(differing)
-        ] + [
-            comp(
-                source_listing_id=f"u{i}",
-                trim_text=None,
-                mileage=42_000 + i * 20_000,
-                price_cents=1_050_000 - i * 3_000,
-            )
-            for i in range(unknown)
-        ]
+        comps = (
+            [
+                comp(
+                    source_listing_id=f"m{i}",
+                    trim_text="Touring",
+                    mileage=40_000 + i * 20_000,
+                    price_cents=1_100_000 - i * 3_000,
+                )
+                for i in range(matching)
+            ]
+            + [
+                comp(
+                    source_listing_id=f"d{i}",
+                    trim_text="Sport",
+                    mileage=41_000 + i * 20_000,
+                    price_cents=1_150_000 - i * 3_000,
+                )
+                for i in range(differing)
+            ]
+            + [
+                comp(
+                    source_listing_id=f"u{i}",
+                    trim_text=None,
+                    mileage=42_000 + i * 20_000,
+                    price_cents=1_050_000 - i * 3_000,
+                )
+                for i in range(unknown)
+            ]
+        )
         return filter_comps(TARGET, comps)
 
     def test_restricts_when_enough_trim_matched_comps_exist(self):

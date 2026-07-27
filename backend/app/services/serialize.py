@@ -22,6 +22,7 @@ from ..schemas import (
     ScoreComponentOut,
     SellerRiskOut,
     VehicleRiskOut,
+    WithheldAlternativeOut,
 )
 
 
@@ -120,6 +121,7 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             year_window_widened=pricing.comp_set.year_window_widened,
             confidence=pricing.confidence.level.value,
             confidence_reasons=pricing.confidence.explain(),
+            confidence_limiters=[limiter.value for limiter in pricing.confidence.limiters],
             fallback_reasons=list(estimate.fallback_reasons),
         ),
         vehicle_risk=VehicleRiskOut(
@@ -157,9 +159,20 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
                 )
                 for a in evaluation.alternatives.alternatives
             ],
-            withheld_as_implausible=evaluation.alternatives.withheld_as_implausible,
+            withheld=[
+                WithheldAlternativeOut(
+                    description=w.describe(),
+                    url=w.url,
+                    price_cents=w.candidate.price_cents,
+                    mileage=w.candidate.mileage,
+                    location_text=w.candidate.location_text,
+                    reason=w.reason,
+                )
+                for w in evaluation.alternatives.withheld
+            ],
         ),
         known_issues=known_issues,
         known_issues_unavailable_reason=known.unavailable_reason,
+        known_issues_unavailable_code=known.skip_code,
         notices=list(evaluation.notices),
     )

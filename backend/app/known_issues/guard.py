@@ -56,10 +56,10 @@ def contains_currency(text: str | None) -> bool:
 #: one sentence went wrong. Expensive cars provoke this most, which is exactly
 #: where the findings are worth keeping.
 SUMMARY_WITHHELD = (
-    "The model's summary was withheld because it named a repair cost. This tool "
-    "does not publish repair-cost figures -- reliable ones need a licensed data "
-    "source, and a plausible invented number is worse than none. The findings "
-    "below are unchanged."
+    "No summary here: the one written for this vehicle quoted a repair cost, and "
+    "this tool does not publish repair-cost figures -- reliable ones need a "
+    "licensed data source, and a plausible invented number is worse than none. "
+    "The findings below are unchanged."
 )
 
 

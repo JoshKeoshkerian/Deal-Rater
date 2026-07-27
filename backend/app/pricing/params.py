@@ -122,6 +122,68 @@ DUPLICATE_PRICE_TOLERANCE = 0.05
 # noisy. The correct response to that variance is a wide interval and a verdict
 # that respects it, which is where the fix landed instead (see `curve.py`).
 
+# ---------------------------------------------------------------------------
+# Trim as a regressor: TRIED, MEASURED, REJECTED
+# ---------------------------------------------------------------------------
+#
+# The second attempt at making trim move the price, and a DIFFERENT idea from
+# the weighting above -- recorded separately because the obvious response to
+# "weighting trim did not work" is "then put trim in the model properly", and
+# that was tried too.
+#
+# THE IDEA. Weighting DISCOUNTS dissimilar comps, shrinking an already thin comp
+# set. A trim-match indicator instead keeps every comp in the fit and spends one
+# parameter ESTIMATING what the trim difference is worth:
+#
+#     asking price ~ mileage + year + trim_matches
+#
+# Built on a generalised k-regressor OLS (`regression._fit_multi`, which now
+# carries the year term), registered as further candidate fits, and selected by
+# the same narrowest-interval rule as every other candidate. Verified on
+# synthetic data to recover a known $3,000 trim premium to within noise.
+#
+# THE MEASUREMENT. Leave-one-out cross-validation over the 136 stored captures,
+# 2,158 out-of-sample predictions (`python -m app.cli.backtest`). Median absolute
+# percentage error, LOWER IS BETTER:
+#
+#     configuration                        MedAPE
+#     trim term OFF (shipped)              15.577%
+#     min 8 comps,  2 per trim level       15.721%
+#     min 10 comps, 3 per trim level       15.641%
+#     min 12 comps, 4 per trim level       15.641%
+#     min 14 comps, 5 per trim level       15.641%
+#     min 16 comps, 6 per trim level       15.604%
+#     min 20 comps, 8 per trim level       15.604%
+#
+# EVERY configuration is worse than not having the term, and the sweep is
+# monotonic in the wrong direction: tightening the guards only helps because it
+# stops the term firing, converging on the baseline from above and never
+# crossing it.
+#
+# THE FINDING THAT SETTLED IT. Where the term did win the interval comparison it
+# won on 5 of 114 fits (4%), and among those the estimated premium was NEGATIVE
+# on 40% of them -- "matching the target's trim makes the car cheaper". A
+# coefficient whose sign is a coin flip is fitting noise, and the narrowest-
+# interval rule cannot tell that apart from signal on eight points.
+#
+# The obvious rescue was that the trim STRINGS are too dirty (which is what the
+# weighting note above concluded, and which the normalisation fixes in
+# `comps.trim_tokens` had just improved). It does not hold: restricted to the 78
+# captures whose comp sets have >=80% readable, comparable trim, the term is
+# still worse -- 15.238% off versus 15.358% on.
+#
+# WHAT THIS DOES NOT SAY. Not that trim is irrelevant to price. The same backtest
+# shows comps whose trim cannot be read at all are the hardest to predict by a
+# wide margin (18.9% versus 14.8%), so the information is real. What it says is
+# that a comp set of this size and this internal variance cannot support
+# ESTIMATING the trim effect: captured 2015-2016 CX-5 Tourings -- one trim --
+# span $6,650 to $12,800. A parameter fitted inside that spread is noise, which
+# is the same wall the weighting attempt hit from the other side.
+#
+# Trim therefore remains what spec 4.3 asks for: a soft signal that never
+# excludes a comp, feeds `trim_coverage` / `trim_agreement`, and moves CONFIDENCE
+# rather than the price.
+
 # A comp priced this far BELOW the robust trend line at its own mileage is
 # treated as not-an-offer and dropped from the fit.
 #

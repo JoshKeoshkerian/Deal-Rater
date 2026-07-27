@@ -73,26 +73,26 @@ def evaluate_gate(
     if title.is_hard_disqualifier:
         return GateDecision.skip(
             "title_disqualifier",
-            "Skipped: the stated title status is disqualifying for most buyers, "
-            "which answers the question on its own. Model-specific maintenance "
-            "advice would not change that verdict.",
+            "The stated title status is disqualifying for most buyers, which "
+            "answers the question on its own. What tends to go wrong with this "
+            "model at this mileage would not change that.",
         )
 
     phrase = find_disqualifier(description)
     if phrase is not None:
         return GateDecision.skip(
             "hard_disqualifier",
-            f'Skipped: the description says "{phrase}". That is the verdict for a '
-            "buyer looking for a car to drive, and no amount of maintenance "
-            "context changes it.",
+            f'The description says "{phrase}". For a buyer looking for a car to '
+            "drive, that is the answer, and no amount of maintenance context "
+            "changes it.",
         )
 
     if pricing_band in params.DISQUALIFYING_PRICING_BANDS:
         return GateDecision.skip(
             "pricing_disqualifier",
-            "Skipped: the ask is so far below comparable listings, with nothing in "
-            "the description explaining why, that establishing the reason comes "
-            "before anything else about the model.",
+            "The ask is so far below comparable listings, with nothing in the "
+            "description explaining why, that finding out the reason matters more "
+            "than anything else about this model.",
         )
 
     if year is None or not make or not model:

@@ -60,11 +60,23 @@ from ..pricing.curve import PricingRating
 #: Time on market still does real work; it just belongs to spec 6.4's
 #: negotiation section (`NegotiationAssessment`), which already computed it
 #: independently of this composite and needed no change.
+#:
+#: `vehicle_risk` raised from 12 to 20 (pre-rescale), taken from
+#: `information_completeness` (15 -> 7) rather than from `price_residual` (the
+#: required dimension, see `REQUIRED_COMPONENTS`) or `seller_and_scam_risk`
+#: (which already has its own suppression path for real severity via
+#: `scam.warn`, so its weight carries less of the load). Completeness was the
+#: thinnest signal of the four.
+#:
+#: Rescaled from an 80-point total to a 100-point one (same ratios, so
+#: scoring behaviour is unchanged -- `compute_deal_score` renormalises by
+#: whatever weight is actually covered, not by a fixed total) so each number
+#: here can be shown verbatim as a percent next to its dimension in the UI.
 WEIGHTS: dict[str, float] = {
-    "price_residual": 45.0,
-    "information_completeness": 15.0,
-    "vehicle_risk": 12.0,
-    "seller_and_scam_risk": 8.0,
+    "price_residual": 56.0,
+    "information_completeness": 9.0,
+    "vehicle_risk": 25.0,
+    "seller_and_scam_risk": 10.0,
 }
 
 #: Below this share of total weight, a headline number is not worth printing:
@@ -73,7 +85,7 @@ MIN_COVERAGE = 0.5
 
 #: Dimensions without which no score is published, whatever the coverage.
 #:
-#: Price residual is not merely the heaviest component (45 of 80) -- it is the
+#: Price residual is not merely the heaviest component (56 of 100) -- it is the
 #: question. Spec 5.1: "Lead with expected value." Renormalising around its
 #: absence produced a real absurdity on captured data: capture 3 has two usable
 #: comps and therefore no expected asking price, yet scored 91/100 on the
@@ -246,8 +258,8 @@ def compute_deal_score(
             components=components,
             coverage=coverage,
             suppressed_reason=(
-                f"Only {coverage:.0%} of the scoring dimensions could be assessed, which "
-                "is too little to summarise in one number."
+                "Too little about this listing could be assessed to fairly summarise "
+                "it in one number."
             ),
         )
 

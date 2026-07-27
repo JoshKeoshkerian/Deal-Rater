@@ -14,7 +14,13 @@ const STYLES = `
     position: fixed;
     right: 16px;
     bottom: 16px;
-    z-index: 2147483647;
+    /* One BELOW the evaluation overlay's backdrop (2147483646), which is the
+       whole point. At 2147483647 this panel floated over the open evaluation,
+       covering the VIN decode row and the disclaimers at the bottom of the
+       sheet -- the two things a reader is most likely to want and least likely
+       to think to scroll for. The overlay is modal while it is open; the
+       trigger belongs underneath it. */
+    z-index: 2147483645;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -33,6 +39,17 @@ const STYLES = `
   }
   button:hover:not(:disabled) { background: #26394d; }
   button:disabled { opacity: 0.65; cursor: default; }
+  button:focus-visible { outline: 2px solid #7fb8e8; outline-offset: 2px; }
+  /* The fixture control is secondary to the one action this button exists for,
+     and is only ever mounted in a dev build. */
+  button.extra {
+    font-size: 12.5px; padding: 8px 14px;
+    background: #16212b; color: #a9bccb;
+  }
+  button.extra:hover:not(:disabled) { background: #1c2b3a; color: #e8eef4; }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  }
   .status {
     max-width: 280px;
     padding: 8px 12px;
@@ -105,6 +122,7 @@ export function mountTriggerButton(onClick: () => void): TriggerButton | null {
     addExtraAction(label, handler) {
       const extra = document.createElement("button");
       extra.type = "button";
+      extra.className = "extra";
       extra.textContent = label;
       extra.addEventListener("click", handler);
       panel.appendChild(extra);

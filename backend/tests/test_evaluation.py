@@ -35,16 +35,18 @@ class TestWeights:
         # there and does not weigh into this composite. See the note on
         # `WEIGHTS` itself.
         assert WEIGHTS == {
-            "price_residual": 45.0,
-            "information_completeness": 15.0,
-            "vehicle_risk": 12.0,
-            "seller_and_scam_risk": 8.0,
+            "price_residual": 56.0,
+            "information_completeness": 9.0,
+            "vehicle_risk": 25.0,
+            "seller_and_scam_risk": 10.0,
         }
 
-    def test_they_do_not_need_to_sum_to_one_hundred(self):
+    def test_they_sum_to_one_hundred(self):
         # compute_deal_score divides by whatever weight is actually COVERED,
-        # not by a fixed 100, so an 80-point total renormalises correctly.
-        assert sum(WEIGHTS.values()) == 80.0
+        # not by a fixed 100, so this isn't load-bearing for scoring -- but
+        # the extension overlay prints each weight verbatim as "(N%)" next to
+        # its dimension, so the total is kept at 100 for that to be honest.
+        assert sum(WEIGHTS.values()) == 100.0
 
 
 class TestTheScoreIsAlwaysBeta:

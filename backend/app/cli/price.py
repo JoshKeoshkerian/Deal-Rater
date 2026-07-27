@@ -119,7 +119,7 @@ def print_alternatives(capture: StoredCapture, assessment: PricingAssessment) ->
         assessment.target,
         assessment.comp_set.included,
         assessment.estimate,
-        assessment.rating.rating if assessment.rating else None,
+        assessment.confidence.level,
     )
 
     print("\n  BETTER ALTERNATIVES   (spec 6.5)")
@@ -128,11 +128,12 @@ def print_alternatives(capture: StoredCapture, assessment: PricingAssessment) ->
         print(f"      - {alternative.describe()}")
         if alternative.url:
             print(f"        {alternative.url}")
-    if result.withheld_as_implausible:
-        print(
-            f"    {result.withheld_as_implausible} cheaper listing(s) withheld: priced far "
-            "enough below expected that the reason matters more than the saving."
-        )
+    # Named, not counted: a withhold a reader cannot see is a rumour.
+    for withheld in result.withheld:
+        print(f"      - {withheld.describe()}")
+        print(f"        {withheld.reason}")
+        if withheld.url:
+            print(f"        {withheld.url}")
 
 
 def print_vehicle_risk(

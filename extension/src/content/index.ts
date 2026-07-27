@@ -63,7 +63,10 @@ async function syncButton(): Promise<void> {
   if (button) return;
 
   button = mountTriggerButton(() => void handleClick());
-  if (button && settings.devMode) {
+  // Two gates, not one. `devMode` is a setting a user could flip; `__DEV__` is
+  // the build, and it is what keeps the fixture-capture control out of a
+  // packaged extension entirely rather than one checkbox away from appearing.
+  if (button && __DEV__ && settings.devMode) {
     button.addExtraAction("Save fixture", downloadPageSnapshot);
   }
 }

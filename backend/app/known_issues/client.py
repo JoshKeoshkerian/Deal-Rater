@@ -38,6 +38,22 @@ logger = logging.getLogger(__name__)
 #: not hold an evaluation request open.
 REQUEST_TIMEOUT_SECONDS = 30
 
+#: Codes for the absences below.
+#:
+#: All prefixed `deployment_` for one reason: every reason in this module is a
+#: fact about THIS SERVER -- no key, switched off, ran offline, call failed --
+#: and none of them is a fact about the car. Spec 10's gate codes
+#: (`title_disqualifier`, `pricing_disqualifier`, ...) are the opposite: they are
+#: verdicts a buyer needs. A renderer separates the two on this prefix and shows
+#: the buyer nothing about the deployment it happens to be talking to.
+DEPLOYMENT_CODE_PREFIX = "deployment_"
+
+NOT_CONFIGURED_CODE = "deployment_not_configured"
+DISABLED_CODE = "deployment_disabled"
+OFFLINE_CODE = "deployment_offline"
+FAILED_CODE = "deployment_call_failed"
+NOT_REQUESTED_CODE = "deployment_not_requested"
+
 NOT_CONFIGURED_REASON = (
     "Not available: no Claude API key is configured. Spec 6.6's model-specific "
     "known issues are the one part of this evaluation with a per-call cost, so "
@@ -299,11 +315,19 @@ def fetch_known_issues(
         return _serve(session, cached, cache_hit=True)
 
     if not settings.known_issues_enabled:
-        return KnownIssuesReading(unavailable_reason=DISABLED_REASON, mileage_band=band)
+        return KnownIssuesReading(
+            unavailable_reason=DISABLED_REASON, skip_code=DISABLED_CODE, mileage_band=band
+        )
     if offline:
-        return KnownIssuesReading(unavailable_reason=OFFLINE_REASON, mileage_band=band)
+        return KnownIssuesReading(
+            unavailable_reason=OFFLINE_REASON, skip_code=OFFLINE_CODE, mileage_band=band
+        )
     if not settings.anthropic_api_key:
-        return KnownIssuesReading(unavailable_reason=NOT_CONFIGURED_REASON, mileage_band=band)
+        return KnownIssuesReading(
+            unavailable_reason=NOT_CONFIGURED_REASON,
+            skip_code=NOT_CONFIGURED_CODE,
+            mileage_band=band,
+        )
 
     completion = _call_model(
         api_key=settings.anthropic_api_key,
@@ -317,13 +341,17 @@ def fetch_known_issues(
         ),
     )
     if completion is None:
-        return KnownIssuesReading(unavailable_reason=FAILED_REASON, mileage_band=band)
+        return KnownIssuesReading(
+            unavailable_reason=FAILED_REASON, skip_code=FAILED_CODE, mileage_band=band
+        )
 
     guarded, dropped = _apply_guard(completion.report)
     if guarded is None:
         # Not cached: storing it would make one bad answer permanent, and the
         # next attempt may well be clean.
-        return KnownIssuesReading(unavailable_reason=FAILED_REASON, mileage_band=band)
+        return KnownIssuesReading(
+            unavailable_reason=FAILED_REASON, skip_code=FAILED_CODE, mileage_band=band
+        )
 
     entry = KnownIssuesEntry(
         model_year=year,

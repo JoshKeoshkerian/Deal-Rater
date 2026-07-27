@@ -149,6 +149,11 @@ def parse_transmission(*texts: str | None) -> str | None:
 # body-style word in "Touring Sport Utility 4D" and a genuine trim level in
 # "Sport SUV 4D", and both spellings occur in captured data for the same model.
 # Dropping "sport" as a bare stopword would erase the trim from the second.
+#
+# The van/pickup/cab entries were added after a database pass over the 3,109
+# populated trim strings: without them "EX-L Sedan 4D" and "EX-L Minivan 4D"
+# read as different trims, as do "1500 LT Pickup 4D 5 3/4 ft" and "LT". Both
+# pairs are the same trim written against different body styles.
 _BODY_STYLE_PHRASES = (
     "sport utility",
     "suv",
@@ -158,25 +163,105 @@ _BODY_STYLE_PHRASES = (
     "convertible",
     "wagon",
     "truck",
+    "passenger van",
+    "minivan",
+    "pickup",
+    "van",
+    "crew cab",
+    "regular cab",
+    "extended cab",
+    "ext cab",
+    "quad cab",
+    "double cab",
+    "supercrew",
+    "cab",
     "4dr",
     "2dr",
     "4d",
     "2d",
+    # Bed-length tail, left behind once "5 3/4" tokenises away as bare digits.
+    "ft",
 )
+
+# Drivetrain words, stripped from the TRIM comparison specifically because
+# drivetrain is already parsed out of the same string separately
+# (`parse_drivetrain`, recorded as a note on every decision). Leaving them here
+# would count one signal twice and, worse, report a false trim mismatch every
+# time one seller wrote "EX-L FWD" and another wrote "EX-L" -- which is most of
+# them, since drivetrain is stated on a minority of listings.
+#
+# "quattro" is deliberately NOT in this list: it is Audi branding that forms
+# part of the trim name ("quattro Premium Plus"), not a bare drivetrain note.
+_DRIVETRAIN_PHRASES = (
+    "all wheel drive",
+    "front wheel drive",
+    "rear wheel drive",
+    "four wheel drive",
+    "awd",
+    "fwd",
+    "rwd",
+    "4wd",
+    "4x4",
+)
+
+# Noise stripped BEFORE punctuation is flattened, because every pattern here
+# needs the punctuation to identify itself. All of these are real forms found in
+# the stored trim strings, where the field is the leftover remainder of a title
+# split (`extension/src/shared/parse.ts`) and carries whatever the seller wrote.
+_TRIM_NOISE_PATTERNS = (
+    # Emoji and other non-ASCII: "LT 🤘 74173 Miles", "Turbo – ¡El deportivo...".
+    re.compile(r"[^\x00-\x7f]+"),
+    # Option packages. "EX-L w/Honda Sensing" is an EX-L; the package is not a
+    # trim level, and treating it as one splits a trim into two.
+    re.compile(r"\bw/.*$"),
+    # Mileage claims: "74173 Miles", "66k Miles", "124K MILES ONLY", "60k miles".
+    re.compile(r"\b\d[\d,]*\s*k?\s*miles?\b"),
+    re.compile(r"\b\d+k\b"),
+    re.compile(r"\bmiles?\b"),
+    # Dealer stock numbers, always trailing a dash: "GLI Autobahn - 515266A".
+    re.compile(r"-\s*\d{4,}[a-z]?\b"),
+    # Location bleed from dealer-style titles, anchored at the end so a real
+    # trim word is never eaten: "... FWD in Chesterfield MO".
+    re.compile(r"\bin\s+[a-z.]+(?:\s+[a-z.]+)*\s+[a-z]{2}\s*$"),
+)
+
+#: Separators to flatten, KEEPING the dot so decimal displacements survive.
+_TRIM_SEPARATORS = re.compile(r"[^a-z0-9.]+")
+
+#: A dot that is not between two digits, i.e. not part of a displacement.
+_DANGLING_DOT = re.compile(r"(?<!\d)\.|\.(?!\d)")
 
 
 def trim_tokens(trim_text: str | None) -> frozenset[str]:
-    """Meaningful trim tokens, body-style noise removed.
+    """Meaningful trim tokens, body-style and listing noise removed.
 
     "Touring Sport Utility 4D" and "Touring" read as the same trim; captured
     data writes the same car both ways. "Sport SUV 4D" keeps its "sport",
     because there it is the trim rather than the body.
+
+    ENGINE DISPLACEMENT IS PRESERVED, and that is why this does not simply
+    reuse `normalize_key`. Flattening every non-alphanumeric splits "2.0T" into
+    "2" and "0t", and the "2" is then dropped as a bare number -- so every
+    Audi and Subaru displacement trim collapsed to the token "0t" and 2.0T was
+    indistinguishable from 3.0T. "0t" was the 15th most common token across the
+    stored trim strings. The dot is kept between digits for exactly this case.
+
+    Bare integers are still dropped: they are overwhelmingly body-style
+    leftovers ("4D"), bed lengths ("5 3/4 ft") and stock numbers rather than
+    trim levels.
     """
     if not trim_text:
         return frozenset()
-    text = f" {_NON_ALNUM.sub(' ', trim_text.lower()).strip()} "
-    for phrase in _BODY_STYLE_PHRASES:
+
+    text = trim_text.lower()
+    for pattern in _TRIM_NOISE_PATTERNS:
+        text = pattern.sub(" ", text)
+
+    text = _DANGLING_DOT.sub(" ", _TRIM_SEPARATORS.sub(" ", text))
+    text = f" {' '.join(text.split())} "
+    for phrase in (*_BODY_STYLE_PHRASES, *_DRIVETRAIN_PHRASES):
         text = text.replace(f" {phrase} ", " ")
+
     return frozenset(t for t in text.split() if t and not t.replace(".", "").isdigit())
 
 

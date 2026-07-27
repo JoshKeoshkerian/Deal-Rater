@@ -8,6 +8,6 @@ anything; it ranks comps step 3 already filtered.
     finder.py  ranking, gating and the adverse-selection exclusion
 """
 
-from .finder import Alternative, AlternativesResult, find_alternatives
+from .finder import Alternative, AlternativesResult, WithheldAlternative, find_alternatives
 
-__all__ = ["Alternative", "AlternativesResult", "find_alternatives"]
+__all__ = ["Alternative", "AlternativesResult", "WithheldAlternative", "find_alternatives"]

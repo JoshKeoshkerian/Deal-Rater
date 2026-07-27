@@ -57,6 +57,18 @@ rejected the same way and for the same reason: on this data, functional form
 is not what limits accuracy. Within-comp-set variance is, and no fit shape
 fixes that -- only a wider interval and a verdict that respects it (`curve.py`)
 can.
+
+TRIM IS NOT A REGRESSOR EITHER, and that is a separate finding from the
+weighting one above -- the natural response to "weighting trim did not work" is
+"then model trim properly", so that was built too: a trim-match indicator
+alongside mileage and year, using the same `_fit_multi` solver the year term
+uses, selected by the same narrowest-interval rule. Every guard configuration
+measured WORSE than leaving it out, it fired on 4% of fits, and where it did
+fire its estimated premium was negative 40% of the time. Numbers and the full
+sweep are in `params` under "Trim as a regressor: TRIED, MEASURED, REJECTED".
+Trim stays what spec 4.3 asks for: a soft signal that moves confidence, never
+the price. `app.cli.backtest` is the harness; re-run it before proposing any of
+this again.
 """
 
 from __future__ import annotations
@@ -237,6 +249,11 @@ class AskingPriceEstimate:
         OWN mileage and year -- otherwise a high-mileage or older car looks
         like better value purely for being cheap, which is the naive ranking
         this model exists to avoid.
+
+        Trim is deliberately NOT a parameter here. The fit carries no trim term
+        -- see `params` on why one was tried and rejected -- so there is nothing
+        for a trim argument to change, and accepting one would imply the model
+        adjusts for something it does not.
         """
         if self.slope_cents_per_mile is None or self.intercept_cents is None:
             # No slope was fitted, so mileage carries no information and every
@@ -397,93 +414,129 @@ def _fit_mileage_only(
     )
 
 
-def _fit_mileage_and_year(
-    xs_mileage: list[float],
-    xs_year: list[float],
+def _solve(matrix: list[list[float]], rhs: list[float]) -> list[float] | None:
+    """Gauss-Jordan elimination with partial pivoting. None when singular.
+
+    The pivot tolerance is RELATIVE to the largest entry in the system, because
+    these are cross-products of mileages and the entries run to 1e10 or more --
+    an absolute epsilon would call every well-conditioned system singular, and a
+    fixed tiny one would never fire at all. Returning None on a marginal pivot is
+    the safe direction: the caller simply declines that candidate fit and keeps
+    the baseline.
+    """
+    k = len(rhs)
+    scale = max((abs(v) for row in matrix for v in row), default=0.0)
+    if scale == 0.0:
+        return None
+    tolerance = 1e-12 * scale
+
+    aug = [[*row, r] for row, r in zip(matrix, rhs, strict=True)]
+    for col in range(k):
+        pivot = max(range(col, k), key=lambda r: abs(aug[r][col]))
+        if abs(aug[pivot][col]) <= tolerance:
+            return None
+        aug[col], aug[pivot] = aug[pivot], aug[col]
+        for row in range(k):
+            if row == col:
+                continue
+            factor = aug[row][col] / aug[col][col]
+            for c in range(col, k + 1):
+                aug[row][c] -= factor * aug[col][c]
+    return [aug[i][k] / aug[i][i] for i in range(k)]
+
+
+def _fit_multi(
+    regressors: list[list[float]],
+    labels: tuple[str, ...],
     ys: list[float],
-    target_mileage: float,
-    target_year: float,
+    target_x: list[float],
     coverage: float,
 ) -> _Fit | None:
-    """OLS of asking price on mileage AND model year.
+    """OLS of asking price on two or more regressors, mileage always first.
 
-    An optional enhancement over `_fit_mileage_only` (see the module
-    docstring), so unlike that function this returns no reason on failure --
-    there is always a working baseline fit, and this one silently declining to
-    improve on it needs no explanation to a caller.
+    `labels` names each column so the fitted coefficients land in the right
+    fields of `_Fit`; the solver itself does not care what they mean. Only
+    ("mileage", "year") is used today -- the generality is what let a third
+    regressor be measured and rejected without restructuring the fit, and is
+    what would let the next candidate be measured the same way.
 
-    Solved via the normal equations on CENTERED regressors, which reduces a
-    3-parameter fit to a 2x2 system (mirrors the single-variable fit's use of
-    centering to keep the intercept decoupled from the slope). Verified
-    against `numpy.linalg.lstsq` on synthetic data during development; not a
-    dependency of the shipped code, which stays self-contained like the rest
-    of this module (see `tdist.py`).
+    An optional enhancement over `_fit_mileage_only` (see the module docstring),
+    so unlike that function this returns no reason on failure -- there is always
+    a working baseline fit, and this one silently declining to improve on it
+    needs no explanation to a caller.
+
+    Solved via the normal equations on CENTERED regressors, which keeps the
+    intercept decoupled from the slopes and reduces a (k+1)-parameter fit to a
+    k x k system (mirrors the single-variable fit's use of centering). The
+    two-regressor case was verified against `numpy.linalg.lstsq` on synthetic
+    data during development; numpy is not a dependency of the shipped code,
+    which stays self-contained like the rest of this module (see `tdist.py`).
     """
-    n = len(xs_mileage)
-    mean_m = sum(xs_mileage) / n
-    mean_y = sum(xs_year) / n
+    k = len(regressors)
+    n = len(ys)
+    if k == 0 or n <= k + 1:
+        return None
+
+    means = [sum(col) / n for col in regressors]
     mean_p = sum(ys) / n
-    cm = [x - mean_m for x in xs_mileage]
-    cy = [x - mean_y for x in xs_year]
+    centered = [[v - m for v in col] for col, m in zip(regressors, means, strict=True)]
     cp = [p - mean_p for p in ys]
 
-    s_mm = sum(a * a for a in cm)
-    s_yy = sum(a * a for a in cy)
-    s_my = sum(a * b for a, b in zip(cm, cy, strict=True))
-    s_mp = sum(a * b for a, b in zip(cm, cp, strict=True))
-    s_yp = sum(a * b for a, b in zip(cy, cp, strict=True))
+    cross = [
+        [sum(a * b for a, b in zip(ci, cj, strict=True)) for cj in centered] for ci in centered
+    ]
+    rhs = [sum(a * b for a, b in zip(ci, cp, strict=True)) for ci in centered]
 
-    det = s_mm * s_yy - s_my * s_my
-    if det == 0:
-        # Mileage and year are perfectly collinear in this comp set (or year
-        # does not vary at all), so their individual effects cannot be told
-        # apart. Not an error -- just nothing this fit can add.
+    beta = _solve(cross, rhs)
+    if beta is None:
+        # The regressors are collinear in this comp set -- a year that does not
+        # vary, or one perfectly predicted by mileage. Their individual effects
+        # cannot be told apart. Not an error, just nothing this fit can add.
         return None
 
-    slope_mileage = (s_mp * s_yy - s_yp * s_my) / det
-    slope_year = (s_mm * s_yp - s_my * s_mp) / det
-    intercept = mean_p - slope_mileage * mean_m - slope_year * mean_y
-
-    if slope_mileage > 0:
+    # Mileage is regressor 0 by contract. A positive coefficient says more miles
+    # command a higher asking price, which is noise at this sample size.
+    if beta[0] > 0:
         return None
 
+    intercept = mean_p - sum(b * m for b, m in zip(beta, means, strict=True))
     fitted = [
-        intercept + slope_mileage * m + slope_year * y
-        for m, y in zip(xs_mileage, xs_year, strict=True)
+        intercept + sum(b * col[i] for b, col in zip(beta, regressors, strict=True))
+        for i in range(n)
     ]
     ss_res = sum((p - f) ** 2 for p, f in zip(ys, fitted, strict=True))
     ss_tot = sum((p - mean_p) ** 2 for p in ys)
     r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else None
 
-    df = n - 3
+    df = n - k - 1
     if df <= 0:
         return None
     residual_se = (ss_res / df) ** 0.5
 
-    point = intercept + slope_mileage * target_mileage + slope_year * target_year
+    point = intercept + sum(b * x for b, x in zip(beta, target_x, strict=True))
     if point <= 0:
         return None
 
-    # Same prediction-interval form as the single-variable fit, generalised to
-    # two regressors: leverage = 1 + 1/n + x0_centered^T (X_c^T X_c)^-1
-    # x0_centered, where the 2x2 inverse is (1/det) * [[s_yy,-s_my],[-s_my,s_mm]].
-    x0_m = target_mileage - mean_m
-    x0_y = target_year - mean_y
-    quad = (s_yy * x0_m * x0_m - 2 * s_my * x0_m * x0_y + s_mm * x0_y * x0_y) / det
-    core = 1.0 / n + quad
+    # Same prediction-interval form as the single-variable fit, generalised:
+    # leverage = 1 + 1/n + x0_c^T (X_c^T X_c)^-1 x0_c. The inverse is applied by
+    # solving against x0_c rather than formed explicitly.
+    x0 = [x - m for x, m in zip(target_x, means, strict=True)]
+    solved = _solve(cross, x0)
+    if solved is None:
+        return None
+    core = 1.0 / n + sum(a * b for a, b in zip(x0, solved, strict=True))
     leverage = 1.0 + core
     if leverage < 0 or core < 0:
         return None  # Not reachable analytically; guards a sqrt of a negative.
     t = t_two_sided(coverage, df)
-    half_width = t * residual_se * (leverage**0.5)
-    mean_half_width = t * residual_se * (core**0.5)
 
+    by_label = dict(zip(labels, beta, strict=True))
     return _Fit(
         point=point,
-        half_width=half_width,
-        mean_half_width=mean_half_width,
-        slope_mileage=slope_mileage,
-        slope_year=slope_year,
+        half_width=t * residual_se * (leverage**0.5),
+        mean_half_width=t * residual_se * (core**0.5),
+        slope_mileage=by_label["mileage"],
+        slope_year=by_label.get("year"),
         intercept=intercept,
         residual_se=residual_se,
         r_squared=r_squared,
@@ -686,11 +739,21 @@ def estimate_expected_asking_price(
                 continue
             xs_year = [float(y) for y in years]
             ys_points = [float(d.candidate.price_cents) for d in points]  # type: ignore[arg-type]
-            year_fit = _fit_mileage_and_year(
-                xs_mileage, xs_year, ys_points, float(target_mileage), float(target_year), coverage
+            year_fit = _fit_multi(
+                [xs_mileage, xs_year],
+                ("mileage", "year"),
+                ys_points,
+                [float(target_mileage), float(target_year)],
+                coverage,
             )
             if year_fit is not None:
                 candidates.append((year_fit, points, restricted))
+
+    # A trim-match INDICATOR as a further regressor was tried here and removed
+    # after measurement. See `params` under "Trim as a regressor: TRIED,
+    # MEASURED, REJECTED" -- kept as a pointer rather than dead code, because
+    # the idea is the obvious next one and the experiment is worth not
+    # repeating.
 
     chosen, chosen_points, chosen_restricted = min(candidates, key=lambda c: c[0].half_width)
 

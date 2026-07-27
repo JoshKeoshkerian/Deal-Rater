@@ -24,20 +24,31 @@ happen to be.
 That reuses the fit rather than inventing a second notion of value, which keeps
 the alternatives consistent with the headline number the user was just shown.
 
-WHAT IS DELIBERATELY EXCLUDED
------------------------------
+WHAT IS SHOWN SEPARATELY RATHER THAN RECOMMENDED
+------------------------------------------------
 Comps priced so far below the line that spec 2's adverse selection is the more
 likely explanation. Sorting purely by residual would put those first, so the
 single cheapest listing in the set -- disproportionately the worst car in it --
 would become the product's top recommendation to a first-time buyer. That is the
 exact failure spec 2 describes, arrived at from the opposite direction.
+
+They are not deleted. They are returned in `withheld` with the reason attached to
+each one, because an earlier version reported only a COUNT ("3 cheaper listings
+withheld") and that is the worst of both: it tells a buyer something exists,
+declines to say what, and invites them to assume the tool is hiding a bargain.
+Either the listing is worth naming with its caveat, or it is not worth
+mentioning. Naming it with the caveat is more useful -- "this one is 38% under
+expected, which is a reason to ask why, not a saving" is exactly the education
+spec 6.3 says a first-time buyer needs.
 """
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass
 
 from ..pricing.comps import CompCandidate, CompDecision
+from ..pricing.confidence import Confidence
 from ..pricing.regression import AskingPriceEstimate
 from . import params
 
@@ -84,6 +95,38 @@ class Alternative:
 
 
 @dataclass(frozen=True)
+class WithheldAlternative:
+    """A comp that is better-priced on paper and not recommended anyway.
+
+    Carries its own reason so a renderer never has to announce a withhold it
+    cannot explain. See the module docstring.
+    """
+
+    candidate: CompCandidate
+    #: The comp's own residual against the fitted line. Deeply negative.
+    residual: float
+
+    @property
+    def url(self) -> str | None:
+        return self.candidate.listing_url
+
+    @property
+    def reason(self) -> str:
+        return (
+            f"Advertised {abs(self.residual):.0%} below what comparable listings suggest, "
+            "with nothing explaining why. A discount this deep is more often a problem "
+            "with the car than a saving."
+        )
+
+    def describe(self) -> str:
+        c = self.candidate
+        vehicle = " ".join(str(p) for p in (c.year, c.make, c.model) if p)
+        price = f"${(c.price_cents or 0) / 100:,.0f}"
+        miles = f"{c.mileage:,} mi" if c.mileage else "mileage unknown"
+        return f"{vehicle} - {price}, {miles}, {c.location_text or 'location unknown'}"
+
+
+@dataclass(frozen=True)
 class AlternativesResult:
     alternatives: tuple[Alternative, ...]
     #: True when the target is the best-priced vehicle in its own comp set.
@@ -92,12 +135,18 @@ class AlternativesResult:
     target_is_best: bool
     #: Why nothing is shown, when nothing is shown.
     suppressed_reason: str | None = None
-    #: Comps that were better-priced but too cheap to responsibly recommend.
-    withheld_as_implausible: int = 0
+    #: Comps that were better-priced but too cheap to responsibly recommend,
+    #: each with the reason attached. Shown, not counted -- see the module
+    #: docstring.
+    withheld: tuple[WithheldAlternative, ...] = ()
 
     @property
     def has_alternatives(self) -> bool:
         return bool(self.alternatives)
+
+    @property
+    def withheld_as_implausible(self) -> int:
+        return len(self.withheld)
 
     def message(self) -> str:
         if self.alternatives:
@@ -116,14 +165,13 @@ def find_alternatives(
     target: CompCandidate,
     comps: list[CompDecision],
     estimate: AskingPriceEstimate,
-    target_rating: float | None,
+    confidence: Confidence | None = None,
 ) -> AlternativesResult:
     """Find comps worth looking at instead of the target (spec 6.5).
 
-    `target_rating` is the pricing rating from step 3's curve. It gates display
-    per spec 6.5 -- alternatives are for when the target is average or worse --
-    but never gates the underlying comparison, so `target_is_best` stays truthful
-    even when nothing is displayed.
+    `confidence` gates display alongside the target's standing in its own comp
+    set -- see `_should_suppress`. Neither gates the underlying comparison, so
+    `target_is_best` stays truthful even when nothing is displayed.
     """
     # Each vehicle is priced at ITS OWN mileage (and year, when the published
     # fit uses one). Using the target's expected price as the denominator for
@@ -183,19 +231,21 @@ def find_alternatives(
     # Spec 2, applied in reverse: sorting by residual alone would promote the
     # single cheapest car in the set, which is disproportionately the worst one.
     plausible = [(c, r) for c, r in better if r > params.TOO_CHEAP_TO_RECOMMEND]
-    withheld = len(better) - len(plausible)
+    withheld = tuple(
+        WithheldAlternative(candidate=c, residual=r)
+        for c, r in sorted(
+            (pair for pair in better if pair[1] <= params.TOO_CHEAP_TO_RECOMMEND),
+            key=lambda pair: pair[1],
+        )
+    )
 
-    if target_rating is not None and target_rating > params.SHOW_WHEN_RATING_AT_OR_BELOW:
-        # Spec 6.5 gates on the target being average or worse. The comparison
-        # above still ran, so `target_is_best` remains meaningful.
+    suppressed = _should_suppress(target_residual, [r for _, r in scored], confidence)
+    if suppressed is not None:
         return AlternativesResult(
             alternatives=(),
             target_is_best=target_is_best,
-            suppressed_reason=(
-                "This listing is already well priced against its comps, so alternatives "
-                "are not worth the distraction."
-            ),
-            withheld_as_implausible=withheld,
+            suppressed_reason=suppressed,
+            withheld=withheld,
         )
 
     plausible.sort(key=lambda pair: pair[1])
@@ -220,5 +270,53 @@ def find_alternatives(
     return AlternativesResult(
         alternatives=tuple(alternatives),
         target_is_best=target_is_best,
-        withheld_as_implausible=withheld,
+        withheld=withheld,
+    )
+
+
+def _should_suppress(
+    target_residual: float,
+    comp_residuals: list[float],
+    confidence: Confidence | None,
+) -> str | None:
+    """Whether to hide alternatives, and what to say instead. None to show them.
+
+    WHY THIS IS NOT THE PRICING RATING ANY MORE
+    -------------------------------------------
+    The previous rule was `target_rating > 60`, and it contradicted the pricing
+    dimension it was supposed to agree with. A captured listing asking at the
+    87th percentile of its own expected range -- price residual its WORST
+    sub-score -- still cleared 60 on the curve and so printed "already well
+    priced against its comps" directly beneath a panel saying the opposite. One
+    absolute threshold on a curve that plateaus cannot express "better than its
+    comps"; that is a comparison, so it is now made by comparison.
+
+    Three conditions, all required to suppress:
+
+    1. THE TARGET IS AT OR BETTER THAN THE MEDIAN COMP. Lower residual is better
+       (advertised further below what its own mileage predicts), so "at or above
+       the median in price standing" is `residual <= median`. Half the comp set
+       being worse-priced is what "already well priced against its comps" has to
+       mean if it is to be said at all.
+
+    2. CONFIDENCE IS NOT LOW. Suppressing on a fit the panel is simultaneously
+       disowning asserts a ranking the same evaluation says it cannot make. When
+       confidence is low the alternatives are shown, caveats and all, and the
+       buyer decides.
+
+    3. THE TARGET IS NOT ITSELF AN IMPLAUSIBLE DISCOUNT. Condition 1 is true by
+       construction for a car advertised 40% under the line, and calling that
+       "well priced" would be spec 2's adverse selection restated as praise.
+    """
+    if confidence is Confidence.LOW or confidence is Confidence.NONE:
+        return None
+    if not comp_residuals:
+        return None
+    if target_residual <= params.TOO_CHEAP_TO_RECOMMEND:
+        return None
+    if target_residual > statistics.median(comp_residuals):
+        return None
+    return (
+        "This listing is priced better than at least half of its comparable "
+        "listings, so alternatives are not worth the distraction."
     )

@@ -24,7 +24,7 @@ from ..flags import (
 )
 from ..known_issues import KnownIssuesReading, evaluate_gate, fetch_known_issues
 from ..negotiation import assess_negotiation
-from ..nhtsa import assess_vehicle
+from ..nhtsa import assess_vehicle, enrich_target
 from ..pricing import assess_listing
 from ..pricing.loader import StoredCapture
 from .report import (
@@ -102,15 +102,37 @@ def evaluate_capture(
 ) -> Evaluation:
     """Run every dimension over one stored capture.
 
-    Order matters in one place only: pricing runs first, because the negotiation
-    interaction (spec 6.4), the scam discount signal (spec 6.3), the alternatives
-    ranking (spec 6.5) and spec 10's cost gate all take the price residual or its
-    band as an input. Nothing flows the other way -- no risk, negotiation or
-    known-issues finding is allowed to move a price (spec 2).
+    Order matters in two places.
+
+    The VIN decode runs FIRST, because spec 13.6 defines step 6 as "NHTSA
+    integration; feed decoded trim back into comp matching" and a decode that
+    arrives after the comp set is filtered cannot feed anything. `enrich_target`
+    fills a missing trim from the decode; it never overwrites a stated one.
+
+    This is NOT a risk finding moving a price, which spec 2 forbids. What
+    crosses over is the decoded SPECIFICATION -- the factory trim, a fact about
+    which vehicle this is -- and it crosses over to decide which listings are
+    comparable. The risk half of the same assessment (recalls, complaints) is
+    read only by the vehicle-risk dimension and never reaches the fit.
+
+    Then pricing runs before the rest, because the negotiation interaction
+    (spec 6.4), the scam discount signal (spec 6.3), the alternatives ranking
+    (spec 6.5) and spec 10's cost gate all take the price residual or its band
+    as an input. Nothing flows back the other way.
     """
     settings = settings or get_settings()
+    vehicle_risk = assess_vehicle(
+        session,
+        vin=capture.target_vin,
+        year=capture.target.year,
+        make=capture.target.make,
+        model=capture.target.model,
+        offline=offline,
+    )
     pricing = assess_listing(
-        capture.target, capture.candidates, location_scoped=capture.location_scoped
+        enrich_target(capture.target, vehicle_risk.spec),
+        capture.candidates,
+        location_scoped=capture.location_scoped,
     )
     residual = pricing.residual_fraction
 
@@ -130,14 +152,6 @@ def evaluate_capture(
         year=capture.target.year,
         trim_text=capture.target.trim_text,
     )
-    vehicle_risk = assess_vehicle(
-        session,
-        vin=capture.target_vin,
-        year=capture.target.year,
-        make=capture.target.make,
-        model=capture.target.model,
-        offline=offline,
-    )
     scam = assess_scam_patterns(
         description=capture.target_description,
         photo_count=capture.target_photo_count,
@@ -149,7 +163,7 @@ def evaluate_capture(
         pricing.target,
         pricing.comp_set.included,
         pricing.estimate,
-        pricing.rating.rating if pricing.rating else None,
+        pricing.confidence.level,
     )
     deal_score = compute_deal_score(
         rating=pricing.rating,

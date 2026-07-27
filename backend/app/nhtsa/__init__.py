@@ -65,6 +65,30 @@ def assess_vehicle(
     return build_assessment(decode, safety)
 
 
+def _us_market_trim(decoded: str) -> str:
+    """The US-market half of a vPIC trim that names regional variants.
+
+    vPIC writes a model sold under two names as "Touring/GS" (US/Canada) or
+    "Sport/GX", with the US name first. Left whole, that tokenises to
+    {touring, gs} and never matches a listing's "Touring" -- a mismatch caused
+    entirely by how the decode is spelled rather than by the cars differing,
+    which is the failure mode `enrich_target` exists to avoid.
+
+    Splits only when the tail is a SINGLE alphanumeric word, which is what a
+    regional alternate name looks like -- "Touring/GS", "Grand Touring/GT".
+    A slash inside one longer description does not split: "S 4dr/AWD Sport"
+    is one trim written awkwardly, not two names for the same car, and
+    truncating it at the slash would invent a trim that does not exist.
+    """
+    head, sep, tail = decoded.partition("/")
+    if not sep:
+        return decoded
+    head, tail = head.strip(), tail.strip()
+    if head and tail.isalnum():
+        return head
+    return decoded
+
+
 def enrich_target(target: CompCandidate, spec: DecodedSpec | None) -> CompCandidate:
     """Fold a VIN decode back into the comp-matching candidate (spec 13.6).
 
@@ -84,6 +108,18 @@ def enrich_target(target: CompCandidate, spec: DecodedSpec | None) -> CompCandid
       across comps. Supplying them for the target alone would not make them
       comparable; it would just make the target look better specified than
       everything it is measured against.
+
+    REACH IS SMALL, and worth stating so this is not mistaken for a fix to the
+    trim problem generally. It fires only when a listing supplies a VIN AND
+    states no trim -- roughly 1 listing in 300 carries a VIN at all, and ~90%
+    of targets already state something. It removes a specific gap; it does not
+    move the average case.
+
+    A KNOWN RESIDUAL MISMATCH: vPIC sometimes describes a trim by drivetrain
+    branding where listings describe it by engine ("quattro Premium Plus"
+    against "2.0T Premium Plus"). Those still read as different trims. Closing
+    that needs a per-make trim vocabulary, which is not worth building until
+    comps carry VINs and both sides can be decoded the same way.
     """
     if spec is None or not spec.clean_decode or not spec.trim:
         return target
@@ -92,4 +128,4 @@ def enrich_target(target: CompCandidate, spec: DecodedSpec | None) -> CompCandid
 
     from dataclasses import replace
 
-    return replace(target, trim_text=spec.trim)
+    return replace(target, trim_text=_us_market_trim(spec.trim))

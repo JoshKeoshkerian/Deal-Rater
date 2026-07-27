@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from ..alternatives import AlternativesResult
 from ..flags import CompletenessReading, ScamAssessment, TitleReading
 from ..known_issues import KnownIssuesReading
-from ..known_issues.client import NOT_REQUESTED_REASON
+from ..known_issues.client import NOT_REQUESTED_CODE, NOT_REQUESTED_REASON
 from ..negotiation import NegotiationAssessment
 from ..nhtsa import VehicleRiskAssessment
 from ..pricing import PricingAssessment
@@ -81,7 +81,9 @@ class Evaluation:
 
     # 7. Spec 6.6's cached, qualitative-only ownership context.
     known_issues: KnownIssuesReading = field(
-        default_factory=lambda: KnownIssuesReading(unavailable_reason=NOT_REQUESTED_REASON)
+        default_factory=lambda: KnownIssuesReading(
+            unavailable_reason=NOT_REQUESTED_REASON, skip_code=NOT_REQUESTED_CODE
+        )
     )
 
     notices: tuple[str, ...] = field(

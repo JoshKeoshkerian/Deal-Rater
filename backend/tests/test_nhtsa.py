@@ -29,7 +29,7 @@ from app.nhtsa import (
     normalize_vin,
 )
 from app.nhtsa.assessment import DecodedSpec
-from app.pricing.comps import CompCandidate
+from app.pricing.comps import CompCandidate, trim_tokens, trims_agree
 
 #: A real, check-digit-valid VIN: the 2017 RAV4 recovered from capture 10.
 REAL_VIN = "2T3ZFREV8HW358324"
@@ -258,6 +258,40 @@ class TestFeedingTrimBackIntoComps:
         # it is measured against.
         enriched = enrich_target(self._target(), self._spec())
         assert "4x2" not in (enriched.trim_text or "")
+
+    def test_a_regional_alternate_name_is_reduced_to_the_us_one(self):
+        # vPIC writes a model sold under two names as "Touring/GS", US first.
+        # Whole, that tokenises to {touring, gs} and never matches a listing's
+        # "Touring" -- a mismatch caused by spelling, not by the cars differing.
+        enriched = enrich_target(self._target(), self._spec(trim="Touring/GS"))
+        assert enriched.trim_text == "Touring"
+        assert trims_agree(trim_tokens(enriched.trim_text), trim_tokens("Touring Sport Utility 4D"))
+
+    def test_a_slash_inside_one_description_is_not_split(self):
+        # "S 4dr/AWD Sport" is one trim written awkwardly, not two names for the
+        # same car. Truncating at the slash would invent a trim.
+        enriched = enrich_target(self._target(), self._spec(trim="S 4dr/AWD Sport"))
+        assert enriched.trim_text == "S 4dr/AWD Sport"
+
+    def test_a_plain_decoded_trim_matches_listing_text_directly(self):
+        enriched = enrich_target(self._target(), self._spec(trim="LE"))
+        assert trims_agree(trim_tokens(enriched.trim_text), trim_tokens("LE Sedan 4D"))
+
+
+class TestTheDecodeReachesPricing:
+    """Spec 13.6 defines step 6 as "feed decoded trim back into comp matching".
+    A decode that arrives after the comp set is filtered feeds nothing."""
+
+    def test_the_decode_runs_before_the_comp_filter(self):
+        # Asserted structurally rather than by mocking: `evaluate_capture` must
+        # call assess_vehicle before assess_listing, or enrichment is dead code.
+        import inspect
+
+        from app.evaluation import evaluate_capture
+
+        body = inspect.getsource(evaluate_capture)
+        assert body.index("assess_vehicle") < body.index("assess_listing")
+        assert "enrich_target" in body
 
 
 class TestAssessmentDegradesGracefully:
