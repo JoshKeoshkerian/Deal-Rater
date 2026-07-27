@@ -1,0 +1,142 @@
+"""The full evaluation, in spec 7's output order (build step 8).
+
+Spec 7:
+
+    1. Headline: deal score, confidence, and the expected price comparison
+    2. Pricing: the four-number range from section 5.1
+    3. Vehicle risk: known issues, recalls, title flags
+    4. Seller and scam risk: ONLY WHEN THERE IS SOMETHING TO SAY
+    5. Negotiation: strength, leverage points, suggested offer with reasoning
+    6. Better alternatives
+    7. What to check on this specific car
+
+Item 7 is not built. It is spec 6.6's cached LLM call, which needs an API key and
+costs money per evaluation (spec 3's billing note). Spec 13 lists it under 6.6
+rather than step 8, and `known_issues` stays None with a reason attached so its
+absence is visible rather than silently missing.
+
+Item 4's "only when there is something to say" is honoured literally: the seller
+section is None when nothing fired, rather than an empty heading.
+
+LIABILITY FRAMING IS PART OF THE PAYLOAD, NOT THE TERMS
+-------------------------------------------------------
+Spec 7: "informational analysis of a listing, not a purchase recommendation, and
+never a substitute for a pre-purchase inspection or vehicle history report. IN
+THE UI, not just the terms." So `DISCLAIMER` ships inside the evaluation itself,
+where a renderer cannot forget it.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from ..alternatives import AlternativesResult
+from ..flags import CompletenessReading, ScamAssessment, TitleReading
+from ..negotiation import NegotiationAssessment
+from ..nhtsa import VehicleRiskAssessment
+from ..pricing import PricingAssessment
+from .score import DealScore
+
+DISCLAIMER = (
+    "Informational analysis of a listing, not a purchase recommendation. Never a "
+    "substitute for a pre-purchase inspection or a vehicle history report."
+)
+
+#: Spec 9: "Until step 1 is done, present output as a beta signal, not an
+#: authoritative rating." Step 1 is the manual ground truth set, which does not
+#: exist, so this ships on every evaluation.
+BETA_NOTICE = (
+    "Beta signal, not an authoritative rating. The scoring weights and the "
+    "discount curve are starting hypotheses that have not been checked against "
+    "hand-evaluated listings yet."
+)
+
+ASKING_PRICE_NOTICE = (
+    "Marketplace shows asking prices, not sale prices. Every figure here "
+    "describes how comparable vehicles are ADVERTISED, not what they sell for."
+)
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    """One listing, fully assessed, in spec 7's order."""
+
+    # 1. Headline
+    deal_score: DealScore
+    pricing: PricingAssessment
+
+    # 2-6
+    title: TitleReading
+    completeness: CompletenessReading
+    vehicle_risk: VehicleRiskAssessment
+    scam: ScamAssessment
+    negotiation: NegotiationAssessment
+    alternatives: AlternativesResult
+
+    # 7. Spec 6.6, deliberately not built at this step.
+    known_issues: str | None = None
+    known_issues_unavailable_reason: str = (
+        "Model-specific known issues come from spec 6.6's cached LLM call, which "
+        "is not wired up: it needs a Claude API key and costs money per "
+        "evaluation (spec 3)."
+    )
+
+    notices: tuple[str, ...] = field(
+        default_factory=lambda: (BETA_NOTICE, ASKING_PRICE_NOTICE, DISCLAIMER)
+    )
+
+    @property
+    def has_seller_section(self) -> bool:
+        """Spec 7.4: seller and scam risk appear "only when there is something
+        to say"."""
+        return bool(self.scam.fired) or self.negotiation.seller.is_dealer
+
+    def headline(self) -> str:
+        """Spec 7's first line: score, confidence, expected price comparison."""
+        confidence = self.pricing.confidence.level.value
+        estimate = self.pricing.estimate
+
+        if not estimate.has_estimate:
+            return (
+                f"No expected asking price: {estimate.n_included} comparable "
+                f"listing(s) is too few to say anything. Confidence: {confidence}."
+            )
+
+        low = (estimate.asking_interval_low_cents or 0) / 100
+        high = (estimate.asking_interval_high_cents or 0) / 100
+        ask = (self.pricing.ask_cents or 0) / 100
+
+        score = (
+            f"{self.deal_score.score:.0f} / 100"
+            if self.deal_score.score is not None
+            else "score withheld"
+        )
+        return (
+            f"{score}, {confidence} confidence. Comparable listings suggest an "
+            f"expected asking range of ${low:,.0f} to ${high:,.0f}. This asks ${ask:,.0f}."
+        )
+
+
+def build_evaluation(
+    *,
+    pricing: PricingAssessment,
+    negotiation: NegotiationAssessment,
+    title: TitleReading,
+    completeness: CompletenessReading,
+    vehicle_risk: VehicleRiskAssessment,
+    scam: ScamAssessment,
+    alternatives: AlternativesResult,
+    deal_score: DealScore,
+) -> Evaluation:
+    """Assemble the finished evaluation. Pure composition; nothing is computed
+    here that the dimension modules did not already decide."""
+    return Evaluation(
+        deal_score=deal_score,
+        pricing=pricing,
+        title=title,
+        completeness=completeness,
+        vehicle_risk=vehicle_risk,
+        scam=scam,
+        negotiation=negotiation,
+        alternatives=alternatives,
+    )

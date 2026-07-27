@@ -7,17 +7,28 @@
  * backend host permission and owns all outbound API traffic.
  */
 
-import type { ExtractionIssue, CapturePayload, CaptureResponse, ObservationPayload } from "./types";
+import type {
+  CapturePayload,
+  CaptureResponse,
+  EvaluationResponse,
+  ExtractionIssue,
+  ObservationPayload,
+} from "./types";
 
 export type ContentToBackground =
   | { type: "SUBMIT_CAPTURE"; payload: CapturePayload }
   | { type: "HARVEST_COMPS_VIA_TAB"; url: string }
-  | { type: "CONTENT_READY"; url: string };
+  | { type: "CONTENT_READY"; url: string }
+  | { type: "FETCH_EVALUATION"; captureId: number };
 
 export type BackgroundToContent = { type: "HARVEST_COMPS" };
 
 export type SubmitCaptureResult =
   | { ok: true; response: CaptureResponse }
+  | { ok: false; error: string };
+
+export type EvaluationResult =
+  | { ok: true; evaluation: EvaluationResponse }
   | { ok: false; error: string };
 
 export type HarvestResult =

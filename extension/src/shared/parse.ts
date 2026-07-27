@@ -181,6 +181,14 @@ function canonicalMake(raw: string): string {
   return MAKE_CANONICAL[raw.toLowerCase()] ?? titleCase(raw);
 }
 
+/** Whether a fragment begins with a make this parser recognises. */
+function startsWithKnownMake(fragment: string): boolean {
+  const lower = fragment.toLowerCase();
+  if (!lower) return false;
+  if (MULTI_WORD_MAKES.some((m) => lower === m || lower.startsWith(`${m} `))) return true;
+  return MAKES.includes(lower.split(" ")[0] ?? "");
+}
+
 /**
  * Split a listing title into year / make / model / trim.
  *
@@ -200,10 +208,22 @@ export function parseVehicleTitle(raw: string | null | undefined): ParsedVehicle
       ? Number(yearMatch[1])
       : null;
 
-  // Everything after the year is the vehicle description; before it is usually
-  // noise ("Sold", "Price drop").
-  const afterYear = yearMatch ? text.slice(yearMatch.index! + yearMatch[0].length) : text;
-  const cleaned = collapseWhitespace(afterYear.replace(/[·|,]/g, " "));
+  // Usually the year leads and the vehicle follows it, with any noise ("Sold",
+  // "Price drop") in front. But sellers also write the year LAST --
+  // "Porsche 911 Carrera Cabriolet 1984" occurs in captured data -- and slicing
+  // after the year there leaves an empty string, losing make and model
+  // entirely. So try the text after the year, and fall back to the text before
+  // it when that yields nothing to parse.
+  const tidy = (value: string) => collapseWhitespace(value.replace(/[·|,]/g, " "));
+
+  let cleaned: string;
+  if (yearMatch) {
+    const after = tidy(text.slice(yearMatch.index! + yearMatch[0].length));
+    const before = tidy(text.slice(0, yearMatch.index!));
+    cleaned = startsWithKnownMake(after) || !startsWithKnownMake(before) ? after : before;
+  } else {
+    cleaned = tidy(text);
+  }
   const lower = cleaned.toLowerCase();
 
   let make: string | null = null;

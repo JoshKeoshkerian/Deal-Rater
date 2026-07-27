@@ -52,15 +52,47 @@ LABEL_HELP = """
 
 
 def _targets(session: Session) -> list[tuple[ListingObservation, Listing]]:
-    """Target observations only. Comps are search-result cards carrying title
-    and mileage and nothing else -- too little for a person to judge honestly."""
+    """Target observations to label, one per distinct vehicle-and-price.
+
+    Comps are excluded: a search-result card carries a title and a mileage and
+    nothing else, which is too little for a person to judge honestly.
+
+    Repeat captures of the same car are collapsed. Capturing one listing twice
+    is legitimate and wanted -- append-only observations are what spec 4.4's
+    time series is built from -- but a ground truth set is a set of JUDGEMENTS,
+    and judging the same vehicle at the same price twice does not add evidence.
+    It inflates the label count toward spec 9.1's target of 50 while adding
+    nothing, and double-weights that car in the agreement figure.
+
+    Keyed on price as well as vehicle, so the SAME car relisted at a NEW price
+    is offered again. That is a genuinely different question for a buyer, and
+    the earlier verdict does not answer it.
+    """
     rows = session.execute(
         select(ListingObservation, Listing)
         .join(Listing, Listing.id == ListingObservation.listing_id)
         .where(ListingObservation.role == "target")
         .order_by(ListingObservation.observed_at)
     ).all()
-    return [(o, listing) for o, listing in rows]
+
+    seen: set[tuple] = set()
+    unique: list[tuple[ListingObservation, Listing]] = []
+    for obs, listing in rows:
+        key = (
+            obs.year,
+            (obs.make or "").lower(),
+            (obs.model or "").lower(),
+            obs.price_cents,
+            obs.mileage,
+        )
+        # A row with no vehicle at all cannot be deduplicated meaningfully, so
+        # it is kept rather than collapsed against other unidentified rows.
+        if obs.make and obs.model:
+            if key in seen:
+                continue
+            seen.add(key)
+        unique.append((obs, listing))
+    return unique
 
 
 def _existing(session: Session, labeler: str) -> dict[int, GroundTruthLabel]:

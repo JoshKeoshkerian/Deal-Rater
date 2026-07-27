@@ -36,22 +36,38 @@ export function isListingNode(node: JsonObject): boolean {
 /**
  * The listing object for the page being viewed.
  *
- * Matching on the URL's listing id first is what keeps this from returning a
- * "similar listings" card. Only when that fails does it fall back to the first
- * listing-shaped object, which is a guess and is treated as one.
+ * Matching on the URL's listing id is what keeps this from returning a "similar
+ * listings" card or, worse, the listing the user was looking at a moment ago.
+ *
+ * WHEN THE ID IS KNOWN AND NOTHING MATCHES IT, THIS RETURNS NULL.
+ *
+ * It used to fall back to the first listing-shaped object on the page. That
+ * silently corrupted identity, and captured data proves it: two captures share
+ * listing id 2061074687826390 while describing completely different cars, a 2010
+ * Mercedes C-Class and a 2017 Infiniti Q50. Marketplace is a single-page app, so
+ * clicking from one listing to another changes the URL immediately while the new
+ * listing's payload is still in flight. Evaluating in that window paired the new
+ * URL's id with the old listing's data.
+ *
+ * That is the worst possible failure for this project. Spec 4.4 builds a
+ * per-listing time series keyed on exactly this id, so a mismatch does not just
+ * produce one bad row -- it attributes one car's price history to another, and
+ * nothing downstream can detect it.
+ *
+ * No data beats wrong data here. The remaining cascades read the rendered DOM,
+ * which does match the URL, so fields still resolve; they simply resolve from a
+ * weaker tier, which the self-check already records.
  */
 export function findTargetListingNode(
   payloads: unknown[],
   listingId: string | null,
 ): JsonObject | null {
   if (listingId) {
-    const exact = findObject(
-      payloads,
-      (node) => isListingNode(node) && nodeId(node) === listingId,
-    );
-    if (exact) return exact;
+    return findObject(payloads, (node) => isListingNode(node) && nodeId(node) === listingId);
   }
 
+  // No id to match against -- an unusual route rather than a stale page. The
+  // first listing-shaped object is a guess, but there is nothing to contradict.
   return findObject(payloads, isListingNode);
 }
 

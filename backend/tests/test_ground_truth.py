@@ -159,3 +159,70 @@ class TestLabelStatus:
 
     def test_the_label_vocabulary_matches_the_spec(self):
         assert set(label_cli.LABELS.values()) == {"good_deal", "fair", "overpriced", "avoid"}
+
+
+class TestLabelDeduplication:
+    """A ground truth set is a set of judgements, not of observations."""
+
+    def _target(self, session, capture, listing_id, **kw):
+        from app.models import Listing as L
+
+        listing = L(
+            source="facebook_marketplace",
+            source_listing_id=listing_id,
+            first_observed_at=datetime.now(UTC),
+            last_observed_at=datetime.now(UTC),
+        )
+        session.add(listing)
+        session.flush()
+        base = dict(
+            year=2021, make="Hyundai", model="Kona", price_cents=1_050_000, mileage=125_625
+        )
+        base.update(kw)
+        obs = ListingObservation(
+            listing_id=listing.id,
+            capture_id=capture.id,
+            observed_at=datetime.now(UTC),
+            role="target",
+            field_strategies={},
+            **base,
+        )
+        session.add(obs)
+        session.commit()
+        return obs
+
+    def _capture(self, session, n):
+        c = Capture(
+            client_capture_id=f"{n:08d}-0000-0000-0000-000000000000",
+            client_name="test",
+            client_version="0",
+            captured_at=datetime.now(UTC),
+            received_at=datetime.now(UTC),
+            comp_count=0,
+        )
+        session.add(c)
+        session.commit()
+        return c
+
+    def test_the_same_car_captured_twice_is_offered_once(self, session):
+        # Captured data: a 2021 Kona appears in captures 16 and 17 under two
+        # different listing ids at the same price and mileage.
+        for n, sid in ((1, "111"), (2, "222")):
+            self._target(session, self._capture(session, n), sid)
+        assert len(label_cli._targets(session)) == 1
+
+    def test_a_relisted_car_at_a_new_price_is_offered_again(self, session):
+        self._target(session, self._capture(session, 1), "111", price_cents=1_050_000)
+        self._target(session, self._capture(session, 2), "222", price_cents=900_000)
+        assert len(label_cli._targets(session)) == 2
+
+    def test_different_cars_are_both_offered(self, session):
+        self._target(session, self._capture(session, 1), "111")
+        self._target(session, self._capture(session, 2), "222", model="Tucson")
+        assert len(label_cli._targets(session)) == 2
+
+    def test_unidentified_rows_are_not_collapsed_together(self, session):
+        # Two rows with no make or model are not evidence of the same car.
+        self._target(session, self._capture(session, 1), "111", make=None, model=None)
+        self._target(session, self._capture(session, 2), "222", make=None, model=None)
+        assert len(label_cli._targets(session)) == 2

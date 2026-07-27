@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import captures, health, telemetry
+from app.api import captures, evaluations, health, telemetry
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -54,3 +54,4 @@ else:
 app.include_router(health.router)
 app.include_router(captures.router)
 app.include_router(telemetry.router)
+app.include_router(evaluations.router)

@@ -5,37 +5,54 @@
  * Nothing here schedules, repeats, or broadens a search on its own — that is
  * the binding constraint in 8.1 and it is a property of the code, not a policy.
  *
- * The search is scoped to the *target listing's* coordinates, not the user's
- * Marketplace location. That was a real defect in the captured data and it is
+ * The search is scoped to the *target listing's* location, not the user's
+ * Marketplace location. That was a real defect in captured data and it is
  * silent: the comp set looks populated and is simply about a different market.
+ * A Nashville listing was benchmarked entirely against St. Louis comps.
  *
- * Facebook's parameter names on this route are not stable, and a wrong one
- * returns zero results rather than erroring. Every call therefore carries a
- * `fallbackUrl` with the location parameters removed, and the caller retries
- * with it before concluding the market is empty — so an unrecognised parameter
- * costs one extra request instead of silently emptying the comp set. Confirm
- * the names against a live search page when one is to hand; they have not been
- * verified since the change.
+ * HOW MARKETPLACE ACTUALLY SCOPES LOCATION
+ * ----------------------------------------
+ * By PATH SEGMENT, not by query parameter:
  *
- * Year-range parameters are still omitted for the same unverified-name reason.
- * Progressive widening — radius first, then year range — is step 3's fallback.
+ *     /marketplace/<location_vanity_or_id>/search/?query=...
+ *
+ * An earlier attempt here passed `latitude`/`longitude`/`radius_km` as query
+ * parameters. Facebook ignores those and returns zero results, which the
+ * fallback below caught — capture 6 came back with `location_scoped: false`,
+ * proving the parameters were wrong rather than merely unverified.
+ *
+ * The place id is confirmed against captured listing pages: every one carries
+ * exactly one `location_vanity_or_id` matching its own city, and Marketplace's
+ * own category links use it in this position.
+ *
+ * A wrong path still returns zero rather than erroring, so `fallbackUrl` stays:
+ * an unrecognised location costs one extra request instead of silently emptying
+ * the comp set.
+ *
+ * Radius is NOT set. Payloads carry `"location":{"radius":65}`, but the query
+ * parameter that sets it is unconfirmed, and the metro is the part that
+ * matters. Progressive widening is step 3's fallback.
  */
 
 import type { ObservationPayload } from "../shared/types";
 
-const SEARCH_BASE = "https://www.facebook.com/marketplace/search/";
+const MARKETPLACE_ROOT = "https://www.facebook.com/marketplace";
+const SEARCH_BASE = `${MARKETPLACE_ROOT}/search/`;
+
+/** Place ids are numeric, but Facebook also accepts vanity slugs like "nyc". */
+const LOCATION_ID_RE = /^[A-Za-z0-9.-]{3,64}$/;
 
 export interface CompSearchQuery extends Record<string, unknown> {
   query: string;
   /** What the query was built from, so a bad comp set can be diagnosed later. */
   derived_from: { year: number | null; make: string | null; model: string | null };
   /**
-   * The target's own coordinates, when the listing page carried them, plus the
-   * radius asked for. Recorded whether or not the search honoured them, so that
-   * a comp set drawn from the wrong metro is visible in the data rather than
+   * The Facebook place id the search was scoped to, or null when the listing
+   * page carried none. Recorded whether or not the search honoured it, so a
+   * comp set drawn from the wrong metro is visible in the data rather than
    * having to be inferred from city names after the fact.
    */
-  origin: { latitude: number; longitude: number; radius_km: number } | null;
+  location_id: string | null;
 }
 
 export interface CompSearch {
@@ -50,16 +67,6 @@ export interface CompSearch {
 }
 
 /**
- * Default search radius.
- *
- * Placeholder pending the section 0 comp-density numbers, which are not in the
- * repo yet. 65 miles is the widest of Facebook's own presets that still keeps
- * comps in one metro for the launch markets; step 3's fallback widens from here
- * when the comp count comes up short.
- */
-export const DEFAULT_RADIUS_KM = 105;
-
-/**
  * Build the search for a target listing.
  *
  * Returns null when there is not enough to search on. A search for "Toyota"
@@ -69,38 +76,32 @@ export const DEFAULT_RADIUS_KM = 105;
  */
 export function buildCompSearch(
   target: ObservationPayload,
-  radiusKm: number = DEFAULT_RADIUS_KM,
+  locationId: string | null = null,
 ): CompSearch | null {
-  const { year, make, model, latitude, longitude } = target;
+  const { year, make, model } = target;
   if (!model || !make) return null;
 
   const terms = [year !== null ? String(year) : null, make, model].filter(Boolean);
   const query = terms.join(" ");
 
-  const base = new URL(SEARCH_BASE);
-  base.searchParams.set("query", query);
-  const unscoped = base.toString();
+  const unscoped = new URL(SEARCH_BASE);
+  unscoped.searchParams.set("query", query);
 
-  // Without these, the search runs against whatever metro the *user's* account
-  // is set to, not the one the car is in. A Nashville listing evaluated by a
-  // St. Louis user was benchmarked entirely against St. Louis comps 300 miles
-  // away, which is a wrong expected price no amount of modelling recovers.
-  const hasOrigin = latitude !== null && longitude !== null;
-  if (hasOrigin) {
-    base.searchParams.set("latitude", String(latitude));
-    base.searchParams.set("longitude", String(longitude));
-    base.searchParams.set("radius_km", String(radiusKm));
+  const scoped = LOCATION_ID_RE.test(locationId ?? "") ? locationId : null;
+  if (scoped === null) {
+    return {
+      url: unscoped.toString(),
+      fallbackUrl: null,
+      query: { query, derived_from: { year, make, model }, location_id: null },
+    };
   }
 
+  const url = new URL(`${MARKETPLACE_ROOT}/${scoped}/search/`);
+  url.searchParams.set("query", query);
+
   return {
-    url: base.toString(),
-    fallbackUrl: hasOrigin ? unscoped : null,
-    query: {
-      query,
-      derived_from: { year, make, model },
-      origin: hasOrigin
-        ? { latitude: latitude!, longitude: longitude!, radius_km: radiusKm }
-        : null,
-    },
+    url: url.toString(),
+    fallbackUrl: unscoped.toString(),
+    query: { query, derived_from: { year, make, model }, location_id: scoped },
   };
 }

@@ -80,6 +80,10 @@ class AskingPriceEstimate:
     #: Cents of asking price per mile. Negative for a normal fit. None when no
     #: slope was estimated.
     slope_cents_per_mile: float | None
+    #: Fitted intercept, in cents. Together with the slope this lets any
+    #: vehicle be priced at ITS OWN mileage rather than the target's, which is
+    #: what step 7 needs to rank alternatives by value instead of by sticker.
+    intercept_cents: float | None
     #: Residual standard error of the fit, in cents.
     residual_std_error_cents: float | None
     #: Share of asking-price variance explained by mileage alone.
@@ -147,6 +151,34 @@ class AskingPriceEstimate:
             return None
         return (ask_cents - self.expected_asking_cents) / self.expected_asking_cents
 
+    def predict_asking_cents(self, mileage: int | None) -> int | None:
+        """Expected ASKING price at an arbitrary mileage.
+
+        `expected_asking_cents` is this evaluated at the TARGET's mileage. Any
+        comparison BETWEEN vehicles has to price each one at its own mileage --
+        otherwise a high-mileage car looks like better value purely for being
+        cheap, which is the naive ranking this model exists to avoid.
+        """
+        if self.slope_cents_per_mile is None or self.intercept_cents is None:
+            # No slope was fitted, so mileage carries no information and every
+            # vehicle shares the one location estimate.
+            return self.expected_asking_cents
+        if mileage is None:
+            return self.expected_asking_cents
+        value = self.intercept_cents + self.slope_cents_per_mile * float(mileage)
+        return int(value) if value > 0 else None
+
+    def residual_against_own_expectation(
+        self, ask_cents: int | None, mileage: int | None
+    ) -> float | None:
+        """Signed residual of a vehicle against its OWN expected asking price."""
+        if ask_cents is None or ask_cents < params.MIN_PLAUSIBLE_PRICE_CENTS:
+            return None
+        expected = self.predict_asking_cents(mileage)
+        if not expected:
+            return None
+        return (ask_cents - expected) / expected
+
     def within_interval(self, ask_cents: int | None) -> bool | None:
         if (
             ask_cents is None
@@ -200,6 +232,7 @@ def _median_estimate(
         n_fit_points=n_with_mileage,
         n_included=n_included,
         slope_cents_per_mile=None,
+        intercept_cents=None,
         residual_std_error_cents=None,
         r_squared=None,
         fallback_reasons=reasons,
@@ -230,6 +263,7 @@ def estimate_expected_asking_price(
             n_fit_points=len(fit_points),
             n_included=n_included,
             slope_cents_per_mile=None,
+            intercept_cents=None,
             residual_std_error_cents=None,
             r_squared=None,
             fallback_reasons=(
@@ -330,6 +364,7 @@ def estimate_expected_asking_price(
         n_fit_points=n,
         n_included=n_included,
         slope_cents_per_mile=slope,
+        intercept_cents=intercept,
         residual_std_error_cents=residual_se,
         r_squared=r_squared,
         robust_asking_cents=robust_point,

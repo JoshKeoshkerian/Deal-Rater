@@ -9,6 +9,7 @@
 import { listingIdFromUrl } from "../shared/parse";
 import type { ExtractionIssue, ObservationPayload } from "../shared/types";
 import { ExtractionContext } from "./context";
+import { FB_KEYS } from "./fb-keys";
 import { descriptionBlock, listingHeaderBlock } from "./fields/dom-blocks";
 import { findTargetListingNode } from "./fields/listing-node";
 import { resolveMileage } from "./fields/odometer";
@@ -20,6 +21,7 @@ import { resolveDescription, resolveVin } from "./fields/text";
 import { resolvePosting } from "./fields/timing";
 import { resolveVehicle } from "./fields/vehicle";
 import { ExtractionRecorder, TARGET_FIELD_EXPECTATIONS } from "./self-check";
+import { findValueByKey } from "./strategies/json-payload";
 import { canonicalUrl, ogUrl } from "./strategies/meta-tags";
 
 export interface TargetExtraction {
@@ -28,6 +30,12 @@ export interface TargetExtraction {
   pageSignature: string;
   /** False when the listing could not be identified at all. */
   usable: boolean;
+  /**
+   * Facebook place id for the listing's own location, used to scope the comp
+   * search to the right metro. Deliberately NOT part of the observation: it is
+   * a routing token for one search, not a fact about the vehicle.
+   */
+  locationId: string | null;
 }
 
 /** Canonical listing URL, rebuilt from the id so referral parameters are dropped. */
@@ -81,6 +89,17 @@ export async function extractTargetListing(
   const posting = resolvePosting(recorder, node, headerBlock, now);
   const seller = await resolveSeller(recorder, node, main, sourceListingId);
 
+  // Routing token for the comp search, not a field of the observation. Read
+  // from anywhere in the page payloads rather than from the listing node: it
+  // sits on a sibling container, not on the listing object itself.
+  // `findValueByKey` is safe here: "location_vanity_or_id" is specific enough
+  // to be unambiguous, which is the condition its docstring sets.
+  const rawLocationId = findValueByKey(ctx.payloads, FB_KEYS.locationVanityOrId);
+  const locationId =
+    typeof rawLocationId === "string" && /^[A-Za-z0-9.-]{3,64}$/.test(rawLocationId)
+      ? rawLocationId
+      : null;
+
   const observation: ObservationPayload = {
     source: "facebook_marketplace",
     source_listing_id: sourceListingId ?? "",
@@ -125,5 +144,6 @@ export async function extractTargetListing(
     issues: recorder.issues,
     pageSignature: ctx.pageSignature,
     usable: sourceListingId !== null,
+    locationId,
   };
 }

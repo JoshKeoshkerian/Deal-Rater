@@ -1,24 +1,31 @@
 /**
  * Service worker.
  *
- * Two jobs, and no others: post captures to the backend, and drive the
- * background-tab fallback for the comp search. It holds no timers, registers no
+ * Three jobs, and no others: post captures to the backend, fetch the resulting
+ * evaluation, and drive the background-tab fallback for the comp search. It holds no timers, registers no
  * alarms, and does nothing at all unless a content script asks it to — the
  * user-initiated constraint in spec 8.1 is a property of this file's structure.
  */
 
 import type {
   ContentToBackground,
+  EvaluationResult,
   HarvestResult,
   SubmitCaptureResult,
 } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
-import { postCapture } from "./api-client";
+import { fetchEvaluation, postCapture } from "./api-client";
 
 const TAB_LOAD_TIMEOUT_MS = 30_000;
 
 /** Tabs opened for a comp harvest, awaiting their content script's ready signal. */
 const pendingHarvests = new Map<number, (tabId: number) => void>();
+
+async function handleEvaluation(captureId: number): Promise<EvaluationResult> {
+  const settings = await loadSettings();
+  const evaluation = await fetchEvaluation(settings.apiBaseUrl, captureId);
+  return { ok: true, evaluation };
+}
 
 chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, sendResponse) => {
   if (message?.type === "SUBMIT_CAPTURE") {
@@ -26,6 +33,15 @@ chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, send
       .then(sendResponse)
       .catch((error: unknown) =>
         sendResponse({ ok: false, error: describe(error) } satisfies SubmitCaptureResult),
+      );
+    return true;
+  }
+
+  if (message?.type === "FETCH_EVALUATION") {
+    handleEvaluation(message.captureId)
+      .then(sendResponse)
+      .catch((error: unknown) =>
+        sendResponse({ ok: false, error: describe(error) } satisfies EvaluationResult),
       );
     return true;
   }

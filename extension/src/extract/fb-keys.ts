@@ -40,6 +40,14 @@ export const FB_KEYS = {
   latitude: ["latitude"],
   longitude: ["longitude"],
   reverseGeocode: ["reverse_geocode", "reverse_geocode_detailed"],
+  /**
+   * Facebook's own place id for the listing's location, e.g. "105517276147313".
+   * Marketplace scopes a search by PATH SEGMENT -- /marketplace/<id>/search/ --
+   * not by latitude/longitude query parameters. Confirmed against captured
+   * listing pages, each of which carries exactly one of these matching its own
+   * city.
+   */
+  locationVanityOrId: ["location_vanity_or_id"],
   city: ["city"],
   state: ["state", "state_page"],
   displayName: ["display_name"],

@@ -214,10 +214,14 @@ class TestAskingPriceSemantics:
         # not what they sell for, and the naming is what stops the weaker claim
         # being quietly upgraded later.
         est = build(target(), clean_line())
+        # Fit COEFFICIENTS are exempt: slope, intercept and residual standard
+        # error are parameters of the line, not prices anyone is shown. The rule
+        # applies to every figure that reaches a user.
+        coefficients = ("slope", "std_error", "intercept")
         money_fields = [
             f
             for f in est.__dataclass_fields__
-            if f.endswith("_cents") and "slope" not in f and "std_error" not in f
+            if f.endswith("_cents") and not any(c in f for c in coefficients)
         ]
         assert money_fields
         for name in money_fields:

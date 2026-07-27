@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { extractCompCards } from "../src/extract/comp-card";
-import { buildCompSearch, DEFAULT_RADIUS_KM } from "../src/comps/build-query";
+import { buildCompSearch } from "../src/comps/build-query";
 import type { ObservationPayload } from "../src/shared/types";
 import { buildSearchDocument, type CompCardSpec } from "./helpers/build-page";
 
@@ -245,43 +245,46 @@ describe("buildCompSearch", () => {
   });
 
   describe("location scoping", () => {
-    const located = target({ latitude: 36.1627, longitude: -86.7816 });
+    // Marketplace scopes by PATH SEGMENT, not query parameter. An earlier
+    // attempt passed latitude/longitude/radius_km; Facebook ignored them and
+    // returned zero results, which capture 6 recorded as location_scoped:false.
+    const LOC = "105517276147313";
 
-    it("scopes the search to the listing's location, not the user's", () => {
-      // The captured data had a Nashville listing benchmarked entirely against
-      // St. Louis comps, because the search inherited the user's own metro.
-      const url = new URL(buildCompSearch(located)!.url);
-      expect(url.searchParams.get("latitude")).toBe("36.1627");
-      expect(url.searchParams.get("longitude")).toBe("-86.7816");
-      expect(url.searchParams.get("radius_km")).toBe(String(DEFAULT_RADIUS_KM));
+    it("scopes to the listing's own place id, not the user's metro", () => {
+      const search = buildCompSearch(target({}), LOC)!;
+      expect(search.url).toContain(`/marketplace/${LOC}/search/`);
+      expect(search.url).toContain("query=2014+Toyota+Camry");
     });
 
-    it("honours an explicit radius so step 3 can widen progressively", () => {
-      const url = new URL(buildCompSearch(located, 250)!.url);
-      expect(url.searchParams.get("radius_km")).toBe("250");
+    it("does not pass coordinates as query parameters", () => {
+      // Facebook ignores these; sending them produced an empty comp set.
+      const url = new URL(buildCompSearch(target({}), LOC)!.url);
+      expect(url.searchParams.get("latitude")).toBeNull();
+      expect(url.searchParams.get("longitude")).toBeNull();
+      expect(url.searchParams.get("radius_km")).toBeNull();
     });
 
-    it("offers an unscoped fallback, since a bad param returns zero not an error", () => {
-      const search = buildCompSearch(located)!;
-      const fallback = new URL(search.fallbackUrl!);
-      expect(fallback.searchParams.get("latitude")).toBeNull();
-      expect(fallback.searchParams.get("radius_km")).toBeNull();
-      expect(fallback.searchParams.get("query")).toBe("2014 Toyota Camry");
+    it("offers an unscoped fallback, since a bad location returns zero not an error", () => {
+      const search = buildCompSearch(target({}), LOC)!;
+      expect(search.fallbackUrl).toContain("/marketplace/search/");
+      expect(search.fallbackUrl).not.toContain(LOC);
     });
 
-    it("records the origin so a wrong-metro comp set is visible in the data", () => {
-      expect(buildCompSearch(located)!.query.origin).toEqual({
-        latitude: 36.1627,
-        longitude: -86.7816,
-        radius_km: DEFAULT_RADIUS_KM,
-      });
+    it("records the place id so a wrong-metro comp set is visible in the data", () => {
+      expect(buildCompSearch(target({}), LOC)!.query.location_id).toBe(LOC);
     });
 
-    it("has no fallback and no origin when the listing carried no coordinates", () => {
-      const search = buildCompSearch(target({ latitude: null, longitude: null }))!;
+    it("falls straight through when the listing carried no place id", () => {
+      const search = buildCompSearch(target({}), null)!;
+      expect(search.url).toContain("/marketplace/search/");
       expect(search.fallbackUrl).toBeNull();
-      expect(search.query.origin).toBeNull();
-      expect(new URL(search.url).searchParams.get("latitude")).toBeNull();
+      expect(search.query.location_id).toBeNull();
+    });
+
+    it("rejects a malformed place id rather than building a broken path", () => {
+      const search = buildCompSearch(target({}), "../../evil")!;
+      expect(search.url).toContain("/marketplace/search/");
+      expect(search.query.location_id).toBeNull();
     });
   });
 });

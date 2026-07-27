@@ -18,7 +18,14 @@ import json
 import sys
 from dataclasses import asdict
 
+from sqlalchemy.orm import Session
+
+from ..alternatives import find_alternatives
 from ..db import session_scope
+from ..flags import assess_completeness, assess_scam_patterns, read_title_status
+from ..flags.params import SCAM_SIGNALS_FOR_WARNING
+from ..negotiation import NegotiationAssessment, assess_negotiation
+from ..nhtsa import assess_vehicle
 from ..pricing import assess_listing, is_calibrated
 from ..pricing.comps import CompDecision
 from ..pricing.loader import StoredCapture, load_captures
@@ -59,8 +66,161 @@ def _print_comp_table(decisions: list[CompDecision], header: str) -> None:
         )
 
 
+def print_negotiation(negotiation: NegotiationAssessment, assessment: PricingAssessment) -> None:
+    """Spec 6.4: negotiation goes in the brief, not up top as a third headline."""
+    n = negotiation
+    days = "unknown" if n.days_listed is None else f"{n.days_listed} days"
+
+    # Surfaced before the leverage reading because it changes what the whole
+    # section means. Spec 1: a private-party car benchmarked against dealer
+    # pricing "makes nearly every FB listing look like a bargain".
+    if n.seller.is_dealer:
+        print(
+            f"\n  SELLER: DEALER   ({', '.join(n.seller.markers)})\n"
+            "    This is a dealer listing, not the private-party sale this tool is "
+            "built to evaluate.\n"
+            "    Dealer asks carry reconditioning, warranty and overhead, so the "
+            "comparison is not like for like."
+        )
+
+    print(
+        f"\n  NEGOTIATION: {n.leverage.value.upper()}   "
+        f"(listed {days}; separate from deal quality)"
+    )
+
+    for point in n.leverage_points:
+        print(f"    - {point}")
+
+    if not n.language.had_text:
+        print("    - No description text, so seller phrasing could not be read.")
+    elif not n.language.motivated and not n.language.rigid:
+        print("    - Description contains none of the usual flexibility or rigidity phrasing.")
+
+    # Suggested offer: the pricing anchor, moved by leverage. Only shown when
+    # the comp set was tight enough to support naming a figure at all.
+    est = assessment.estimate
+    if assessment.anchors and est.expected_asking_cents:
+        base = assessment.anchors["strong_offer_cents"]
+        offer = int(base * (1.0 - n.extra_discount))
+        print(f"    Suggested offer: {money(offer)}", end="")
+        if n.extra_discount > 0:
+            print(f"  ({money(base)} on comps, less {n.extra_discount:.1%} for leverage)")
+        else:
+            print()
+    else:
+        print(
+            "    Suggested offer: withheld -- the comp set is too thin to anchor a figure."
+        )
+
+
+def print_alternatives(capture: StoredCapture, assessment: PricingAssessment) -> None:
+    """Spec 6.5. Reframes the product from judging a listing to helping a buy."""
+    result = find_alternatives(
+        assessment.target,
+        assessment.comp_set.included,
+        assessment.estimate,
+        assessment.rating.rating if assessment.rating else None,
+    )
+
+    print("\n  BETTER ALTERNATIVES   (spec 6.5)")
+    print(f"    {result.message()}")
+    for alternative in result.alternatives:
+        print(f"      - {alternative.describe()}")
+        if alternative.url:
+            print(f"        {alternative.url}")
+    if result.withheld_as_implausible:
+        print(
+            f"    {result.withheld_as_implausible} cheaper listing(s) withheld: priced far "
+            "enough below expected that the reason matters more than the saving."
+        )
+
+
+def print_vehicle_risk(
+    session: Session,
+    capture: StoredCapture,
+    assessment: PricingAssessment,
+    offline: bool,
+) -> None:
+    """Spec 6.2's vehicle risk, from NHTSA. Separate from pricing, never folded in."""
+    risk = assess_vehicle(
+        session,
+        vin=capture.target_vin,
+        year=assessment.target.year,
+        make=assessment.target.make,
+        model=assessment.target.model,
+        offline=offline,
+    )
+    if not risk.has_data:
+        print("\n  VEHICLE RISK: no NHTSA data (needs at least year, make and model)")
+        return
+
+    print("\n  VEHICLE RISK   (spec 6.2; separate from price)")
+    if risk.spec:
+        label = "VIN decoded" if risk.spec.clean_decode else "VIN decoded (partial)"
+        print(f"    {label}: {risk.spec.summary}")
+    else:
+        print("    No VIN in this listing, so trim and drivetrain stay unconfirmed.")
+    for message in risk.messages():
+        print(f"    {message}")
+
+
+def print_flags(capture: StoredCapture, assessment: PricingAssessment) -> None:
+    """Vehicle-risk flags, completeness and scam patterns (spec 6.2, 6.3)."""
+    title = read_title_status(capture.target_title_status)
+    completeness = assess_completeness(
+        description=capture.target_description,
+        photo_count=capture.target_photo_count,
+        mileage=assessment.target.mileage,
+        title_status=capture.target_title_status,
+        vin=capture.target_vin,
+        year=assessment.target.year,
+        trim_text=assessment.target.trim_text,
+    )
+    scam = assess_scam_patterns(
+        description=capture.target_description,
+        photo_count=capture.target_photo_count,
+        vin=capture.target_vin,
+        price_residual=assessment.residual_fraction,
+        price_changed=capture.target_price_changed,
+    )
+
+    print(f"\n  TITLE: {title.risk.value.upper()}")
+    print(f"    {title.message}")
+
+    print(f"\n  COMPLETENESS: {completeness.score:.0f}/100   (how much the seller disclosed)")
+    print(f"    {completeness.message}")
+
+    # Spec 6.3: "a distinct, prominent warning rather than a numerical deduction
+    # buried in a composite." Hence a banner, and no score anywhere.
+    if scam.warn:
+        print("\n  *** SCAM PATTERN WARNING ***")
+        print(f"  {len(scam.fired)} independent signals fired together. Any one is weak;")
+        print("  this many at once is not. Treat with caution.")
+        for text in scam.explain():
+            print(f"    - {text}")
+    elif scam.fired:
+        print(f"\n  Scam signals: {len(scam.fired)} of {len(scam.evaluable)} checkable fired "
+              f"(warning needs {SCAM_SIGNALS_FOR_WARNING})")
+        for text in scam.explain():
+            print(f"    - {text}")
+    else:
+        print(f"\n  Scam signals: none of {len(scam.evaluable)} checkable fired")
+
+    if scam.reduced_sensitivity:
+        print(
+            f"    Reduced sensitivity: only {len(scam.evaluable)} of "
+            f"{len(scam.results)} signals could be checked."
+        )
+        for r in scam.unavailable:
+            print(f"      - {r.signal.value}: {r.unavailable_reason}")
+
+
 def print_assessment(
-    capture: StoredCapture, assessment: PricingAssessment, verbose: bool
+    session: Session,
+    capture: StoredCapture,
+    assessment: PricingAssessment,
+    verbose: bool,
+    offline: bool,
 ) -> None:
     t = assessment.target
     est = assessment.estimate
@@ -149,6 +309,22 @@ def print_assessment(
     for text in conf.explain():
         print(f"    - {text}")
 
+    # --- negotiation (spec 6.4), a separate reading from deal quality -------
+    print_negotiation(
+        assess_negotiation(
+            posted_at=capture.target_posted_at,
+            observed_at=capture.target_observed_at,
+            description=capture.target_description,
+            price_residual=assessment.residual_fraction,
+        ),
+        assessment,
+    )
+
+    # --- flags (spec 6.2, 6.3) ----------------------------------------------
+    print_flags(capture, assessment)
+    print_vehicle_risk(session, capture, assessment, offline)
+    print_alternatives(capture, assessment)
+
     # --- comps --------------------------------------------------------------
     print(f"\n  Trim coverage {cs.trim_coverage:.0%}, agreement {cs.trim_agreement:.0%}")
     _print_comp_table(cs.fit_points, "COMPS IN THE FIT (+)")
@@ -166,6 +342,29 @@ def print_assessment(
 
 
 def to_dict(capture: StoredCapture, a: PricingAssessment) -> dict:
+    title = read_title_status(capture.target_title_status)
+    completeness = assess_completeness(
+        description=capture.target_description,
+        photo_count=capture.target_photo_count,
+        mileage=a.target.mileage,
+        title_status=capture.target_title_status,
+        vin=capture.target_vin,
+        year=a.target.year,
+        trim_text=a.target.trim_text,
+    )
+    scam = assess_scam_patterns(
+        description=capture.target_description,
+        photo_count=capture.target_photo_count,
+        vin=capture.target_vin,
+        price_residual=a.residual_fraction,
+        price_changed=capture.target_price_changed,
+    )
+    n = assess_negotiation(
+        posted_at=capture.target_posted_at,
+        observed_at=capture.target_observed_at,
+        description=capture.target_description,
+        price_residual=a.residual_fraction,
+    )
     return {
         "capture_id": capture.capture_id,
         "target": asdict(a.target),
@@ -186,6 +385,28 @@ def to_dict(capture: StoredCapture, a: PricingAssessment) -> dict:
         "fallback_reasons": list(a.estimate.fallback_reasons),
         "excluded_counts": a.comp_set.exclusion_counts(),
         "anchors": a.anchors,
+        "negotiation": {
+            "seller_type": n.seller.seller_type.value,
+            "dealer_markers": list(n.seller.markers),
+            "leverage": n.leverage.value,
+            "strength": n.strength,
+            "days_listed": n.days_listed,
+            "motivated_phrases": list(n.language.motivated),
+            "rigid_phrases": list(n.language.rigid),
+            "leverage_points": list(n.leverage_points),
+        },
+        "flags": {
+            "title_risk": title.risk.value,
+            "title_raw": title.raw,
+            "completeness": completeness.score,
+            "completeness_missing": list(completeness.missing),
+            # Spec 6.3: a combination and a warning, deliberately never a score.
+            "scam_warning": scam.warn,
+            "scam_signals_fired": [r.signal.value for r in scam.fired],
+            "scam_signals_evaluable": len(scam.evaluable),
+            "scam_signals_total": len(scam.results),
+            "scam_reduced_sensitivity": scam.reduced_sensitivity,
+        },
     }
 
 
@@ -196,6 +417,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--capture", type=int, action="append", help="capture id (repeatable)")
     parser.add_argument("--verbose", action="store_true", help="list every excluded comp")
     parser.add_argument("--json", action="store_true", help="emit JSON instead of a report")
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="never call NHTSA; use only what is already cached",
+    )
     args = parser.parse_args(argv)
 
     with session_scope() as session:
@@ -213,9 +439,14 @@ def main(argv: list[str] | None = None) -> int:
             for c in captures
         ]
 
-    if args.json:
-        print(json.dumps([to_dict(c, a) for c, a in results], indent=2, default=str))
-        return 0
+        if args.json:
+            print(json.dumps([to_dict(c, a) for c, a in results], indent=2, default=str))
+            return 0
+
+        return _report(session, results, args)
+
+
+def _report(session: Session, results, args) -> int:
 
     print()
     print("EXPECTED ASKING PRICE MODEL (spec step 3)")
@@ -233,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
 
     for capture, assessment in results:
-        print_assessment(capture, assessment, args.verbose)
+        print_assessment(session, capture, assessment, args.verbose, args.offline)
 
     with_estimate = sum(1 for _, a in results if a.estimate.has_estimate)
     print(RULE)

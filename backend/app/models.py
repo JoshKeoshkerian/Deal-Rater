@@ -257,6 +257,85 @@ class GroundTruthLabel(Base):
     )
 
 
+class VinDecode(Base):
+    """Cached NHTSA vPIC decode for one VIN (spec 4.2, 10).
+
+    Spec 10: "Cache VIN decodes indefinitely. VIN-to-specification mapping never
+    changes." There is deliberately no expiry column: a 2017 RAV4's factory
+    drivetrain is not going to be revised.
+
+    Spec 4.2's primary value is comp matching, not recalls: "Trim and drivetrain
+    ambiguity is the hardest accuracy problem here... vPIC decodes a VIN into
+    exact trim, engine, drivetrain, transmission and body style." Those columns
+    are broken out so step 3's comp filter can read them without parsing JSON,
+    with the full response kept alongside.
+    """
+
+    __tablename__ = "vin_decodes"
+
+    vin: Mapped[str] = mapped_column(String(17), primary_key=True)
+    decoded_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    make: Mapped[str | None] = mapped_column(String(64))
+    model: Mapped[str | None] = mapped_column(String(128))
+    model_year: Mapped[int | None] = mapped_column(SmallInteger)
+    trim: Mapped[str | None] = mapped_column(String(128))
+    series: Mapped[str | None] = mapped_column(String(128))
+    drive_type: Mapped[str | None] = mapped_column(String(32))
+    transmission: Mapped[str | None] = mapped_column(String(64))
+    engine_cylinders: Mapped[int | None] = mapped_column(SmallInteger)
+    displacement_l: Mapped[float | None] = mapped_column(Numeric(4, 1))
+    body_class: Mapped[str | None] = mapped_column(String(128))
+    fuel_type: Mapped[str | None] = mapped_column(String(64))
+
+    #: vPIC's own error code. "0" means a clean decode; anything else means the
+    #: fields above are partial and should not be trusted as exact.
+    error_code: Mapped[str | None] = mapped_column(String(32))
+    raw: Mapped[dict | None] = mapped_column(JsonCol)
+
+
+class VehicleSafetyLookup(Base):
+    """Cached recall and complaint data, keyed by YEAR/MAKE/MODEL.
+
+    NOT BY VIN, and that is a correction to the spec rather than a shortcut.
+
+    Spec 4.2 says "Open recalls by VIN via NHTSA's recall API" and spec 6.2 says
+    "Open unrepaired safety recalls (VIN required)". NHTSA's free public API does
+    not offer that. `api.nhtsa.gov/recalls/recallsByVehicle` takes make, model
+    and modelYear, and returns recall CAMPAIGNS for that vehicle -- not whether
+    this particular car had them performed. Per-VIN repair status comes from the
+    manufacturer, behind no free public API.
+
+    The distinction is load-bearing in the same way asking-vs-transaction price
+    is (spec 4.5). "This model has 3 open recall campaigns" is a much weaker
+    claim than "this car has 3 unrepaired recalls", and presenting the first as
+    the second would be exactly the false authority spec 9 exists to prevent.
+
+    Spec 10: "recall lookups for 30 days" -- hence `fetched_at` and an expiry
+    the caller enforces.
+    """
+
+    __tablename__ = "vehicle_safety_lookups"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    model_year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    make: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    fetched_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    recall_count: Mapped[int | None] = mapped_column(Integer)
+    complaint_count: Mapped[int | None] = mapped_column(Integer)
+    #: Complaint counts per component, so "301 complaints" can be broken into
+    #: what they were actually about.
+    complaints_by_component: Mapped[dict | None] = mapped_column(JsonCol)
+    recalls: Mapped[list | None] = mapped_column(JsonCol)
+
+    __table_args__ = (
+        UniqueConstraint("model_year", "make", "model", name="uq_safety_year_make_model"),
+    )
+
+
 class ExtractionReport(Base):
     """Scraper self-check output (spec 4.6).
 

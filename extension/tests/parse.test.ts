@@ -255,3 +255,48 @@ describe("cleanLocationText", () => {
     expect(cleanLocationText("St. Louis, MO")).toBe("St. Louis, MO");
   });
 });
+
+describe("parseVehicleTitle with the year written last", () => {
+  // Captured data: "Porsche 911 Carrera Cabriolet 1984" lost its make and model
+  // entirely, because everything after the year was an empty string.
+  it("recovers make and model when the year trails", () => {
+    expect(parseVehicleTitle("Porsche 911 Carrera Cabriolet 1984")).toMatchObject({
+      year: 1984,
+      make: "Porsche",
+      model: "911",
+      trim: "Carrera Cabriolet",
+    });
+  });
+
+  it("still prefers the text after the year in the normal case", () => {
+    expect(parseVehicleTitle("2014 Toyota Camry SE")).toMatchObject({
+      make: "Toyota",
+      model: "Camry",
+      trim: "SE",
+    });
+  });
+
+  it("ignores leading noise rather than treating it as a make", () => {
+    expect(parseVehicleTitle("Price drop 2014 Toyota Camry SE")).toMatchObject({
+      make: "Toyota",
+      model: "Camry",
+    });
+  });
+
+  it("handles a two-word make before a trailing year", () => {
+    expect(parseVehicleTitle("Mercedes-Benz C300 Sport 2015")).toMatchObject({
+      year: 2015,
+      make: "Mercedes-Benz",
+      model: "C300",
+    });
+  });
+
+  it("parses a title with no year at all", () => {
+    // Captured data: "Porsche 924", no year stated anywhere.
+    expect(parseVehicleTitle("Porsche 924")).toMatchObject({
+      year: null,
+      make: "Porsche",
+      model: "924",
+    });
+  });
+});

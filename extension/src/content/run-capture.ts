@@ -10,8 +10,9 @@ import { buildCompSearch } from "../comps/build-query";
 import { runCompSearch } from "../comps/fetch-search";
 import { extractTargetListing } from "../extract/listing";
 import { collapseIssues } from "../extract/self-check";
-import type { SubmitCaptureResult } from "../shared/messages";
+import type { EvaluationResult, SubmitCaptureResult } from "../shared/messages";
 import { sendToBackground } from "../shared/messages";
+import { renderEvaluation } from "./overlay";
 import type { CapturePayload, ExtractionIssue, ObservationPayload } from "../shared/types";
 
 export const CLIENT_NAME = "chrome-extension";
@@ -72,14 +73,32 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     };
   }
 
+  // Marketplace is a single-page app: clicking from one listing to another
+  // swaps the URL before the new listing's payload arrives. Capturing in that
+  // window used to pair the new id with the previous car's data. The payload
+  // lookup now refuses to guess, so the symptom here is a listing with an id
+  // and a URL but no vehicle at all.
+  //
+  // Refusing beats submitting. A capture with no make, model or price is not
+  // worth a row, and telling the user to retry costs them one click.
+  const { make, model, price_cents: priceCents } = target.observation;
+  if (make === null && model === null && priceCents === null) {
+    return {
+      ok: false,
+      message: "This listing is still loading. Give it a moment and click again.",
+      compCount: 0,
+      extractionOk: false,
+    };
+  }
+
   const issues: ExtractionIssue[] = [...target.issues];
 
-  const search = buildCompSearch(target.observation);
+  const search = buildCompSearch(target.observation, target.locationId);
   let comps: CapturePayload["comps"] = [];
   let compSource = "none";
   // Whether the comp set actually came back scoped to the target's location.
   // Step 3 reads this: comps from an unknown market widen the interval.
-  let locationScoped = search?.query.origin !== null;
+  let locationScoped = search?.query.location_id !== null;
 
   if (search === null) {
     // Without make and model there is nothing to search for. Recorded rather
@@ -154,6 +173,19 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   }
 
   const { response } = result;
+
+  // Spec 7's overlay. Fetched separately from the ingest so that a scoring
+  // failure surfaces as a message rather than discarding a capture the user
+  // would have to click again to recreate.
+  onStatus("Evaluating\u2026");
+  const evaluation = await sendToBackground<EvaluationResult>({
+    type: "FETCH_EVALUATION",
+    captureId: response.capture_id,
+  });
+  if (evaluation?.ok) {
+    renderEvaluation(evaluation.evaluation);
+  }
+
   const summary = response.duplicate
     ? "Already captured."
     : `Captured with ${comps.length} comparable listing${comps.length === 1 ? "" : "s"}.`;

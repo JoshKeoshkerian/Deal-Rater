@@ -32,6 +32,17 @@ class StoredCapture:
     #: capture currently stored, and the reason that flag exists.
     location_scoped: bool | None
     search_query: str | None
+    #: Target-only fields that step 4 (negotiation) reads. Comps carry neither,
+    #: which is fine: negotiating position is a property of the listing being
+    #: evaluated, not of the market around it.
+    target_posted_at: object = None
+    target_description: str | None = None
+    target_observed_at: object = None
+    #: Step 5 (flags) reads these.
+    target_photo_count: int | None = None
+    target_title_status: str | None = None
+    target_vin: str | None = None
+    target_price_changed: bool | None = None
 
 
 def _to_candidate(obs: ListingObservation, listing: Listing) -> CompCandidate:
@@ -82,6 +93,13 @@ def load_captures(session: Session, capture_ids: list[int] | None = None) -> lis
                 captured_at=capture.captured_at,
                 target=_to_candidate(target_row[0], target_row[1]),
                 target_observation_id=target_row[0].id,
+                target_posted_at=target_row[0].posted_at,
+                target_description=target_row[0].description,
+                target_observed_at=target_row[0].observed_at,
+                target_photo_count=target_row[0].photo_count,
+                target_title_status=target_row[0].title_status,
+                target_vin=target_row[1].vin,
+                target_price_changed=target_row[0].price_changed,
                 candidates=[_to_candidate(o, listing) for o, listing in rows if o.role == "comp"],
                 location_scoped=query.get("location_scoped"),
                 search_query=query.get("query"),

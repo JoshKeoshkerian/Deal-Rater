@@ -189,3 +189,125 @@ class ExtractionHealthOut(BaseModel):
     fields: list[FieldHealth]
     strategy_mix: list[StrategyMix]
     issues: list[IssueCount]
+
+
+# ---------------------------------------------------------------------------
+# Evaluation (spec 7, build step 8)
+# ---------------------------------------------------------------------------
+
+
+class ScoreComponentOut(BaseModel):
+    """One dimension behind the headline score.
+
+    Spec 5.2: the composite "is a summary of the separated dimensions... not a
+    replacement for them, and the UI should always show the breakdown alongside
+    it." These ship with every evaluation so a renderer cannot show the number
+    without having been handed the parts.
+    """
+
+    name: str
+    weight: float
+    value: float | None
+    unavailable_reason: str | None
+
+
+class DealScoreOut(BaseModel):
+    score: float | None
+    components: list[ScoreComponentOut]
+    coverage: float
+    suppressed_reason: str | None
+    #: Spec 9: "present output as a beta signal, not an authoritative rating."
+    beta: bool
+
+
+class PricingOut(BaseModel):
+    """Spec 5.1's four numbers. Every figure is an ASKING price (spec 4.5)."""
+
+    ask_cents: int | None
+    expected_asking_cents: int | None
+    asking_interval_low_cents: int | None
+    asking_interval_high_cents: int | None
+    interval_coverage: float
+    strong_offer_cents: int | None
+    walk_away_above_cents: int | None
+    residual_fraction: float | None
+    rating: float | None
+    rating_band: str | None
+    rating_calibrated: bool
+    estimator: str
+    comps_included: int
+    comps_with_mileage: int
+    confidence: str
+    confidence_reasons: list[str]
+    fallback_reasons: list[str]
+
+
+class VehicleRiskOut(BaseModel):
+    title_risk: str
+    title_message: str
+    decoded_spec: str | None
+    recall_count: int | None
+    complaint_count: int | None
+    top_complaint_components: list[tuple[str, int]]
+    messages: list[str]
+
+
+class SellerRiskOut(BaseModel):
+    """Spec 7.4: present only when there is something to say."""
+
+    seller_type: str
+    dealer_markers: list[str]
+    scam_warning: bool
+    scam_signals_fired: list[str]
+    scam_signals_evaluable: int
+    scam_signals_total: int
+    scam_reduced_sensitivity: bool
+    messages: list[str]
+
+
+class NegotiationOut(BaseModel):
+    leverage: str
+    strength: float
+    days_listed: int | None
+    time_on_market_score: float | None
+    leverage_points: list[str]
+    suggested_offer_cents: int | None
+    motivated_phrases: list[str]
+    rigid_phrases: list[str]
+
+
+class AlternativeOut(BaseModel):
+    description: str
+    url: str | None
+    price_cents: int | None
+    mileage: int | None
+    location_text: str | None
+    advantage: float
+    mileage_tradeoff: bool
+
+
+class AlternativesOut(BaseModel):
+    message: str
+    target_is_best: bool
+    items: list[AlternativeOut]
+    withheld_as_implausible: int
+
+
+class EvaluationOut(BaseModel):
+    """Spec 7's output structure, in its order."""
+
+    capture_id: int
+    headline: str
+    vehicle: str
+    deal_score: DealScoreOut
+    pricing: PricingOut
+    vehicle_risk: VehicleRiskOut
+    #: None when there is nothing to say (spec 7.4).
+    seller_risk: SellerRiskOut | None
+    negotiation: NegotiationOut
+    alternatives: AlternativesOut
+    known_issues: str | None
+    known_issues_unavailable_reason: str
+    #: Beta, asking-price and liability notices. Spec 7 requires the liability
+    #: framing "in the UI, not just the terms", so it travels with the payload.
+    notices: list[str]

@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { extractTargetListing } from "../src/extract/listing";
+import { findTargetListingNode } from "../src/extract/fields/listing-node";
 import type { ObservationPayload } from "../src/shared/types";
 import {
   buildListingDocument,
@@ -414,6 +415,46 @@ describe("listing identity", () => {
       NOW,
     );
     expect(observation.listing_url).toBe(itemUrl(BASE.id));
+  });
+
+  it("never pairs one listing's id with another listing's data", async () => {
+    // THE bug this guard exists for. Marketplace is a single-page app, so
+    // clicking from listing A to listing B swaps the URL before B's payload
+    // arrives. Capturing in that window used to attach B's id to A's data.
+    //
+    // Captured data proves it happened: listing id 2061074687826390 appears on
+    // both a 2010 Mercedes C-Class and a 2017 Infiniti Q50. Spec 4.4 keys a
+    // per-listing time series on this id, so a mismatch attributes one car's
+    // price history to another and nothing downstream can detect it.
+    const stalePayload = [
+      { id: "100000000000001", marketplace_listing_title: "2014 Toyota Camry SE" },
+    ];
+
+    // The URL says we are on a different listing than the payload describes.
+    expect(findTargetListingNode(stalePayload, "999999999999999")).toBeNull();
+  });
+
+  it("still returns the payload node when the URL id matches it", async () => {
+    const payload = [
+      { id: "100000000000001", marketplace_listing_title: "2014 Toyota Camry SE" },
+    ];
+    expect(findTargetListingNode(payload, "100000000000001")).not.toBeNull();
+  });
+
+  it("does not pick a similar-listings card over the real listing", async () => {
+    const payload = [
+      { id: "888", marketplace_listing_title: "2011 Honda Civic LX" },
+      { id: "100000000000001", marketplace_listing_title: "2014 Toyota Camry SE" },
+    ];
+    const node = findTargetListingNode(payload, "100000000000001");
+    expect(node?.["marketplace_listing_title"]).toBe("2014 Toyota Camry SE");
+  });
+
+  it("still guesses when the route carries no listing id at all", async () => {
+    // No id to contradict, so a guess is all there is -- and is better than
+    // nothing. Distinct from a mismatch, which is evidence of a stale page.
+    const payload = [{ id: "888", marketplace_listing_title: "2011 Honda Civic LX" }];
+    expect(findTargetListingNode(payload, null)).not.toBeNull();
   });
 
   it("reports itself unusable when the URL is not a listing page", async () => {

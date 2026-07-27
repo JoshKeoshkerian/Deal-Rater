@@ -18,6 +18,9 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    # NHTSA calls are HTTPS; python.org builds do not read the macOS keychain,
+    # so the CA bundle has to be explicit rather than assumed.
+    "certifi>=2024.2",
 ]
 
 [project.optional-dependencies]
