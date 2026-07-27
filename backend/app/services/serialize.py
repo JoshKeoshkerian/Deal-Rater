@@ -97,6 +97,8 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             estimator=estimate.kind.value,
             comps_included=estimate.n_included,
             comps_with_mileage=estimate.n_fit_points,
+            year_window=pricing.comp_set.year_window,
+            year_window_widened=pricing.comp_set.year_window_widened,
             confidence=pricing.confidence.level.value,
             confidence_reasons=pricing.confidence.explain(),
             fallback_reasons=list(estimate.fallback_reasons),

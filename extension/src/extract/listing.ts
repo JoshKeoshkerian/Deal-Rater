@@ -14,7 +14,7 @@ import { descriptionBlock, listingHeaderBlock } from "./fields/dom-blocks";
 import { findTargetListingNode } from "./fields/listing-node";
 import { resolveMileage } from "./fields/odometer";
 import { resolvePhotoCount } from "./fields/media";
-import { resolvePlace } from "./fields/place";
+import { readSearchRadiusKm, resolvePlace } from "./fields/place";
 import { resolvePrice, resolvePriceChanged } from "./fields/price";
 import { resolveSeller } from "./fields/seller";
 import { resolveDescription, resolveVin } from "./fields/text";
@@ -36,6 +36,26 @@ export interface TargetExtraction {
    * a routing token for one search, not a fact about the vehicle.
    */
   locationId: string | null;
+  /**
+   * The account's Marketplace search radius in kilometres, when the page states
+   * it. Recorded rather than used: it cannot be set per request, so this is the
+   * only way the geographic scope of a comp set is ever knowable.
+   */
+  searchRadiusKm: number | null;
+  /**
+   * False when the page carried no JSON payload for THIS listing.
+   *
+   * Marketplace is a single-page app. The embedded payloads are written at full
+   * page load; navigating listing-to-listing fetches the new data into
+   * JavaScript memory without adding script tags. So after a click-through the
+   * payloads describe the PREVIOUS listing, `findTargetListingNode` refuses
+   * them, and every field falls to its weakest tier.
+   *
+   * That is why capturing used to need a manual refresh. The caller re-fetches
+   * the listing URL when this is false, which gets server-rendered HTML with
+   * the right payloads in it.
+   */
+  payloadMatched: boolean;
 }
 
 /** Canonical listing URL, rebuilt from the id so referral parameters are dropped. */
@@ -95,6 +115,7 @@ export async function extractTargetListing(
   // `findValueByKey` is safe here: "location_vanity_or_id" is specific enough
   // to be unambiguous, which is the condition its docstring sets.
   const rawLocationId = findValueByKey(ctx.payloads, FB_KEYS.locationVanityOrId);
+  const searchRadiusKm = readSearchRadiusKm(ctx.payloads);
   const locationId =
     typeof rawLocationId === "string" && /^[A-Za-z0-9.-]{3,64}$/.test(rawLocationId)
       ? rawLocationId
@@ -145,5 +166,7 @@ export async function extractTargetListing(
     pageSignature: ctx.pageSignature,
     usable: sourceListingId !== null,
     locationId,
+    searchRadiusKm,
+    payloadMatched: node !== null,
   };
 }

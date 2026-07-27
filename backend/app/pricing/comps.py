@@ -409,6 +409,13 @@ class CompSet:
     #: than merely widening it.
     location_scoped: bool | None = None
     dealer_filtering: DealerSignal = DealerSignal.UNAVAILABLE
+    #: The year window this set was filtered at. Above `params.YEAR_WINDOW` it
+    #: means progressive widening ran (spec 4.3), which costs confidence.
+    year_window: int = params.YEAR_WINDOW
+
+    @property
+    def year_window_widened(self) -> bool:
+        return self.year_window > params.YEAR_WINDOW
 
     @property
     def included(self) -> list[CompDecision]:
@@ -484,7 +491,9 @@ def filter_comps(
     is reported as a duplicate rather than as whatever else happens to be wrong
     with it.
     """
-    comp_set = CompSet(target=target, location_scoped=location_scoped)
+    comp_set = CompSet(
+        target=target, location_scoped=location_scoped, year_window=year_window
+    )
 
     target_model = normalize_key(target.model)
     target_make = normalize_key(target.make)

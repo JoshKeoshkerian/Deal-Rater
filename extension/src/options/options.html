@@ -78,6 +78,22 @@
       <code>npm run scrub-fixture</code> before committing.
     </p>
 
+    <h2>Nearby markets</h2>
+
+    <label for="extraMetroIds">Extra Marketplace location ids, one per line</label>
+    <textarea id="extraMetroIds" rows="4" placeholder="108013345886344&#10;108467719177678"></textarea>
+
+    <p class="muted">
+      Facebook's search radius is fixed at 40 miles and cannot be changed per search,
+      so the only way to widen the comparison is to search neighbouring metros
+      separately. Each line here adds one more search per capture.
+    </p>
+    <p class="muted">
+      To find an id: open Marketplace, switch the location to that city, and copy the
+      number out of the address bar —
+      <code>facebook.com/marketplace/<strong>108013345886344</strong>/search?…</code>
+    </p>
+
     <button id="save" type="button">Save</button>
     <span id="saved" hidden>Saved</span>
 

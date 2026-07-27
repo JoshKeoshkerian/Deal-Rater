@@ -42,7 +42,7 @@ function looksLikeShell(doc: Document): boolean {
   return !hasPayloads && !hasCards;
 }
 
-async function fetchDocument(url: string): Promise<Document | null> {
+export async function fetchDocument(url: string): Promise<Document | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 

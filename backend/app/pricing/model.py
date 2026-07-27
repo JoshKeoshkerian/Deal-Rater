@@ -57,6 +57,43 @@ class PricingAssessment:
         return self.estimate.residual_fraction(self.ask_cents)
 
 
+def _filter_with_progressive_widening(
+    target: CompCandidate,
+    candidates: list[CompCandidate],
+    *,
+    year_window: int,
+    location_scoped: bool | None,
+) -> CompSet:
+    """Spec 4.3's progressive fallback, over the year window.
+
+    "Minimum comp count... Below that, fall back progressively (widen radius,
+    then year range) and report low confidence explicitly."
+
+    Stops at the FIRST window that reaches the floor, because every step trades
+    comp quality for comp count and the smallest adequate set is the best one.
+    When no window reaches the floor the widest result is still returned: the
+    estimate is low-confidence either way, and more points make the fit steadier
+    rather than more confident -- six comps can support a mileage slope where
+    four cannot.
+
+    The widening is RECORDED on the returned set, not silently applied.
+    `confidence.py` reads it and lowers the level accordingly, which is the
+    "report low confidence explicitly" half of the instruction.
+    """
+    ladder = [w for w in params.YEAR_WINDOW_LADDER if w >= year_window] or [year_window]
+
+    widest: CompSet | None = None
+    for window in ladder:
+        comp_set = filter_comps(
+            target, candidates, year_window=window, location_scoped=location_scoped
+        )
+        widest = comp_set
+        if len(comp_set.included) >= params.MIN_COMPS_FOR_REGRESSION:
+            return comp_set
+    assert widest is not None
+    return widest
+
+
 def assess_listing(
     target: CompCandidate,
     candidates: list[CompCandidate],
@@ -72,7 +109,7 @@ def assess_listing(
     the curve turns the target's distance from that into a pricing reading, and
     confidence reports separately how much of it to believe.
     """
-    comp_set = filter_comps(
+    comp_set = _filter_with_progressive_widening(
         target, candidates, year_window=year_window, location_scoped=location_scoped
     )
     estimate = estimate_expected_asking_price(comp_set, coverage=coverage)

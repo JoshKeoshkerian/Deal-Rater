@@ -342,3 +342,79 @@ class TestNonVehicleListings:
         assert bumper.source_listing_id in {
             d.candidate.source_listing_id for d in result.excluded
         }
+
+
+class TestProgressiveYearWidening:
+    """Spec 4.3: "fall back progressively (widen radius, then year range) and
+    report low confidence explicitly"."""
+
+    def _spread(self, base_year: int, n: int, offsets: list[int]) -> list[CompCandidate]:
+        return [
+            comp(
+                source_listing_id=f"y{i}",
+                year=base_year + off,
+                mileage=90_000 + i * 7_000,
+                price_cents=1_200_000,
+            )
+            for i, off in enumerate(offsets)
+        ]
+
+    def test_a_thick_set_never_widens(self):
+        from app.pricing.model import assess_listing
+
+        comps = self._spread(2016, 10, [0, 1, -1, 2, -2, 0, 1, -1, 2, -2])
+        result = assess_listing(TARGET, comps)
+        assert result.comp_set.year_window == 2
+        assert not result.comp_set.year_window_widened
+
+    def test_a_thin_set_widens_until_the_floor_is_met(self):
+        from app.pricing.model import assess_listing
+
+        # Four inside +/-2, four more at +/-3.
+        comps = self._spread(2016, 8, [0, 1, -1, 2, 3, -3, 3, -3])
+        result = assess_listing(TARGET, comps)
+        assert result.comp_set.year_window_widened
+        assert len(result.comp_set.included) >= 8
+
+    def test_it_stops_at_the_smallest_adequate_window(self):
+        from app.pricing.model import assess_listing
+
+        # Enough at +/-3, so +/-4 must not be reached: every step trades comp
+        # quality for comp count.
+        comps = self._spread(2016, 9, [0, 1, -1, 2, -2, 3, -3, 3, -3])
+        result = assess_listing(TARGET, comps)
+        assert result.comp_set.year_window == 3
+
+    def test_widening_lowers_confidence(self):
+        # The "report low confidence explicitly" half of the instruction.
+        from app.pricing.confidence import Limiter
+        from app.pricing.model import assess_listing
+
+        comps = self._spread(2016, 8, [0, 1, -1, 2, 3, -3, 3, -3])
+        result = assess_listing(TARGET, comps)
+        assert Limiter.WIDENED_YEAR_WINDOW in result.confidence.limiters
+
+    def test_an_unwidened_set_is_not_penalised(self):
+        from app.pricing.confidence import Limiter
+        from app.pricing.model import assess_listing
+
+        comps = self._spread(2016, 10, [0, 1, -1, 2, -2, 0, 1, -1, 2, -2])
+        result = assess_listing(TARGET, comps)
+        assert Limiter.WIDENED_YEAR_WINDOW not in result.confidence.limiters
+
+    def test_the_widest_result_is_kept_when_no_window_reaches_the_floor(self):
+        # A genuinely rare car. More points still make the fit steadier: six
+        # comps support a mileage slope where four cannot.
+        from app.pricing.model import assess_listing
+
+        comps = self._spread(2016, 5, [0, 3, -3, 4, -4])
+        result = assess_listing(TARGET, comps)
+        assert result.comp_set.year_window == 4
+        assert len(result.comp_set.included) == 5
+
+    def test_the_ladder_never_narrows_below_the_caller_default(self):
+        from app.pricing.model import assess_listing
+
+        comps = self._spread(2016, 3, [0, 1, -1])
+        result = assess_listing(TARGET, comps, year_window=4)
+        assert result.comp_set.year_window >= 4

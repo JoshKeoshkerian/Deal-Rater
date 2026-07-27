@@ -237,6 +237,9 @@ class PricingOut(BaseModel):
     estimator: str
     comps_included: int
     comps_with_mileage: int
+    #: Above the default when progressive widening ran (spec 4.3).
+    year_window: int
+    year_window_widened: bool
     confidence: str
     confidence_reasons: list[str]
     fallback_reasons: list[str]

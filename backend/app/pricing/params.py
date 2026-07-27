@@ -25,9 +25,27 @@ from __future__ import annotations
 
 # How far from the target's model year a comp may be and still be a comp.
 # UNCALIBRATED. +/-2 keeps a generation together for most models while staying
-# narrow enough that a mid-cycle redesign does not slip in. Widening this is the
-# second fallback step, after radius.
+# narrow enough that a mid-cycle redesign does not slip in.
 YEAR_WINDOW = 2
+
+# Progressive widening ladder (spec 4.3): "Below that, fall back progressively
+# (widen radius, then year range) and report low confidence explicitly."
+#
+# Tried in order, stopping at the FIRST window that reaches
+# MIN_COMPS_FOR_REGRESSION. Minimal widening is the least damaging: a 2019 and a
+# 2015 of the same model are genuinely different cars, and every step trades comp
+# quality for comp count.
+#
+# The spec widens radius first and year range second. This does the opposite,
+# because measurement says so: across 48 captures, 0% of comps were rejected for
+# distance while 37% were rejected for falling outside +/-2 years. Facebook
+# already returns a full page of results; the constraint is what survives
+# filtering, not what comes back. Widening to +/-4 takes captures meeting the
+# 8-comp floor from 34/48 to 38/48 at no request cost, and +/-5 adds nothing.
+#
+# Radius widening remains worth doing for genuinely rare vehicles -- there is no
+# eighth Porsche 924 in one metro at any year window -- and is the follow-up.
+YEAR_WINDOW_LADDER = (2, 3, 4)
 
 # Absolute floor for a believable private-party asking price, in cents.
 # UNCALIBRATED. Captured data contains a $25 "Protege speed" and a $180 row with

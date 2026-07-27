@@ -52,6 +52,7 @@ class Limiter(StrEnum):
     NO_RECENCY_WEIGHTING = "no_recency_weighting"
     WEAK_MILEAGE_FIT = "weak_mileage_fit"
     OUTLIER_SENSITIVE = "outlier_sensitive"
+    WIDENED_YEAR_WINDOW = "widened_year_window"
 
 
 #: Human-readable text per limiter, shown by the CLI and later the overlay.
@@ -90,6 +91,10 @@ LIMITER_TEXT: dict[Limiter, str] = {
         "as a fresh one."
     ),
     Limiter.WEAK_MILEAGE_FIT: "Mileage explains little of the spread in comparable asks.",
+    Limiter.WIDENED_YEAR_WINDOW: (
+        "Too few same-year listings, so the comparison was widened to nearby model "
+        "years. Those are similar cars, not identical ones."
+    ),
     Limiter.OUTLIER_SENSITIVE: (
         "The expected asking price rests heavily on one or two comparable listings; "
         "a fit that discounts outliers gives a materially different answer."
@@ -141,6 +146,13 @@ def assess_confidence(
 
     if comp_set.location_scoped is False:
         limiters.append(Limiter.WRONG_MARKET)
+
+    # Spec 4.3 requires the fallback be reported, not silently applied: "fall
+    # back progressively... and report low confidence explicitly." Without this
+    # the widening would trade comp quality for comp count invisibly, which is
+    # the opposite of what a wider comp set is supposed to communicate.
+    if comp_set.year_window_widened:
+        limiters.append(Limiter.WIDENED_YEAR_WINDOW)
 
     # --- fit quality --------------------------------------------------------
     if estimate.kind is EstimatorKind.MILEAGE_REGRESSION:

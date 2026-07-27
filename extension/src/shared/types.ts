@@ -127,6 +127,9 @@ export interface EvaluationResponse {
     estimator: string;
     comps_included: number;
     comps_with_mileage: number;
+    /** Above the default when progressive widening ran (spec 4.3). */
+    year_window: number;
+    year_window_widened: boolean;
     confidence: string;
     confidence_reasons: string[];
     fallback_reasons: string[];

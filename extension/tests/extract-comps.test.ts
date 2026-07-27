@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { extractCompCards } from "../src/extract/comp-card";
-import { buildCompSearch } from "../src/comps/build-query";
+import { buildCompSearch, buildMetroSearch } from "../src/comps/build-query";
+import { DEFAULT_SETTINGS } from "../src/shared/settings";
 import type { ObservationPayload } from "../src/shared/types";
 import { buildSearchDocument, type CompCardSpec } from "./helpers/build-page";
 
@@ -244,6 +245,21 @@ describe("buildCompSearch", () => {
     });
   });
 
+  it("scopes the search to the Vehicles category", () => {
+    // Confirmed from captured pages twice over: the category menu links to
+    // ?category_id=546583916084032, and the taxonomy payload names that id
+    // "Vehicles". Keeps dash kits and car stereos off a 15-row result page.
+    const url = new URL(buildCompSearch(target({}))!.url);
+    expect(url.searchParams.get("category_id")).toBe("546583916084032");
+  });
+
+  it("keeps the category scope on the unscoped fallback too", () => {
+    const search = buildCompSearch(target({}), "105517276147313")!;
+    expect(new URL(search.fallbackUrl!).searchParams.get("category_id")).toBe(
+      "546583916084032",
+    );
+  });
+
   describe("location scoping", () => {
     // Marketplace scopes by PATH SEGMENT, not query parameter. An earlier
     // attempt passed latitude/longitude/radius_km; Facebook ignored them and
@@ -286,5 +302,64 @@ describe("buildCompSearch", () => {
       expect(search.url).toContain("/marketplace/search/");
       expect(search.query.location_id).toBeNull();
     });
+  });
+});
+
+describe("buildMetroSearch", () => {
+  const target = (): ObservationPayload =>
+    ({
+      source: "facebook_marketplace",
+      source_listing_id: "1",
+      role: "target",
+      year: 2016,
+      make: "Honda",
+      model: "Accord",
+    }) as ObservationPayload;
+
+  it("centres the same query on another metro", () => {
+    // Facebook's 40-mile radius is not settable per request, so a wider market
+    // is only reachable as separate searches at different centres.
+    const search = buildMetroSearch(target(), "108467719177678")!;
+    expect(search.url).toContain("/marketplace/108467719177678/search/");
+    expect(search.url).toContain("query=2016+Honda+Accord");
+  });
+
+  it("keeps the Vehicles category scope", () => {
+    const url = new URL(buildMetroSearch(target(), "108467719177678")!.url);
+    expect(url.searchParams.get("category_id")).toBe("546583916084032");
+  });
+
+  it("refuses a malformed id rather than building a 404", () => {
+    // A 404 returns an empty comp set, which looks identical to a dead market.
+    expect(buildMetroSearch(target(), "../../evil")).toBeNull();
+    expect(buildMetroSearch(target(), "")).toBeNull();
+  });
+
+  it("returns null when there is no vehicle to search for", () => {
+    const bare = { ...target(), make: null, model: null } as ObservationPayload;
+    expect(buildMetroSearch(bare, "108467719177678")).toBeNull();
+  });
+});
+
+describe("default nearby markets", () => {
+  it("seeds the launch markets spec 0 names", () => {
+    // Spec 0's premise test is run "across Tulsa and St. Louis", so these are
+    // the markets the project is scoped to rather than an arbitrary pick.
+    expect(DEFAULT_SETTINGS.extraMetroIds).toContain("1008717732027946"); // Tulsa
+    expect(DEFAULT_SETTINGS.extraMetroIds).toContain("108013345886344"); // St. Louis
+  });
+
+  it("seeds only ids that will build a valid search", () => {
+    const target = {
+      source: "facebook_marketplace",
+      source_listing_id: "1",
+      role: "target",
+      year: 2016,
+      make: "Honda",
+      model: "Accord",
+    } as ObservationPayload;
+    for (const id of DEFAULT_SETTINGS.extraMetroIds) {
+      expect(buildMetroSearch(target, id)).not.toBeNull();
+    }
   });
 });

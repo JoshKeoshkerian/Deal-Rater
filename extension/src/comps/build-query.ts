@@ -29,9 +29,15 @@
  * an unrecognised location costs one extra request instead of silently emptying
  * the comp set.
  *
- * Radius is NOT set. Payloads carry `"location":{"radius":65}`, but the query
- * parameter that sets it is unconfirmed, and the metro is the part that
- * matters. Progressive widening is step 3's fallback.
+ * The search is also scoped to the Vehicles category, whose id is confirmed
+ * from the same captured pages. That keeps dash kits and car stereos out of a
+ * result page that only returns about fifteen rows.
+ *
+ * Radius is still NOT set. Payloads carry `"location":{"radius":65}` and the
+ * search UI clearly has a radius control, but no observed URL contains the
+ * parameter that sets it, so it may well live server-side against the account
+ * rather than in the link. Widening by radius therefore stays unbuilt; step 3
+ * widens the year range instead, which measurement showed matters more anyway.
  */
 
 import type { ObservationPayload } from "../shared/types";
@@ -41,6 +47,22 @@ const SEARCH_BASE = `${MARKETPLACE_ROOT}/search/`;
 
 /** Place ids are numeric, but Facebook also accepts vanity slugs like "nyc". */
 const LOCATION_ID_RE = /^[A-Za-z0-9.-]{3,64}$/;
+
+/**
+ * Marketplace's "Vehicles" taxonomy id.
+ *
+ * Confirmed twice from captured pages, not guessed: the category menu links to
+ * `/marketplace/<place>/search/?category_id=546583916084032`, and the embedded
+ * taxonomy payload carries `{"id":"546583916084032","name":"Vehicles"}`.
+ *
+ * Scoping to it keeps parts and accessories out of the result set at the
+ * source. `looks_like_a_part` in the backend still exists as a second line --
+ * captured data contained a $25 dash kit and a $180 head unit that both parsed
+ * cleanly as vehicles -- but filtering server-side is cheaper than filtering
+ * ours, and every excluded result is a wasted slot on a page that only returns
+ * about fifteen.
+ */
+const VEHICLES_CATEGORY_ID = "546583916084032";
 
 export interface CompSearchQuery extends Record<string, unknown> {
   query: string;
@@ -74,6 +96,22 @@ export interface CompSearch {
  * is worse for step 3 than returning nothing: the confidence model can react
  * to an empty comp set but not to a plausible wrong one.
  */
+/**
+ * Build the same search centred on a different metro.
+ *
+ * Facebook's radius is fixed at 40 miles and cannot be set per request, so a
+ * wider market is only reachable as several searches at different centres.
+ * Returns null for an id that does not look like a place id, rather than
+ * building a path that would 404 into an empty comp set.
+ */
+export function buildMetroSearch(
+  target: ObservationPayload,
+  metroId: string,
+): CompSearch | null {
+  if (!LOCATION_ID_RE.test(metroId)) return null;
+  return buildCompSearch(target, metroId);
+}
+
 export function buildCompSearch(
   target: ObservationPayload,
   locationId: string | null = null,
@@ -86,6 +124,7 @@ export function buildCompSearch(
 
   const unscoped = new URL(SEARCH_BASE);
   unscoped.searchParams.set("query", query);
+  unscoped.searchParams.set("category_id", VEHICLES_CATEGORY_ID);
 
   const scoped = LOCATION_ID_RE.test(locationId ?? "") ? locationId : null;
   if (scoped === null) {
@@ -98,6 +137,7 @@ export function buildCompSearch(
 
   const url = new URL(`${MARKETPLACE_ROOT}/${scoped}/search/`);
   url.searchParams.set("query", query);
+  url.searchParams.set("category_id", VEHICLES_CATEGORY_ID);
 
   return {
     url: url.toString(),

@@ -48,6 +48,21 @@ export const FB_KEYS = {
    * city.
    */
   locationVanityOrId: ["location_vanity_or_id"],
+  /**
+   * The account's Marketplace search radius, as rendered into the page.
+   *
+   * Confirmed as `"location":{"radius":65}` across captured pages, alongside
+   * `"radius":65000` elsewhere -- 65 km and 65,000 m are the same 40 miles,
+   * which matches the account setting those captures were taken under.
+   *
+   * This is NOT settable per request. Changing the radius in Marketplace's UI
+   * leaves the search URL byte-for-byte identical, so Facebook holds it against
+   * the account. Extracting it does not let the extension widen anything; it
+   * makes the radius VISIBLE, so a comp set's geographic scope is recorded
+   * rather than being an invisible global that silently differs between users
+   * and between one week and the next.
+   */
+  searchRadius: ["radius"],
   city: ["city"],
   state: ["state", "state_page"],
   displayName: ["display_name"],

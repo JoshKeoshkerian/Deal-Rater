@@ -6,12 +6,13 @@
  * runs — when this function returns, the extension is idle again.
  */
 
-import { buildCompSearch } from "../comps/build-query";
-import { runCompSearch } from "../comps/fetch-search";
+import { buildCompSearch, buildMetroSearch } from "../comps/build-query";
+import { fetchDocument, runCompSearch } from "../comps/fetch-search";
 import { extractTargetListing } from "../extract/listing";
 import { collapseIssues } from "../extract/self-check";
 import type { EvaluationResult, SubmitCaptureResult } from "../shared/messages";
 import { sendToBackground } from "../shared/messages";
+import { loadSettings } from "../shared/settings";
 import { renderEvaluation } from "./overlay";
 import type { CapturePayload, ExtractionIssue, ObservationPayload } from "../shared/types";
 
@@ -62,7 +63,29 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   const capturedAt = new Date();
 
   onStatus("Reading listing…");
-  const target = await extractTargetListing(document, location.href, capturedAt);
+  let target = await extractTargetListing(document, location.href, capturedAt);
+
+  // Marketplace is a single-page app: the JSON payloads in the DOM are written
+  // at full page load, and clicking listing-to-listing fetches the new data
+  // into JavaScript memory without adding script tags. So the payloads on the
+  // page describe whichever listing was loaded first, not the one being viewed.
+  //
+  // Re-fetching the listing URL same-origin returns server-rendered HTML with
+  // the correct payloads. Same technique the comp search already uses, and it
+  // is what removes the manual refresh that capturing used to require --
+  // refreshing was only ever a way of forcing this fetch by hand.
+  if (target.usable && !target.payloadMatched) {
+    onStatus("Loading listing data…");
+    const canonical = target.observation.listing_url ?? location.href;
+    const fresh = await fetchDocument(canonical);
+    if (fresh) {
+      const refetched = await extractTargetListing(fresh, canonical, capturedAt);
+      // Only accept it if the re-fetch actually resolved what the page could
+      // not. A redirect to a login wall would otherwise replace a partial
+      // extraction with an empty one.
+      if (refetched.payloadMatched) target = refetched;
+    }
+  }
 
   if (!target.usable) {
     return {
@@ -81,7 +104,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   //
   // Refusing beats submitting. A capture with no make, model or price is not
   // worth a row, and telling the user to retry costs them one click.
-  const { make, model, price_cents: priceCents } = target.observation;
+  const { make, model, year, price_cents: priceCents } = target.observation;
   if (make === null && model === null && priceCents === null) {
     return {
       ok: false,
@@ -91,8 +114,28 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     };
   }
 
+  // Nothing that identifies a VEHICLE, yet a price came through: this is a
+  // Marketplace listing for something that is not a car. Captured data holds
+  // four of these -- $780 and $5,000 rows whose "mileage" of 40 or 100 was a
+  // number lifted out of unrelated prose.
+  //
+  // They cannot be evaluated (no make or model means no comp search runs at
+  // all) and they pollute the observation table, which spec 4.4 intends as a
+  // vehicle time series. Refusing is better than storing a row that can only
+  // ever be noise.
+  if (make === null && model === null && year === null) {
+    return {
+      ok: false,
+      message: "This does not look like a vehicle listing. Nothing was saved.",
+      compCount: 0,
+      extractionOk: false,
+    };
+  }
+
   const issues: ExtractionIssue[] = [...target.issues];
 
+  const settings = await loadSettings();
+  const metrosSearched: string[] = [];
   const search = buildCompSearch(target.observation, target.locationId);
   let comps: CapturePayload["comps"] = [];
   let compSource = "none";
@@ -125,14 +168,39 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     }
 
     compSource = result.source;
+    let observations = result.observations;
+    issues.push(...result.issues);
+
+    // Facebook's 40-mile radius is not settable per request, so a wider market
+    // is only reachable as SEPARATE searches centred on other metros. Each one
+    // costs a request, which is why the list is opt-in and short rather than a
+    // radius slider.
+    //
+    // Still one user-initiated action (spec 8.1): these fire on the same click,
+    // and nothing here schedules, repeats or broadens a search on its own.
+    for (const metroId of settings.extraMetroIds) {
+      // The listing's own metro is always searched above. Repeating it here
+      // would spend a request to fetch the same fifteen results again.
+      if (metroId === target.locationId) continue;
+      const metroSearch = buildMetroSearch(target.observation, metroId);
+      if (!metroSearch) continue;
+      onStatus(`Searching nearby markets\u2026`);
+      const extra = await runCompSearch(metroSearch.url, capturedAt);
+      observations = [...observations, ...extra.observations];
+      metrosSearched.push(metroId);
+    }
 
     // A search page routinely includes the listing being evaluated. Keeping it
-    // would make the target its own comp in step 3.
-    comps = result.observations.filter(
-      (comp) => comp.source_listing_id !== target.observation.source_listing_id,
-    );
-
-    issues.push(...result.issues);
+    // would make the target its own comp in step 3. Duplicates ACROSS metros
+    // are left to the backend, whose comp filter already dedupes on content --
+    // overlapping metro searches legitimately return the same car twice.
+    const seenIds = new Set<string>();
+    comps = observations.filter((comp) => {
+      if (comp.source_listing_id === target.observation.source_listing_id) return false;
+      if (seenIds.has(comp.source_listing_id)) return false;
+      seenIds.add(comp.source_listing_id);
+      return true;
+    });
 
     if (result.source === "none") {
       issues.push({
@@ -153,7 +221,18 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     comps,
     issues,
     compSearchQuery: search
-      ? { ...search.query, source: compSource, location_scoped: locationScoped }
+      ? {
+          ...search.query,
+          source: compSource,
+          location_scoped: locationScoped,
+          // Not settable per request -- Facebook holds it against the account --
+          // so recording it is the only way a comp set's geographic scope is
+          // ever knowable after the fact.
+          search_radius_km: target.searchRadiusKm,
+          // Which metros were searched, so a comp set spanning several markets
+          // is visible in the data rather than inferred from city names.
+          extra_metros_searched: metrosSearched,
+        }
       : null,
   });
 

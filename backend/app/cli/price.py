@@ -265,6 +265,11 @@ def print_assessment(
         f"  Comps:                {est.n_included} included, "
         f"{est.n_fit_points} with mileage, {len(cs.excluded)} excluded"
     )
+    if cs.year_window_widened:
+        print(
+            f"  Year window:          widened to +/-{cs.year_window} years to reach the "
+            f"comp floor (spec 4.3)"
+        )
     if est.kind is EstimatorKind.MILEAGE_REGRESSION:
         assert est.slope_cents_per_mile is not None
         print(

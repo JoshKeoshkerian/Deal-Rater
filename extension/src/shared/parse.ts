@@ -143,6 +143,17 @@ const MAKES = [
   "polestar", "pontiac", "porsche", "ram", "renault", "rivian", "saab",
   "saturn", "scion", "smart", "subaru", "suzuki", "tesla", "toyota",
   "volkswagen", "volvo", "vw",
+
+  // Classic and discontinued marques. Absent until a captured "1977 Triumph
+  // spitfire" produced a null make, which meant no comp search ran at all --
+  // `buildCompSearch` requires make and model, so an unrecognised marque does
+  // not degrade the comp set, it eliminates it. Marketplace carries plenty of
+  // these, and they are exactly the vehicles with the thinnest comp sets to
+  // begin with.
+  "amc", "austin", "bentley", "bugatti", "datsun", "delorean", "eagle",
+  "fisker", "geo", "international", "lotus", "maybach", "mg", "morgan",
+  "packard", "rover", "sterling", "studebaker", "sunbeam", "triumph",
+  "willys", "yugo",
 ];
 
 /** Longest make in MULTI_WORD_MAKES, in whitespace-separated tokens. */

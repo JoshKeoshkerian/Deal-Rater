@@ -9,6 +9,7 @@
 
 import { cleanLocationText, textOrNull } from "../../shared/parse";
 import { FB_KEYS } from "../fb-keys";
+import { findValueByKey } from "../strategies/json-payload";
 import type { ExtractionRecorder } from "../self-check";
 import type { JsonObject } from "../strategies/json-payload";
 import { pickNumber, pickObject, pickString } from "../strategies/json-payload";
@@ -72,4 +73,25 @@ export function resolvePlace(
     latitude,
     longitude,
   };
+}
+
+/**
+ * The account's Marketplace search radius, in kilometres.
+ *
+ * Facebook renders it as either kilometres (`"radius":65`) or metres
+ * (`"radius":65000`); both occur in captured pages and both mean 40 miles. Any
+ * value above 1,000 is therefore read as metres.
+ *
+ * Returns null rather than a default when absent. Guessing a radius would be
+ * worse than admitting it is unknown, because the whole point of recording it
+ * is to stop the scope of a comp set being assumed.
+ */
+export function readSearchRadiusKm(payloads: unknown[]): number | null {
+  const raw = findValueByKey(payloads, FB_KEYS.searchRadius);
+  const numeric = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof numeric !== "number" || !Number.isFinite(numeric) || numeric <= 0) return null;
+
+  const km = numeric > 1000 ? numeric / 1000 : numeric;
+  // A radius beyond this is not a setting, it is a parse error.
+  return km > 5000 ? null : Math.round(km);
 }

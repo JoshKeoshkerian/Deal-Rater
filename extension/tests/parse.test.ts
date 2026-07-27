@@ -300,3 +300,23 @@ describe("parseVehicleTitle with the year written last", () => {
     });
   });
 });
+
+describe("classic and discontinued marques", () => {
+  // A captured "1977 Triumph spitfire" produced a null make, which meant no
+  // comp search ran at all: buildCompSearch requires make AND model, so an
+  // unrecognised marque does not thin the comp set, it eliminates it.
+  it.each([
+    ["1977 Triumph Spitfire", "Triumph", "Spitfire"],
+    ["1972 Datsun 240Z", "Datsun", "240Z"],
+    ["1968 MG MGB", "MG", "MGB"],
+    ["1981 DeLorean DMC-12", "DeLorean", "DMC-12"],
+    ["1970 AMC Javelin", "AMC", "Javelin"],
+    ["1985 Yugo GV", "Yugo", "GV"],
+  ])("parses %s", (title, make, model) => {
+    expect(parseVehicleTitle(title)).toMatchObject({ make, model });
+  });
+
+  it("still refuses to guess at a genuinely unknown make", () => {
+    expect(parseVehicleTitle("2014 Frobnicator Deluxe").make).toBeNull();
+  });
+});

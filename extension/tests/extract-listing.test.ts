@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { extractTargetListing } from "../src/extract/listing";
 import { findTargetListingNode } from "../src/extract/fields/listing-node";
+import { readSearchRadiusKm } from "../src/extract/fields/place";
 import type { ObservationPayload } from "../src/shared/types";
 import {
   buildListingDocument,
@@ -467,5 +468,59 @@ describe("listing identity", () => {
     // The canonical link still identifies it, so this page is recoverable.
     expect(result.observation.source_listing_id).toBe(BASE.id);
     expect(result.observation.field_strategies["source_listing_id"]).toBe("meta_tag");
+  });
+});
+
+describe("account search radius", () => {
+  // Not settable per request: changing the radius in Marketplace's UI leaves
+  // the search URL byte-for-byte identical, so Facebook holds it against the
+  // account. Extracting it does not widen anything -- it makes the geographic
+  // scope of a comp set recorded rather than an invisible global.
+  it("reads a kilometre value", () => {
+    expect(readSearchRadiusKm([{ location: { radius: 65 } }])).toBe(65);
+  });
+
+  it("reads a metre value as kilometres", () => {
+    // Captured pages carry both forms; 65 km and 65,000 m are the same 40 miles.
+    expect(readSearchRadiusKm([{ pdpListingId: "1", radius: 65000 }])).toBe(65);
+  });
+
+  it("returns null rather than guessing a default", () => {
+    expect(readSearchRadiusKm([{ unrelated: true }])).toBeNull();
+    expect(readSearchRadiusKm([])).toBeNull();
+  });
+
+  it("rejects nonsense rather than passing it through", () => {
+    expect(readSearchRadiusKm([{ radius: 0 }])).toBeNull();
+    expect(readSearchRadiusKm([{ radius: -5 }])).toBeNull();
+    expect(readSearchRadiusKm([{ radius: 99_000_000 }])).toBeNull();
+  });
+});
+
+describe("single-page-app navigation", () => {
+  // Capturing used to require a manual Cmd+R. The refresh was never the point:
+  // it forced Facebook to server-render the listing's JSON payload into the
+  // DOM. Navigating listing-to-listing leaves the previous listing's payload
+  // in place, so the extractor has to notice and re-fetch instead.
+  it("reports that the payload did not belong to this listing", async () => {
+    const stalePage = buildListingDocument(BASE, "payload");
+    const result = await extractTargetListing(
+      stalePage,
+      itemUrl("999999999999999"),
+      NOW,
+    );
+    expect(result.payloadMatched).toBe(false);
+  });
+
+  it("reports a match on a freshly loaded page", async () => {
+    const doc = buildListingDocument(BASE, "payload");
+    const result = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(result.payloadMatched).toBe(true);
+  });
+
+  it("does not claim a match when the page has no payload at all", async () => {
+    const doc = buildListingDocument(BASE, "meta");
+    const result = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(result.payloadMatched).toBe(false);
   });
 });
