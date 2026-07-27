@@ -113,6 +113,12 @@ def print_assessment(
         )
         if est.r_squared is not None:
             print(f"  R-squared:            {est.r_squared:.2f}")
+        sensitivity = est.outlier_sensitivity
+        if sensitivity is not None:
+            print(
+                f"  Outlier sensitivity:  {sensitivity:.1%}"
+                f"   (robust fit says {money(est.robust_asking_cents)}; diagnostic only)"
+            )
     if est.interval_widened_to_floor:
         print(
             "  Interval:             widened to the precision floor "

@@ -39,6 +39,7 @@ export function resolveMileage(
   node: JsonObject | null,
   block: Element | null,
   descBlock: Element | null = null,
+  titleText: string | null = null,
 ): ResolvedMileage {
   let unit: MileageUnit | null = null;
   let text: string | null = null;
@@ -71,6 +72,22 @@ export function resolveMileage(
           }
         }
         return null;
+      },
+    ],
+    [
+      "text_pattern",
+      () => {
+        // Sellers type the odometer into the listing title when they skip the
+        // structured field: "2016 Mazda CX-5 · Touring 🤘 174160 Miles". On a
+        // search card the title is often the only text there is, so without
+        // this the comp has no mileage and drops out of the step-3 regression
+        // entirely — two of ten comps in one captured search.
+        if (!titleText) return null;
+        const parsed = parseMileage(titleText);
+        if (!parsed) return null;
+        unit = parsed.unit;
+        text = titleText;
+        return parsed.value;
       },
     ],
     [

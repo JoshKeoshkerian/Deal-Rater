@@ -263,3 +263,82 @@ class TestExplainability:
         counts = filter_comps(TARGET, candidates).exclusion_counts()
         assert counts["different_model"] == 2
         assert counts["year_out_of_window"] == 1
+
+
+class TestNonVehicleListings:
+    """A Marketplace vehicle search returns parts, and they parse as cars."""
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "double din dash kit 2002 Mazda protege speed or Mazda protege",
+            '9" Android Touchscreen Car Radio for Mazda CX-5 (2013-2016) - Brand New',
+            "Set of 4 wheels and tires for Mazda CX-5",
+            "2016 Mazda CX-5 parts only, no title",
+            "Rear bumper for 2016 Mazda CX-5",
+        ],
+    )
+    def test_parts_and_accessories_are_excluded(self, title):
+        result = filter_comps(
+            TARGET, [comp(source_listing_id="p", mileage=95_000, title=title)]
+        )
+        assert result.excluded[0].exclusion is Exclusion.NOT_A_VEHICLE
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "2016 Mazda CX-5 · Grand Touring Sport Utility 4D",
+            "2016 Mazda CX-5 Touring 🤘 174160 Miles",
+            "2013 Mazda CX5 - GREAT CAR, GREAT FUEL SAVINGS",
+            "2016 Mazda CX-5 great for a family, new tires fitted last year",
+        ],
+    )
+    def test_real_vehicle_listings_survive(self, title):
+        # Excluding a real car costs as much as letting a part through, given
+        # how thin the comp set already is.
+        result = filter_comps(
+            TARGET, [comp(source_listing_id="v", mileage=95_000, title=title)]
+        )
+        assert len(result.included) == 1
+
+    def test_a_priced_up_part_would_otherwise_pass_every_check(self):
+        # The point of the rule: the price floor only caught the $25 version.
+        part = comp(
+            source_listing_id="p",
+            mileage=95_000,
+            price_cents=30_000_0,  # $300, comfortably above the floor
+            title="double din dash kit 2002 Mazda protege",
+        )
+        assert filter_comps(TARGET, [part]).included == []
+
+    def test_a_missing_title_does_not_exclude(self):
+        # Comps captured before the title was retained must not all vanish.
+        result = filter_comps(
+            TARGET, [comp(source_listing_id="v", mileage=95_000, title=None)]
+        )
+        assert len(result.included) == 1
+
+    def test_a_trailing_part_noun_is_left_to_the_price_filter(self):
+        # KNOWN GAP, deliberately not closed at the title level. "2016 Mazda
+        # CX-5 rear bumper cover" (a part) and "2016 Mazda CX-5, new bumper"
+        # (a car) are not separable from the title alone, and guessing would
+        # start dropping real comps from an already thin set.
+        #
+        # In practice the relative price floor catches it: a bumper priced at a
+        # small fraction of the comp median is filtered as implausible. That is
+        # a weaker guarantee than the title rule, and it is the reason this is
+        # recorded as a gap rather than a pass.
+        others = [
+            comp(source_listing_id=str(i), mileage=90_000 + i * 11_000, price_cents=1_200_000)
+            for i in range(5)
+        ]
+        bumper = comp(
+            source_listing_id="b",
+            mileage=95_000,
+            price_cents=15_000,
+            title="2016 Mazda CX-5 rear bumper cover",
+        )
+        result = filter_comps(TARGET, [*others, bumper])
+        assert bumper.source_listing_id in {
+            d.candidate.source_listing_id for d in result.excluded
+        }

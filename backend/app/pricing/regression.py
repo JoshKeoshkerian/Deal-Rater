@@ -85,6 +85,11 @@ class AskingPriceEstimate:
     #: Share of asking-price variance explained by mileage alone.
     r_squared: float | None
 
+    #: Theil-Sen estimate at the target's mileage, computed alongside the OLS
+    #: fit purely as a DIAGNOSTIC. Never published as the price. See
+    #: `outlier_sensitivity`.
+    robust_asking_cents: int | None = None
+
     #: Why the estimator fell back, when it did. Surfaced to the user.
     fallback_reasons: tuple[str, ...] = ()
     #: True when the published interval was widened to the floor in params,
@@ -94,6 +99,35 @@ class AskingPriceEstimate:
     @property
     def has_estimate(self) -> bool:
         return self.expected_asking_cents is not None
+
+    @property
+    def outlier_sensitivity(self) -> float | None:
+        """How far the OLS estimate moves under a breakdown-resistant fit.
+
+        Least squares weights a squared residual, so one junk listing in an
+        eight-point comp set can move the line materially -- and spec 2 says
+        junk listings are exactly what a private-party market oversupplies, so
+        this is the expected case rather than a rare one.
+
+        Theil-Sen (median of pairwise slopes) tolerates up to ~29% contamination.
+        Comparing the two is a cheap check on whether the published estimate
+        rests on the comp set as a whole or on one or two points.
+
+        THE ROBUST FIT IS NOT PUBLISHED AS THE PRICE. Which of the two is closer
+        to the truth is a calibration question (spec 9.4), and there is no ground
+        truth set to answer it. On captured data the two disagree by 0.7%, 4.0%
+        and 12.2% across three fittable captures -- enough to flip one verdict
+        from "overpriced" to "fair". Picking the winner without evidence would be
+        exactly the unvalidated confidence spec 9 exists to prevent, so the
+        disagreement is reported as reduced CONFIDENCE instead.
+        """
+        if self.expected_asking_cents is None or self.robust_asking_cents is None:
+            return None
+        if self.expected_asking_cents == 0:
+            return None
+        return abs(self.expected_asking_cents - self.robust_asking_cents) / (
+            self.expected_asking_cents
+        )
 
     def residual_fraction(self, ask_cents: int | None) -> float | None:
         """Signed residual of the target's ask against expected asking price.
@@ -121,6 +155,25 @@ class AskingPriceEstimate:
         ):
             return None
         return self.asking_interval_low_cents <= ask_cents <= self.asking_interval_high_cents
+
+
+def _theil_sen(xs: list[float], ys: list[float]) -> tuple[float, float] | None:
+    """Median of pairwise slopes, with the matching median intercept.
+
+    O(n^2) in the comp count, which is irrelevant at n < 50 and keeps the
+    implementation short enough to audit.
+    """
+    slopes = [
+        (ys[j] - ys[i]) / (xs[j] - xs[i])
+        for i in range(len(xs))
+        for j in range(i + 1, len(xs))
+        if xs[j] != xs[i]
+    ]
+    if not slopes:
+        return None
+    slope = median(slopes)
+    intercept = median(y - slope * x for x, y in zip(xs, ys, strict=True))
+    return slope, intercept
 
 
 def _median_estimate(
@@ -260,6 +313,14 @@ def estimate_expected_asking_price(
         )
         return _median_estimate(all_prices, n_included, len(fit_points), coverage, tuple(reasons))
 
+    # Diagnostic only -- see `outlier_sensitivity`. Never becomes the price.
+    robust = _theil_sen(xs, ys)
+    robust_point: int | None = None
+    if robust is not None:
+        robust_value = robust[1] + robust[0] * float(target_mileage)
+        if robust_value > 0:
+            robust_point = int(robust_value)
+
     return AskingPriceEstimate(
         kind=EstimatorKind.MILEAGE_REGRESSION,
         expected_asking_cents=int(point),
@@ -271,6 +332,7 @@ def estimate_expected_asking_price(
         slope_cents_per_mile=slope,
         residual_std_error_cents=residual_se,
         r_squared=r_squared,
+        robust_asking_cents=robust_point,
         fallback_reasons=tuple(reasons),
         interval_widened_to_floor=widened,
     )

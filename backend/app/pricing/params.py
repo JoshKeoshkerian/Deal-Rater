@@ -185,6 +185,17 @@ MIN_TRIM_COVERAGE = 0.5
 # saying (spec 2). UNCALIBRATED.
 ADVERSE_SELECTION_RESIDUAL = -0.25
 
+# How far the least-squares estimate may move under a breakdown-resistant
+# (Theil-Sen) fit before the comp set is treated as outlier-dominated.
+#
+# Measured on captured data, the two estimators differ by 0.7%, 4.0% and 12.2%
+# across the three fittable captures -- and the 12.2% case flips the verdict
+# from "overpriced" to "fair". That is a real fragility, and which estimator is
+# closer to the truth is a calibration question (spec 9.4) with no ground truth
+# set to answer it. So the disagreement lowers CONFIDENCE rather than switching
+# the price. UNCALIBRATED.
+MAX_ROBUST_DISAGREEMENT = 0.08
+
 # Comp count at or above which count stops limiting confidence. UNCALIBRATED;
 # spec 0's "15 or more usable comps typical: the premise holds" is the source.
 COMPS_FOR_HIGH_CONFIDENCE = 15

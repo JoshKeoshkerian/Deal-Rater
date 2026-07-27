@@ -70,9 +70,11 @@ export async function extractTargetListing(
 
   const price = resolvePrice(recorder, node, headerBlock);
   const priceChanged = resolvePriceChanged(recorder, headerBlock);
-  const mileage = resolveMileage(recorder, node, headerBlock, descBlock);
   const description = resolveDescription(recorder, node, doc, descBlock);
   const vehicle = resolveVehicle(recorder, { node, doc, block: headerBlock, description });
+  // After the vehicle, so its title can serve as a mileage source of last
+  // resort for sellers who type the odometer into the title instead.
+  const mileage = resolveMileage(recorder, node, headerBlock, descBlock, vehicle.title);
   const vin = resolveVin(recorder, description, vehicle.title);
   const photoCount = resolvePhotoCount(recorder, node, headerBlock);
   const place = resolvePlace(recorder, node, headerBlock);

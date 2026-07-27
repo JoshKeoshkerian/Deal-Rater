@@ -222,3 +222,33 @@ class TestAskingPriceSemantics:
         assert money_fields
         for name in money_fields:
             assert "asking" in name, f"{name} does not say 'asking'"
+
+
+class TestOutlierSensitivity:
+    """A robust fit is computed as a DIAGNOSTIC, never published as the price."""
+
+    def test_a_clean_comp_set_shows_low_sensitivity(self):
+        est = build(target(120_000), clean_line())
+        assert est.outlier_sensitivity is not None
+        assert est.outlier_sensitivity < 0.05
+
+    def test_one_junk_listing_moves_least_squares_and_is_detected(self):
+        # Spec 2: a private-party market oversupplies exactly this. One badly
+        # underpriced low-mileage car levers the OLS line down at that end.
+        contaminated = [*clean_line(9)]
+        contaminated.append(comp(99, price=400_000, mileage=70_000))
+        est = build(target(180_000), contaminated)
+        assert est.outlier_sensitivity > params.MAX_ROBUST_DISAGREEMENT
+
+    def test_the_robust_fit_is_never_the_published_price(self):
+        contaminated = [*clean_line(9), comp(99, price=400_000, mileage=70_000)]
+        est = build(target(180_000), contaminated)
+        # The published number stays the OLS one. Which estimator is right is a
+        # calibration question (spec 9.4) with no ground truth set to settle it.
+        assert est.kind is EstimatorKind.MILEAGE_REGRESSION
+        assert est.expected_asking_cents != est.robust_asking_cents
+
+    def test_sensitivity_is_absent_when_no_slope_was_fitted(self):
+        est = build(target(), clean_line(4))
+        assert est.kind is EstimatorKind.COMP_MEDIAN
+        assert est.outlier_sensitivity is None

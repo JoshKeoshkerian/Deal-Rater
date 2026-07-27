@@ -56,6 +56,15 @@ the comp unverifiable as the same vehicle, or unusable as a data point.
                      trim string at all).
   drivetrain missing INCLUDE. Inert until step 6.
   location missing   INCLUDE. Radius is enforced by the search itself.
+
+NOT EVERY RESULT IS A CAR
+-------------------------
+A Marketplace vehicle search returns parts and accessories alongside vehicles,
+and they parse cleanly into year/make/model. Captured data contains a $25 "double
+din dash kit 2002 Mazda protege" that became a 2002 Protege comp, and a $180
+Android head unit "for Mazda CX-5 (2013-2016)". The price floor caught both only
+by accident -- a $300 dash kit would have passed every check and then anchored an
+eight-point regression. See `looks_like_a_part`.
 """
 
 from __future__ import annotations
@@ -186,6 +195,108 @@ def trims_agree(target_trim: frozenset[str], comp_trim: frozenset[str]) -> bool:
     return target_trim == comp_trim
 
 
+# Parts and accessories listed in a Marketplace vehicle search. These are not
+# comps, and the existing price floor catches them only by accident: a $25 dash
+# kit is filtered as an implausible price, but a $300 one is not, and it would
+# then sit in an eight-point regression as though it were a car.
+#
+# Two captured examples, both of which parsed as vehicles:
+#   '9" Android Touchscreen Car Radio for Mazda CX-5 (2013-2016) - Brand New'
+#   'double din dash kit 2002 Mazda protege speed or Mazda protege'  ($25)
+# Decisive on their own: nobody advertises a car using these as the subject.
+_STRONG_PART_NOUNS = (
+    "dash kit",
+    "dash cam",
+    "head unit",
+    "double din",
+    "single din",
+    "touchscreen",
+    "catalytic",
+    "key fob",
+    "owners manual",
+    "parts only",
+    "for parts",
+    "part out",
+    "wiring harness",
+    "transmission for",
+    "engine for",
+)
+
+# Ambiguous: a genuine listing says "new tires" or "heated seats" about the car
+# it is selling. These only count when they sit in the SUBJECT position -- ahead
+# of the model year -- or alongside a fitment phrase.
+_WEAK_PART_NOUNS = (
+    "radio",
+    "stereo",
+    "bumper",
+    "headlight",
+    "taillight",
+    "tail light",
+    "mirror",
+    "rims",
+    "wheels",
+    "tires",
+    "tyres",
+    "seat cover",
+    "floor mat",
+    "spoiler",
+    "grille",
+    "fender",
+    "tailgate",
+    "muffler",
+    "exhaust",
+    "alternator",
+    "starter motor",
+)
+
+#: First model year in a title, used to locate where the vehicle description
+#: starts. Anything before it is the seller describing the subject.
+_YEAR_TOKEN_RE = re.compile(r"\b(19|20)\d{2}\b")
+
+#: "... for Mazda CX-5", "fits Honda Civic" -- an item FOR a car, not a car.
+_FITMENT_RE = re.compile(r"\b(for|fits|fit for|compatible with)\s+(a\s+)?[a-z]", re.I)
+
+#: "(2013-2016)" -- a fitment range. A real listing states one model year.
+_YEAR_RANGE_RE = re.compile(r"\(?\b(19|20)\d{2}\s*[-–]\s*(19|20)\d{2}\b\)?")
+
+
+def looks_like_a_part(title: str | None) -> bool:
+    """Whether a listing title describes an accessory rather than a vehicle.
+
+    Conservative by construction. Wrongly excluding a real car costs as much as
+    letting a part through, given how thin the comp set already is, so the
+    ambiguous middle is left alone deliberately:
+
+      strong noun anywhere            -> a part
+      weak noun before the model year -> a part ("dash kit 2002 Mazda protege")
+      weak noun after it              -> a car  ("2016 CX-5, new tires")
+      fitment phrase + year range     -> a part ("for Mazda CX-5 (2013-2016)")
+    """
+    if not title:
+        return False
+    text = title.lower()
+
+    if any(noun in text for noun in _STRONG_PART_NOUNS):
+        return True
+
+    # Everything before the model year is the seller naming what they are
+    # selling; everything after is them describing it.
+    year_match = _YEAR_TOKEN_RE.search(text)
+    subject = text[: year_match.start()] if year_match else text
+    if any(noun in subject for noun in _WEAK_PART_NOUNS):
+        return True
+
+    # "for Mazda CX-5 (2013-2016)" -- neither half is decisive alone. A car
+    # listing can say "great for a family", and a seller can write a year range
+    # sloppily, but together they are a fitment description.
+    if _FITMENT_RE.search(text) and _YEAR_RANGE_RE.search(text):
+        return True
+
+    # "... for Mazda CX-5" trailing a weak noun, with no model year anywhere.
+    return bool(year_match is None and _FITMENT_RE.search(text)
+                and any(noun in text for noun in _WEAK_PART_NOUNS))
+
+
 class DealerSignal(StrEnum):
     """Placeholder for spec 4.3's dealer exclusion.
 
@@ -219,6 +330,11 @@ class CompCandidate:
     relisting_key: str | None = None
     seller_hash: str | None = None
     listing_url: str | None = None
+    #: The raw listing title, kept because the part/accessory signals live in
+    #: the portion `parseVehicleTitle` discards -- everything before the year.
+    #: "double din dash kit 2002 Mazda protege" parses to a clean 2002 Protege
+    #: and only the title still says it is a dash kit.
+    title: str | None = None
 
     @property
     def drivetrain(self) -> DrivetrainSignal:
@@ -243,6 +359,7 @@ class Exclusion(StrEnum):
     PRICE_MISSING = "price_missing"
     PRICE_IMPLAUSIBLE = "price_implausible"
     MILEAGE_IMPLAUSIBLE = "mileage_implausible"
+    NOT_A_VEHICLE = "not_a_vehicle"
 
 
 @dataclass(frozen=True)
@@ -411,6 +528,10 @@ def filter_comps(
             return Exclusion.SAME_VEHICLE_AS_TARGET
         if any(same_vehicle(c, other) for other in kept):
             return Exclusion.DUPLICATE_OF_ANOTHER_COMP
+        # Before the field checks: a dash kit parses into a perfectly clean
+        # year/make/model and would otherwise pass every one of them.
+        if looks_like_a_part(c.title):
+            return Exclusion.NOT_A_VEHICLE
         if not c.model:
             return Exclusion.MODEL_UNKNOWN
         if target_make and normalize_key(c.make) != target_make:

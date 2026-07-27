@@ -110,6 +110,58 @@ describe("extractCompCards from the payload", () => {
     expect(observations).toEqual([]);
   });
 
+  describe("mileage typed into the title", () => {
+    // Real captured card: "2016 Mazda CX-5 · Touring 🤘 174160 Miles" with no
+    // subtitle. Without this the comp has no mileage and drops out of the
+    // step-3 regression, which is what happened to two of ten comps in one
+    // captured search.
+    const titled = (title: string): CompCardSpec => ({
+      id: "301",
+      title,
+      priceAmount: "8998",
+      priceText: "$8,998",
+      mileageText: null,
+      location: "Centralia, IL",
+    });
+
+    it("recovers mileage from the title when there is no subtitle", async () => {
+      const { observations } = await extract([titled("2016 Mazda CX-5 · Touring 🤘 174160 Miles")]);
+      expect(observations[0]!.mileage).toBe(174_160);
+      expect(observations[0]!.mileage_unit).toBe("mi");
+    });
+
+    it("handles the abbreviated form", async () => {
+      const { observations } = await extract([titled("2016 Mazda CX-5 Touring 96k miles")]);
+      expect(observations[0]!.mileage).toBe(96_000);
+    });
+
+    it("prefers a subtitle over the title", async () => {
+      // The subtitle is the structured field; the title is a last resort.
+      const { observations } = await extract([
+        { ...titled("2016 Mazda CX-5 · Touring 174160 Miles"), mileageText: "161K miles" },
+      ]);
+      expect(observations[0]!.mileage).toBe(161_000);
+    });
+
+    it("does not invent mileage from a title with no odometer in it", async () => {
+      const { observations } = await extract([titled("2016 Mazda CX-5 · Grand Touring")]);
+      expect(observations[0]!.mileage).toBeNull();
+    });
+
+    it("does not read a model number as mileage", async () => {
+      // "328i" and "MAZDA3" must not match; the unit word is required.
+      for (const title of ["2015 BMW 328i · Sedan 4D", "2008 Mazda MAZDA3 2.0 Sedan 4D"]) {
+        const { observations } = await extract([titled(title)]);
+        expect(observations[0]!.mileage).toBeNull();
+      }
+    });
+
+    it("does not read the model year as mileage", async () => {
+      const { observations } = await extract([titled("2016 Mazda CX-5 · Sport SUV 4D")]);
+      expect(observations[0]!.mileage).toBeNull();
+    });
+  });
+
   it("collapses repeated card issues into one row per field", async () => {
     // Every card lacks a description; that is one fact, not forty.
     const { issues } = await extract(CARDS);

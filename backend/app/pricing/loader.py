@@ -35,6 +35,8 @@ class StoredCapture:
 
 
 def _to_candidate(obs: ListingObservation, listing: Listing) -> CompCandidate:
+    raw = obs.raw_extract or {}
+    title = raw.get("title") if isinstance(raw, dict) else None
     return CompCandidate(
         listing_id=listing.id,
         source_listing_id=listing.source_listing_id,
@@ -47,6 +49,7 @@ def _to_candidate(obs: ListingObservation, listing: Listing) -> CompCandidate:
         location_text=obs.location_text,
         relisting_key=listing.relisting_key,
         listing_url=obs.listing_url,
+        title=title if isinstance(title, str) else None,
     )
 
 

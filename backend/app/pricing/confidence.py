@@ -51,6 +51,7 @@ class Limiter(StrEnum):
     DEALER_FILTERING_UNAVAILABLE = "dealer_filtering_unavailable"
     NO_RECENCY_WEIGHTING = "no_recency_weighting"
     WEAK_MILEAGE_FIT = "weak_mileage_fit"
+    OUTLIER_SENSITIVE = "outlier_sensitive"
 
 
 #: Human-readable text per limiter, shown by the CLI and later the overlay.
@@ -89,6 +90,10 @@ LIMITER_TEXT: dict[Limiter, str] = {
         "as a fresh one."
     ),
     Limiter.WEAK_MILEAGE_FIT: "Mileage explains little of the spread in comparable asks.",
+    Limiter.OUTLIER_SENSITIVE: (
+        "The expected asking price rests heavily on one or two comparable listings; "
+        "a fit that discounts outliers gives a materially different answer."
+    ),
 }
 
 
@@ -141,6 +146,10 @@ def assess_confidence(
     if estimate.kind is EstimatorKind.MILEAGE_REGRESSION:
         if estimate.r_squared is not None and estimate.r_squared < 0.25:
             limiters.append(Limiter.WEAK_MILEAGE_FIT)
+
+        sensitivity = estimate.outlier_sensitivity
+        if sensitivity is not None and sensitivity > params.MAX_ROBUST_DISAGREEMENT:
+            limiters.append(Limiter.OUTLIER_SENSITIVE)
 
         mileages = [
             d.candidate.mileage for d in comp_set.fit_points if d.candidate.mileage is not None

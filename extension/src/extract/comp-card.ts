@@ -79,13 +79,15 @@ async function fromPayloads(
     recorder.strategies["listing_url"] = "url_path";
 
     const price = resolvePrice(recorder, node, null);
-    const mileage = resolveMileage(recorder, node, null);
+    // Vehicle first: its title string is a mileage source of last resort, and
+    // on a search card it is frequently the only one.
     const vehicle = resolveVehicle(recorder, {
       node,
       doc: null,
       block: null,
       description: null,
     });
+    const mileage = resolveMileage(recorder, node, null, null, vehicle.title);
     const place = resolvePlace(recorder, node, null);
     const seller = await resolveSeller(recorder, node, null, id);
 
