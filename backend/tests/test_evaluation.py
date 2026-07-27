@@ -2,38 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from app.evaluation import WEIGHTS, compute_deal_score
 from app.evaluation.report import BETA_NOTICE, DISCLAIMER
 from app.evaluation.score import MIN_COVERAGE, REQUIRED_COMPONENTS
 from app.flags import assess_completeness, assess_scam_patterns, read_title_status
-from app.negotiation import assess_negotiation
 from app.nhtsa import build_assessment
 from app.pricing.curve import rate_price_residual
 
 
-def score(*, residual=0.0, days=30, description="x" * 400, photos=10, price_changed=None):
-    now = datetime(2026, 7, 27, tzinfo=UTC)
-    posted = None if days is None else now.replace(day=1)
-    negotiation = assess_negotiation(
-        posted_at=posted if days is None else None, observed_at=now,
-        description=description, price_residual=residual,
-    )
-    if days is not None:
-        from datetime import timedelta
-        negotiation = assess_negotiation(
-            posted_at=now - timedelta(days=days), observed_at=now,
-            description=description, price_residual=residual,
-        )
+def score(
+    *, residual=0.0, description="x" * 400, photos=10, price_changed=None, title_status="clean"
+):
     return compute_deal_score(
         rating=rate_price_residual(residual) if residual is not None else None,
-        negotiation=negotiation,
         completeness=assess_completeness(
             description=description, photo_count=photos, mileage=100_000,
-            title_status="clean", vin=None, year=2016, trim_text="LX",
+            title_status=title_status, vin=None, year=2016, trim_text="LX",
         ),
-        title=read_title_status("clean"),
+        title=read_title_status(title_status),
         vehicle_risk=build_assessment(None, None),
         scam=assess_scam_patterns(
             description=description, photo_count=photos, vin=None,
@@ -44,16 +30,21 @@ def score(*, residual=0.0, days=30, description="x" * 400, photos=10, price_chan
 
 class TestWeights:
     def test_they_match_the_spec_verbatim(self):
+        # Time on market is deliberately absent: spec 6.4 calls negotiation
+        # strength "genuinely orthogonal to deal quality", so it is reported
+        # there and does not weigh into this composite. See the note on
+        # `WEIGHTS` itself.
         assert WEIGHTS == {
             "price_residual": 45.0,
-            "time_on_market": 20.0,
             "information_completeness": 15.0,
             "vehicle_risk": 12.0,
             "seller_and_scam_risk": 8.0,
         }
 
-    def test_they_sum_to_one_hundred(self):
-        assert sum(WEIGHTS.values()) == 100.0
+    def test_they_do_not_need_to_sum_to_one_hundred(self):
+        # compute_deal_score divides by whatever weight is actually COVERED,
+        # not by a fixed 100, so an 80-point total renormalises correctly.
+        assert sum(WEIGHTS.values()) == 80.0
 
 
 class TestTheScoreIsAlwaysBeta:
@@ -74,7 +65,9 @@ class TestBreakdownTravelsWithTheNumber:
         assert {c.name for c in result.components} == set(WEIGHTS)
 
     def test_an_unavailable_dimension_carries_a_reason(self):
-        result = score(days=None)
+        # No title status and no NHTSA data (vin=None throughout `score()`)
+        # leaves vehicle_risk unassessable.
+        result = score(title_status=None)
         missing = [c for c in result.missing]
         assert missing and all(c.unavailable_reason for c in missing)
 
@@ -109,9 +102,6 @@ class TestScoring:
     def test_a_better_price_scores_higher(self):
         assert score(residual=-0.12).score > score(residual=0.25).score
 
-    def test_a_staler_listing_scores_higher_all_else_equal(self):
-        assert score(days=90).score > score(days=1).score
-
     def test_scores_stay_in_range(self):
         for residual in (-0.9, -0.3, 0.0, 0.3, 0.9):
             result = score(residual=residual)
@@ -122,6 +112,6 @@ class TestScoring:
         # Scoring "unknown" as zero would punish a listing for what the tool
         # could not look up.
         full = score()
-        partial = score(days=None)
+        partial = score(title_status=None)
         assert partial.score is not None
         assert partial.coverage < full.coverage

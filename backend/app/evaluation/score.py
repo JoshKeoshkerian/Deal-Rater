@@ -45,14 +45,23 @@ from dataclasses import dataclass
 
 from ..flags import CompletenessReading, ScamAssessment, TitleReading, TitleRisk
 from ..flags.completeness import TitleRisk as _TitleRisk
-from ..negotiation import NegotiationAssessment
 from ..nhtsa import VehicleRiskAssessment
 from ..pricing.curve import PricingRating
 
-#: Spec 5.2's starting weights, verbatim. UNCALIBRATED.
+#: Spec 5.2's starting weights. UNCALIBRATED.
+#:
+#: Spec 5.2 originally listed "Time on market: 20" here too. Removed: spec 6.4
+#: opens by insisting negotiation strength is "genuinely orthogonal to deal
+#: quality... surface this inside the brief rather than as a third headline
+#: number", which this composite directly contradicted. Concretely,
+#: `negotiation/strength.py` scores a listing under a day old at 0 and a very
+#: stale one at 100 on this axis -- so a fresh, excellent, correctly-priced
+#: listing lost up to 20 of 100 points for no reason related to deal quality.
+#: Time on market still does real work; it just belongs to spec 6.4's
+#: negotiation section (`NegotiationAssessment`), which already computed it
+#: independently of this composite and needed no change.
 WEIGHTS: dict[str, float] = {
     "price_residual": 45.0,
-    "time_on_market": 20.0,
     "information_completeness": 15.0,
     "vehicle_risk": 12.0,
     "seller_and_scam_risk": 8.0,
@@ -64,7 +73,7 @@ MIN_COVERAGE = 0.5
 
 #: Dimensions without which no score is published, whatever the coverage.
 #:
-#: Price residual is not merely the heaviest component (45 of 100) -- it is the
+#: Price residual is not merely the heaviest component (45 of 80) -- it is the
 #: question. Spec 5.1: "Lead with expected value." Renormalising around its
 #: absence produced a real absurdity on captured data: capture 3 has two usable
 #: comps and therefore no expected asking price, yet scored 91/100 on the
@@ -166,13 +175,16 @@ def _scam_score(scam: ScamAssessment) -> tuple[float | None, str | None]:
 def compute_deal_score(
     *,
     rating: PricingRating | None,
-    negotiation: NegotiationAssessment,
     completeness: CompletenessReading,
     title: TitleReading,
     vehicle_risk: VehicleRiskAssessment,
     scam: ScamAssessment,
 ) -> DealScore:
-    """Summarise the separated dimensions into spec 5.2's headline number."""
+    """Summarise the separated dimensions into spec 5.2's headline number.
+
+    Negotiation strength (spec 6.4) is deliberately not an input -- see the
+    note on `WEIGHTS`. It is reported alongside this score, not folded into it.
+    """
     vehicle_value, vehicle_reason = _vehicle_risk_score(title, vehicle_risk)
     scam_value, scam_reason = _scam_score(scam)
 
@@ -182,12 +194,6 @@ def compute_deal_score(
             WEIGHTS["price_residual"],
             rating.rating if rating else None,
             None if rating else "no expected asking price to compare against",
-        ),
-        ScoreComponent(
-            "time_on_market",
-            WEIGHTS["time_on_market"],
-            negotiation.time_on_market_score,
-            None if negotiation.time_on_market_score is not None else "no posted date",
         ),
         ScoreComponent(
             "information_completeness",
@@ -251,3 +257,25 @@ def compute_deal_score(
         components=components,
         coverage=coverage,
     )
+
+
+def ablate_component(score: DealScore, drop: str) -> float | None:
+    """Spec 9.2: the composite as if `drop` were also unavailable.
+
+    A counterfactual on the ALREADY-COMPUTED components -- it reuses the same
+    renormalisation `compute_deal_score` applies to a component that genuinely
+    could not be assessed, rather than re-running the pipeline with a dimension
+    switched off. It does not reproduce `compute_deal_score`'s suppression rules
+    (the scam warning, the required-component check, the coverage floor): those
+    decide whether a number should ship to a user, which is a different question
+    from how much one dimension moves it. Callers should only compare this
+    against `score.score` when that was not None to begin with.
+
+    None when dropping `drop` would leave nothing to average, or when nothing
+    was available to drop from in the first place.
+    """
+    available = [c for c in score.components if c.available and c.name != drop]
+    if not available:
+        return None
+    total_weight = sum(c.weight for c in available)
+    return max(0.0, min(100.0, sum(c.weight * c.value for c in available) / total_weight))

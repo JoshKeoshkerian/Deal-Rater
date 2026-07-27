@@ -1,11 +1,20 @@
-# Deal Rater — step 2: extraction
+# Deal Rater
 
 Extension plus backend that captures a Facebook Marketplace vehicle listing and
-its comparable listings, and persists them as an append-only time series.
+its comparable listings, evaluates it (expected price, negotiation strength,
+flags, NHTSA recalls, better alternatives, qualitative known issues), and shows
+the result in an overlay -- per [the spec](fb-deal-evaluator-spec.md)'s build
+order (§13), steps 1 through 8.
 
-**Scope is step 2 of [the spec](fb-deal-evaluator-spec.md) §13 and nothing else.**
-No scoring, no NHTSA calls, no LLM calls, no overlay UI. The success criterion is
-reliable, correct extraction across 30+ varied listings including edge cases.
+**What's not done yet: §13 step 9, calibration.** The pricing curve's
+plateau/decline breakpoints are still the spec's illustrative guesses, never
+fitted to a ground truth set -- `is_calibrated()` is hardcoded `False` and the
+overlay's beta badge reflects that. See [spec §9](fb-deal-evaluator-spec.md) and
+the CLIs in `backend/app/cli/`: `label` and `agreement` build and score a hand-
+labelled set, `ablation` checks whether each dimension's weight is doing real
+work, `outcomes` tracks price movement on rechecked listings, `audit` catches
+identity-corrupted captures, `cost` reports the known-issues call's real
+cost-per-evaluation.
 
 ## Layout
 
@@ -43,8 +52,8 @@ options page and set the backend URL.
 Open a Marketplace vehicle listing and click **Capture listing**.
 
 ```bash
-cd backend && .venv/bin/python -m pytest      # 88 tests
-cd extension && npm test && npm run typecheck # 160 tests
+cd backend && .venv/bin/python -m pytest      # 405 tests
+cd extension && npm test && npm run typecheck # 254 tests
 ```
 
 ## How a capture works

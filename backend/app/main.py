@@ -55,7 +55,9 @@ else:
 # on/off state at startup is worth a single unambiguous line rather than
 # requiring a code read or a triggered evaluation to discover.
 if not settings.known_issues_enabled:
-    logger.info("Known-issues LLM call (spec 6.6): DISABLED (DEAL_RATER_KNOWN_ISSUES_ENABLED=false)")
+    logger.info(
+        "Known-issues LLM call (spec 6.6): DISABLED (DEAL_RATER_KNOWN_ISSUES_ENABLED=false)"
+    )
 elif not settings.anthropic_api_key:
     logger.info("Known-issues LLM call (spec 6.6): DISABLED (no Anthropic API key configured)")
 else:

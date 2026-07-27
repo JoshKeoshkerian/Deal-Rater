@@ -153,7 +153,6 @@ def evaluate_capture(
     )
     deal_score = compute_deal_score(
         rating=pricing.rating,
-        negotiation=negotiation,
         completeness=completeness,
         title=title,
         vehicle_risk=vehicle_risk,

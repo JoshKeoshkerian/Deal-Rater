@@ -165,12 +165,19 @@ A single 0 to 100 score is still worth producing as a headline, because users wa
 
 Starting weights, to be calibrated per section 9:
 - Price residual: 45
-- Time on market: 20
 - Information completeness: 15
 - Vehicle risk: 12
 - Seller and scam risk: 8
 
 These are hypotheses. Section 9 exists to correct them.
+
+**Time on market is not a weight here.** An earlier version of this section gave
+it 20 points, which contradicted section 6.4 below: negotiation strength is
+"genuinely orthogonal to deal quality," and folding it into the headline number
+meant a fresh, excellent, correctly-priced listing lost up to a fifth of its
+score for the sole reason that nobody had a chance to negotiate on it yet. Time
+on market is real signal -- it just answers "how much room do I have," not "is
+this a good deal," and section 6.4 is where it belongs.
 
 ## 6. Separated assessment dimensions
 
