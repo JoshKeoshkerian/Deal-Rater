@@ -300,6 +300,15 @@ def print_assessment(
         print(
             f"\n  Residual:             {abs(residual):.1%} {direction} expected asking price"
         )
+        # What the verdict was actually computed on, and how much of the gap
+        # the comp set could not resolve. Printed whenever they differ, so a
+        # surprising rating can be traced to the uncertainty that caused it
+        # rather than looking like a bug in the curve.
+        if r.uncertainty_margin > 0 and r.scored_residual_fraction != residual:
+            print(
+                f"  Expected price known: +/-{r.uncertainty_margin:.1%}"
+                f"   -> {abs(r.scored_residual_fraction):.1%} of that gap is resolvable"
+            )
         print(f"  Pricing rating:       {r.rating:.0f}/100  [{r.band}]  (pricing dimension only)")
         print(f"                        {r.label}")
         if not r.calibrated:
@@ -384,6 +393,9 @@ def to_dict(capture: StoredCapture, a: PricingAssessment) -> dict:
         "residual_fraction": a.residual_fraction,
         "price_rating": a.rating.rating if a.rating else None,
         "price_rating_band": a.rating.band if a.rating else None,
+        "expected_uncertainty_fraction": a.estimate.expected_uncertainty_fraction,
+        "scored_residual_fraction": a.rating.scored_residual_fraction if a.rating else None,
+        "within_noise": a.rating.within_noise if a.rating else None,
         "price_rating_calibrated": is_calibrated(),
         "confidence": a.confidence.level.value,
         "confidence_limiters": [x.value for x in a.confidence.limiters],

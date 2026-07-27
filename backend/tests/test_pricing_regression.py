@@ -245,18 +245,72 @@ class TestOutlierSensitivity:
     def test_one_junk_listing_moves_least_squares_and_is_detected(self):
         # Spec 2: a private-party market oversupplies exactly this. One badly
         # underpriced low-mileage car levers the OLS line down at that end.
+        #
+        # $7,000 against a ~$14,400 trend is roughly half off: cheap enough to
+        # drag the fit, not cheap enough for the junk screen to call it
+        # not-an-offer. That gap is this diagnostic's job.
         contaminated = [*clean_line(9)]
-        contaminated.append(comp(99, price=400_000, mileage=70_000))
+        contaminated.append(comp(99, price=700_000, mileage=70_000))
         est = build(target(180_000), contaminated)
+        assert est.n_junk_excluded == 0
         assert est.outlier_sensitivity > params.MAX_ROBUST_DISAGREEMENT
 
     def test_the_robust_fit_is_never_the_published_price(self):
-        contaminated = [*clean_line(9), comp(99, price=400_000, mileage=70_000)]
+        contaminated = [*clean_line(9), comp(99, price=700_000, mileage=70_000)]
         est = build(target(180_000), contaminated)
         # The published number stays the OLS one. Which estimator is right is a
         # calibration question (spec 9.4) with no ground truth set to settle it.
         assert est.kind is EstimatorKind.MILEAGE_REGRESSION
         assert est.expected_asking_cents != est.robust_asking_cents
+
+
+class TestJunkPriceScreen:
+    """Fit points too far below the robust trend to be real asking prices.
+
+    Captured data is full of these -- a $1,234 and a $1,400 "CX-5" beside a
+    $7,900 median, a $4,500 2020 Camry at 121k miles. They are placeholders,
+    parts cars or scams, and one of them anchoring an eight-point regression
+    moves the expected price for every listing scored against it.
+    """
+
+    def test_a_listing_far_below_trend_is_dropped_from_the_fit(self):
+        # ~72% below the ~$14,400 trend at 70k miles.
+        est = build(target(120_000), [*clean_line(9), comp(99, price=400_000, mileage=70_000)])
+        assert est.n_junk_excluded == 1
+        assert est.n_fit_points == 9
+
+    def test_dropping_it_protects_the_expected_price(self):
+        clean = build(target(120_000), clean_line(9))
+        contaminated = build(
+            target(120_000), [*clean_line(9), comp(99, price=400_000, mileage=70_000)]
+        )
+        # Within a percent of the uncontaminated answer, rather than levered
+        # down by the junk point.
+        assert contaminated.expected_asking_cents == pytest.approx(
+            clean.expected_asking_cents, rel=0.01
+        )
+
+    def test_the_screen_is_one_sided(self):
+        # An implausibly HIGH ask is a real thing a real seller really did, and
+        # this model reports ASKING prices (spec 4.5). Only the low side is
+        # evidence of a non-offer.
+        est = build(target(120_000), [*clean_line(9), comp(99, price=9_000_000, mileage=70_000)])
+        assert est.n_junk_excluded == 0
+        assert est.n_fit_points == 10
+
+    def test_it_refuses_to_fire_when_it_would_gut_the_comp_set(self):
+        # A comp set that is mostly junk has nothing to say. Screening down to
+        # two survivors and fitting a confident line through them would be
+        # worse than the wide median fallback.
+        mostly_junk = [comp(i, price=200_000, mileage=60_000 + i * 12_000) for i in range(7)]
+        est = build(target(120_000), [*clean_line(3), *mostly_junk])
+        assert est.n_junk_excluded == 0
+
+    def test_a_genuinely_cheap_but_plausible_comp_survives(self):
+        # The product exists to find underpriced cars (spec 1). A comp 25%
+        # under trend is a bargain, not a placeholder, and must stay in.
+        est = build(target(120_000), [*clean_line(9), comp(99, price=1_080_000, mileage=70_000)])
+        assert est.n_junk_excluded == 0
 
     def test_sensitivity_is_absent_when_no_slope_was_fitted(self):
         est = build(target(), clean_line(4))

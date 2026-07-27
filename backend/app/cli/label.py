@@ -2,6 +2,7 @@
 
     python -m app.cli.label --labeler josh
     python -m app.cli.label --labeler josh --relabel
+    python -m app.cli.label --labeler josh --capture 120
     python -m app.cli.label --status
     python -m app.cli.label --export labels.json
 
@@ -189,11 +190,19 @@ def run_export(session: Session, path: str) -> int:
     return 0
 
 
-def run_labeling(session: Session, labeler: str, relabel: bool) -> int:
+def run_labeling(
+    session: Session, labeler: str, relabel: bool, capture_id: int | None = None
+) -> int:
     targets = _targets(session)
     if not targets:
         print("No target listings stored. Capture some first.", file=sys.stderr)
         return 1
+
+    if capture_id is not None:
+        targets = [(obs, listing) for obs, listing in targets if obs.capture_id == capture_id]
+        if not targets:
+            print(f"No target observation for capture {capture_id}.", file=sys.stderr)
+            return 1
 
     existing = _existing(session, labeler)
     queue = [
@@ -272,6 +281,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--relabel", action="store_true", help="revisit already-labelled rows")
     parser.add_argument("--status", action="store_true", help="show progress and exit")
     parser.add_argument("--export", metavar="PATH", help="write labels to JSON and exit")
+    parser.add_argument(
+        "--capture", type=int, metavar="ID", help="label only this capture's target listing"
+    )
     args = parser.parse_args(argv)
 
     with session_scope() as session:
@@ -281,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
             return run_export(session, args.export)
         if not args.labeler:
             parser.error("--labeler is required when labelling")
-        return run_labeling(session, args.labeler, args.relabel)
+        return run_labeling(session, args.labeler, args.relabel, args.capture)
 
 
 if __name__ == "__main__":

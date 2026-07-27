@@ -78,6 +78,79 @@ MAX_PLAUSIBLE_MILEAGE = 500_000
 DUPLICATE_PRICE_TOLERANCE = 0.05
 
 # ---------------------------------------------------------------------------
+# Comp relevance weighting: TRIED, MEASURED, REJECTED
+# ---------------------------------------------------------------------------
+#
+# Spec 4.3 asks for comps to be treated as better or worse evidence rather than
+# as a flat set. The obvious implementation -- weight each comp by how similar
+# it is to the target, then fit weighted least squares -- was built in full
+# (Cauchy proximity kernel on mileage, three-valued trim weight, Kish effective
+# sample size driving every degree of freedom) and REMOVED after measurement.
+# It is documented here rather than left as a comment in the code because the
+# idea is compelling enough that someone will propose it again.
+#
+# THE MEASUREMENT. Leave-one-out cross-validation over 92 captured comp sets
+# and ~1,530 predictions: hold out one comp, fit on the rest, predict the
+# held-out comp's actual asking price. Out of sample, so it cannot be gamed by
+# a better in-sample fit. Median absolute percentage error:
+#
+#     configuration            all comps    lowest-mileage 20%
+#     unweighted (shipped)        13.9%          16.3%
+#     kernel L = 100k             14.2%          16.5%
+#     kernel L =  50k             14.0%          15.6%
+#     kernel L =  30k             14.2%          16.0%
+#     kernel L =  20k             14.2%          16.3%
+#
+# Fifteen configurations were swept across kernel width and trim penalty. The
+# best of them buys 0.7 points at the low-mileage edge -- inside the noise --
+# and every one of them is WORSE than unweighted over the comp set as a whole,
+# which is where most targets sit. Trim weighting specifically showed no signal
+# at any strength, most likely because Marketplace trim strings are too
+# unreliable for "matches" to mean much.
+#
+# Log-linear and log-log depreciation curves were measured the same way, on the
+# theory that a straight line understates low-mileage value because depreciation
+# is convex. Also within ~1 point of linear. See `regression.py`'s note on
+# functional form.
+#
+# THE FINDING THAT SETTLED IT. Bias at the lowest-mileage 20% is +2.5%: the
+# model already over-predicts low-mileage comps slightly. The systematic
+# under-valuation of low-mileage vehicles that weighting was meant to fix does
+# not exist in this data. What does exist is enormous unexplained variance
+# within a comp set -- captured 2015-2016 CX-5 Tourings ask $6,650 to $12,800
+# with almost no mileage signal -- and no weighting scheme fixes a market that
+# noisy. The correct response to that variance is a wide interval and a verdict
+# that respects it, which is where the fix landed instead (see `curve.py`).
+
+# A comp priced this far BELOW the robust trend line at its own mileage is
+# treated as not-an-offer and dropped from the fit.
+#
+# ASYMMETRIC ON PURPOSE. An implausibly cheap listing is usually not an asking
+# price at all -- a placeholder, a parts car, a deposit figure, or a scam (spec
+# 2's adverse selection, and captured data's $1,400 and $1,234 "CX-5s" next to a
+# $7,900 median). An implausibly HIGH ask is a real thing a real seller really
+# did, and this model reports asking prices (spec 4.5), so there is no
+# corresponding upper screen.
+#
+# WHY THIS AND NOT `MIN_PRICE_FRACTION_OF_MEDIAN`, which already exists: that
+# one screens against the comp set's MEDIAN, so it only catches a listing that
+# is cheap relative to the whole market. A $4,500 2020 Camry at 121k miles is
+# not cheap relative to a comp set spanning 2011-2020 -- it is cheap relative to
+# what a 2020 Camry at 121k miles should ask, which is what the trend line
+# knows and the median does not.
+#
+# The screen runs against the Theil-Sen line (already computed as the outlier
+# diagnostic), which tolerates ~29% contamination and so is not itself dragged
+# down by the junk it is being used to find. Least squares would be.
+#
+# MEASURED: leave-one-out CV over 92 captured comp sets moves median absolute
+# error from 14.4% to 13.9% with this screen on. It fires on 29 of 102 fittable
+# captures and drops 40 comps in total; the most expensive thing it has ever
+# dropped is a $5,500 2013 G37 listed at 300 miles. UNCALIBRATED, but this is
+# the one constant in this file with an out-of-sample number behind it.
+JUNK_FRACTION_BELOW_TREND = 0.55
+
+# ---------------------------------------------------------------------------
 # Comp count thresholds (spec 4.3, calibrated by spec 0)
 # ---------------------------------------------------------------------------
 

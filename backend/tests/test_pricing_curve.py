@@ -21,6 +21,7 @@ from app.pricing.curve import (
     is_calibrated,
     negotiation_anchors,
     rate_price_residual,
+    resolvable_residual,
     should_publish_anchors,
 )
 from app.pricing.model import assess_listing
@@ -230,3 +231,162 @@ class TestNegotiationAnchors:
 
     def test_no_anchors_without_an_estimate(self):
         assert should_publish_anchors(None, None, None) is False
+
+
+class TestResolvableResidual:
+    """Only the part of a price gap the comp set can tell apart from noise
+    reaches the curve. Captured data had 51 of 111 evaluations rendering a
+    verdict their own interval could not support -- a Tucson asking $8,000
+    against a $3,521-$8,597 interval was rated 5/100 "asking above comparable
+    listings".
+    """
+
+    def test_a_gap_smaller_than_the_margin_is_erased(self):
+        assert resolvable_residual(0.32, 0.42) == 0.0
+        assert resolvable_residual(-0.32, 0.42) == 0.0
+
+    def test_a_gap_larger_than_the_margin_survives_reduced(self):
+        assert resolvable_residual(0.32, 0.05) == pytest.approx(0.27)
+        assert resolvable_residual(-0.60, 0.20) == pytest.approx(-0.40)
+
+    def test_the_sign_is_always_preserved(self):
+        # Erasing a discount into a premium would invert the verdict.
+        assert resolvable_residual(-0.60, 0.20) < 0
+        assert resolvable_residual(0.60, 0.20) > 0
+
+    def test_no_margin_leaves_the_residual_untouched(self):
+        for r in (-0.6, -0.1, 0.0, 0.1, 0.6):
+            assert resolvable_residual(r, 0.0) == r
+
+    def test_it_degrades_continuously_rather_than_at_a_cliff(self):
+        # No single dollar of asking price may flip a verdict, so the function
+        # has to be continuous where it reaches zero.
+        just_under = resolvable_residual(0.1999, 0.20)
+        just_over = resolvable_residual(0.2001, 0.20)
+        assert just_under == 0.0
+        assert just_over == pytest.approx(0.0001, abs=1e-9)
+
+
+class TestRatingRespectsUncertainty:
+    def test_an_uncertain_comp_set_cannot_call_a_listing_overpriced(self):
+        confident = rate_price_residual(0.32, 0.05)
+        uncertain = rate_price_residual(0.32, 0.42)
+        assert confident.band == "overpriced"
+        assert uncertain.band == "fair"
+        assert uncertain.within_noise
+
+    def test_a_confident_comp_set_keeps_its_verdict(self):
+        # The adjustment must not neuter the product. A tight comp set is
+        # exactly the case where a verdict is earned.
+        rating = rate_price_residual(0.40, 0.03)
+        assert rating.band == "overpriced"
+        assert rating.rating < 30
+
+    def test_a_genuine_bargain_survives_a_moderate_margin(self):
+        rating = rate_price_residual(-0.30, 0.08)
+        assert rating.band in ("plateau", "declining")
+        assert not rating.within_noise
+
+    def test_the_raw_gap_is_still_reported(self):
+        # The user is shown what the listing actually asks relative to
+        # expected; the adjustment governs the VERDICT, not the fact.
+        rating = rate_price_residual(0.32, 0.42)
+        assert rating.residual_fraction == pytest.approx(0.32)
+        assert rating.scored_residual_fraction == 0.0
+        assert rating.uncertainty_margin == pytest.approx(0.42)
+
+    def test_within_noise_says_so_in_the_label(self):
+        rating = rate_price_residual(0.32, 0.42)
+        assert "do not pin" in rating.label
+
+    def test_a_genuinely_central_price_is_not_flagged_as_within_noise(self):
+        # Landing near zero on a TIGHT comp set is a real finding ("priced
+        # about right"), not an admission of ignorance, and the two must not
+        # read the same.
+        rating = rate_price_residual(0.0, 0.02)
+        assert rating.band == "fair"
+        assert not rating.within_noise
+        assert "do not pin" not in rating.label
+
+    def test_the_default_margin_preserves_the_bare_curve(self):
+        for r in (-0.5, -0.3, -0.15, 0.0, 0.1, 0.4):
+            assert rate_price_residual(r).band == rate_price_residual(r, 0.0).band
+
+
+class TestUncertaintyMarginIsTheMeanNotThePredictionInterval:
+    """Which uncertainty feeds the verdict is the load-bearing choice here.
+
+    The published interval says where ANOTHER listing would fall, and is wide
+    partly because sellers of identical cars price them differently -- the very
+    spread a deal rating exists to locate a listing within. Writing that off
+    rated 86% of captured listings "fair". The verdict margin is instead how
+    well the CENTRE of the market is known.
+    """
+
+    def _estimate(self):
+        comps = [
+            CompCandidate(
+                listing_id=i,
+                source_listing_id=f"c{i}",
+                year=2016,
+                make="Mazda",
+                model="CX-5",
+                trim_text="Touring",
+                price_cents=(
+                    int(2_000_000 - 8 * (60_000 + i * 12_000)) + (60_000 if i % 2 else -60_000)
+                ),
+                mileage=60_000 + i * 12_000,
+                location_text=f"City{i}, MO",
+            )
+            for i in range(12)
+        ]
+        target = CompCandidate(
+            listing_id=999,
+            source_listing_id="target",
+            year=2016,
+            make="Mazda",
+            model="CX-5",
+            trim_text="Touring",
+            price_cents=1_100_000,
+            mileage=120_000,
+            location_text="St Louis, MO",
+        )
+        return estimate_expected_asking_price(filter_comps(target, comps))
+
+    def test_the_two_uncertainties_are_both_available_and_differ(self):
+        est = self._estimate()
+        assert est.interval_half_width_fraction is not None
+        assert est.expected_uncertainty_fraction is not None
+        assert est.expected_uncertainty_fraction < est.interval_half_width_fraction
+
+    def test_the_median_fallback_also_reports_centre_uncertainty(self):
+        # The location-only branch publishes a deliberately wide interval, but
+        # still knows something about where the centre is.
+        comps = [
+            CompCandidate(
+                listing_id=i,
+                source_listing_id=f"m{i}",
+                year=2016,
+                make="Mazda",
+                model="CX-5",
+                trim_text="Touring",
+                price_cents=1_000_000 + i * 40_000,
+                mileage=None,
+                location_text=f"City{i}, MO",
+            )
+            for i in range(8)
+        ]
+        target = CompCandidate(
+            listing_id=999,
+            source_listing_id="target",
+            year=2016,
+            make="Mazda",
+            model="CX-5",
+            trim_text="Touring",
+            price_cents=1_100_000,
+            mileage=120_000,
+            location_text="St Louis, MO",
+        )
+        est = estimate_expected_asking_price(filter_comps(target, comps))
+        assert est.expected_uncertainty_fraction is not None
+        assert est.expected_uncertainty_fraction < params.FALLBACK_INTERVAL_HALF_WIDTH_FRACTION

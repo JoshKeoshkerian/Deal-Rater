@@ -195,6 +195,14 @@ def trims_agree(target_trim: frozenset[str], comp_trim: frozenset[str]) -> bool:
     return target_trim == comp_trim
 
 
+# COMP RELEVANCE WEIGHTING (a proximity kernel on mileage, a three-valued trim
+# weight, and weighted least squares downstream) was built here and removed
+# after out-of-sample measurement rejected it. See the note in `params` under
+# "Comp relevance weighting: TRIED, MEASURED, REJECTED" -- kept as a pointer
+# rather than dead code, because the idea is compelling enough to be proposed
+# again and the experiment is worth not repeating.
+
+
 # Parts and accessories listed in a Marketplace vehicle search. These are not
 # comps, and the existing price floor catches them only by accident: a $25 dash
 # kit is filtered as an implausible price, but a $300 one is not, and it would
@@ -435,15 +443,13 @@ class CompSet:
         Spec 4.3: "Trim and drivetrain drive large price variance." Trim never
         EXCLUDES a comp (a comp set that is 40% one trim and 60% another should
         not lose the majority), but when the trim-matched comps alone are
-        sufficient to fit a slope, they are a more informative set to fit than
-        the full mixed-trim one -- the same reasoning the year-window ladder
-        already applies (prefer the narrowest set that still reaches a floor,
-        because every widening step trades comp quality for comp count).
+        sufficient to fit a slope, they are a candidate set worth fitting
+        alongside the full one.
 
-        Callers that need to reason about the fit (the regression itself, and
-        confidence's extrapolation check) MUST go through this rather than
-        reading `fit_points` directly, so both agree on which points the fit
-        actually used.
+        A CANDIDATE, not an override: `regression.py` compares this fit against
+        the unrestricted one on interval width and keeps whichever is tighter.
+        A smaller, more similar set can still leave the target's mileage outside
+        the range it covers, which widens the interval rather than narrowing it.
 
         Returns (points to fit, whether the fit was restricted).
         """

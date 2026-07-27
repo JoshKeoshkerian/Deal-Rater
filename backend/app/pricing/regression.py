@@ -44,6 +44,19 @@ succeeds is compared on the number that actually matters, interval half-width,
 and the tightest one is published. The baseline is the only one whose failure
 is ever surfaced as a fallback reason -- the others are refinements of a fit
 that already works, and their absence needs no explaining.
+
+WHAT IS NOT FITTED, AND WHY
+----------------------------
+Comps are counted EQUALLY. Weighting them by similarity to the target -- a
+proximity kernel on mileage, a penalty for a differing trim -- is the obvious
+next idea, was built in full, and was removed after leave-one-out
+cross-validation showed it does not predict held-out asking prices any better
+than the flat fit (and is worse over the comp set as a whole). The measurement
+and its numbers are recorded in `params`. Log-linear and log-log forms were
+rejected the same way and for the same reason: on this data, functional form
+is not what limits accuracy. Within-comp-set variance is, and no fit shape
+fixes that -- only a wider interval and a verdict that respects it (`curve.py`)
+can.
 """
 
 from __future__ import annotations
@@ -118,15 +131,30 @@ class AskingPriceEstimate:
     #: True when the published interval was widened to the floor in params,
     #: rather than being the fit's own interval.
     interval_widened_to_floor: bool = False
-    #: True when the fit was narrowed to comps confirmed to match the target's
-    #: trim (spec 4.3), because that subset alone was enough to fit a slope.
-    #: See `CompSet.preferred_fit_points`.
-    restricted_to_trim_match: bool = False
     #: Cents of asking price per year of model year, when the published fit
     #: added one. None on every other fit -- including a MILEAGE_REGRESSION one
     #: that tried a year term and found it did not narrow the interval, which
     #: is why this is not simply "whether a year term was attempted".
     slope_cents_per_year: float | None = None
+    #: True when the fit was narrowed to comps confirmed to match the target's
+    #: trim (spec 4.3), because that subset alone produced a tighter interval.
+    #: See `CompSet.preferred_fit_points`.
+    restricted_to_trim_match: bool = False
+    #: Half-width of the confidence interval on the EXPECTED asking price, as
+    #: a fraction of it. How precisely the centre of this market is known.
+    #:
+    #: NOT the same as the published interval, and the difference matters. The
+    #: published interval answers "where would another listing fall", which
+    #: includes the real scatter in how sellers price identical cars. This
+    #: answers "how well do we know what this car should ask", which is the
+    #: question a verdict compares against. On captured data the first is 3.4x
+    #: the second (29.8% vs 8.8% at the median). Read by `curve`.
+    expected_uncertainty_fraction: float | None = None
+    #: Comps dropped from the fit as implausibly cheap against the robust
+    #: trend -- not asks at all (see `params.JUNK_FRACTION_BELOW_TREND`). They
+    #: remain in `n_included`: they are still evidence the market is thick,
+    #: just not evidence about price.
+    n_junk_excluded: int = 0
 
     @property
     def uses_year_term(self) -> bool:
@@ -135,6 +163,23 @@ class AskingPriceEstimate:
     @property
     def has_estimate(self) -> bool:
         return self.expected_asking_cents is not None
+
+    @property
+    def interval_half_width_fraction(self) -> float | None:
+        """Published PREDICTION interval half-width, as a fraction of the point.
+
+        Where another listing would fall. Used for display and for withholding
+        negotiation anchors -- NOT as the verdict margin, which is
+        `expected_uncertainty_fraction`.
+        """
+        if (
+            not self.expected_asking_cents
+            or self.asking_interval_low_cents is None
+            or self.asking_interval_high_cents is None
+        ):
+            return None
+        half = (self.asking_interval_high_cents - self.asking_interval_low_cents) / 2.0
+        return half / self.expected_asking_cents
 
     @property
     def outlier_sensitivity(self) -> float | None:
@@ -260,6 +305,12 @@ class _Fit:
 
     point: float
     half_width: float
+    #: Half-width of the confidence interval on the FITTED MEAN at the target's
+    #: mileage -- how precisely the centre of the market is known, as opposed to
+    #: `half_width`, which is where an individual new listing would fall. The
+    #: two differ by the "1 +" in the leverage term and by roughly 3.4x on
+    #: captured data. See `AskingPriceEstimate.expected_uncertainty_fraction`.
+    mean_half_width: float
     slope_mileage: float
     slope_year: float | None
     intercept: float
@@ -322,13 +373,19 @@ def _fit_mileage_only(
     # The (x0 - mean_x)^2 / sxx term is what widens the interval when the target
     # sits outside the mileage range the comps cover, which is the honest
     # response to extrapolation.
-    leverage = 1.0 + 1.0 / n + (target_mileage - mean_x) ** 2 / sxx
-    half_width = t_two_sided(coverage, df) * residual_se * (leverage**0.5)
+    core = 1.0 / n + (target_mileage - mean_x) ** 2 / sxx
+    leverage = 1.0 + core
+    t = t_two_sided(coverage, df)
+    half_width = t * residual_se * (leverage**0.5)
+    # The same quantity WITHOUT the "1 +": uncertainty in the fitted mean
+    # alone, excluding the scatter of individual listings around it.
+    mean_half_width = t * residual_se * (core**0.5)
 
     return (
         _Fit(
             point=point,
             half_width=half_width,
+            mean_half_width=mean_half_width,
             slope_mileage=slope,
             slope_year=None,
             intercept=intercept,
@@ -413,14 +470,18 @@ def _fit_mileage_and_year(
     x0_m = target_mileage - mean_m
     x0_y = target_year - mean_y
     quad = (s_yy * x0_m * x0_m - 2 * s_my * x0_m * x0_y + s_mm * x0_y * x0_y) / det
-    leverage = 1.0 + 1.0 / n + quad
-    if leverage < 0:
+    core = 1.0 / n + quad
+    leverage = 1.0 + core
+    if leverage < 0 or core < 0:
         return None  # Not reachable analytically; guards a sqrt of a negative.
-    half_width = t_two_sided(coverage, df) * residual_se * (leverage**0.5)
+    t = t_two_sided(coverage, df)
+    half_width = t * residual_se * (leverage**0.5)
+    mean_half_width = t * residual_se * (core**0.5)
 
     return _Fit(
         point=point,
         half_width=half_width,
+        mean_half_width=mean_half_width,
         slope_mileage=slope_mileage,
         slope_year=slope_year,
         intercept=intercept,
@@ -428,6 +489,52 @@ def _fit_mileage_and_year(
         r_squared=r_squared,
         n=n,
     )
+
+
+def _screen_junk(
+    points: list[CompDecision], target_mileage: float
+) -> tuple[list[CompDecision], int]:
+    """Drop fit points that are too far BELOW the robust trend to be real asks.
+
+    See `params.JUNK_FRACTION_BELOW_TREND` for why this exists and why it is
+    one-sided. The trend is Theil-Sen rather than least squares precisely
+    because the points being screened for would drag a least-squares line down
+    toward themselves and then escape their own screen.
+
+    Refuses to fire when it would leave too few points to fit: a comp set that
+    is mostly junk is a comp set with nothing to say, and the honest answer
+    there is the wide median fallback rather than a confident line through
+    whatever survived.
+    """
+    usable = [
+        d
+        for d in points
+        if d.candidate.mileage is not None and d.candidate.price_cents is not None
+    ]
+    if len(usable) < params.MIN_COMPS_FOR_SLOPE:
+        return points, 0
+
+    robust = _theil_sen(
+        [float(d.candidate.mileage) for d in usable],  # type: ignore[arg-type]
+        [float(d.candidate.price_cents) for d in usable],  # type: ignore[arg-type]
+    )
+    if robust is None:
+        return points, 0
+
+    slope, intercept = robust
+    floor_fraction = 1.0 - params.JUNK_FRACTION_BELOW_TREND
+    kept: list[CompDecision] = []
+    dropped = 0
+    for d in points:
+        trend = intercept + slope * float(d.candidate.mileage)  # type: ignore[arg-type]
+        if trend > 0 and float(d.candidate.price_cents) < trend * floor_fraction:  # type: ignore[arg-type]
+            dropped += 1
+            continue
+        kept.append(d)
+
+    if dropped == 0 or len(kept) < params.MIN_COMPS_FOR_SLOPE:
+        return points, 0
+    return kept, dropped
 
 
 def _median_estimate(
@@ -445,6 +552,23 @@ def _median_estimate(
     """
     point = int(median(prices))
     half = int(point * params.FALLBACK_INTERVAL_HALF_WIDTH_FRACTION)
+
+    # Uncertainty in the CENTRE, which is a different and much smaller quantity
+    # than the deliberately wide interval above (see
+    # `expected_uncertainty_fraction`). Standard large-sample result for the
+    # median: se ~= 1.253 * sigma / sqrt(n), with sigma estimated robustly from
+    # the interquartile range as IQR / 1.349 so that the junk this fallback is
+    # most likely to be fitting does not inflate it.
+    mean_uncertainty: float | None = None
+    if point > 0 and len(prices) >= 4:
+        ordered = sorted(prices)
+        q1 = ordered[len(ordered) // 4]
+        q3 = ordered[(3 * len(ordered)) // 4]
+        sigma = (q3 - q1) / 1.349
+        if sigma > 0:
+            se = 1.253 * sigma / (len(ordered) ** 0.5)
+            mean_uncertainty = (t_two_sided(coverage, len(ordered) - 1) * se) / point
+
     return AskingPriceEstimate(
         kind=EstimatorKind.COMP_MEDIAN,
         expected_asking_cents=point,
@@ -458,6 +582,7 @@ def _median_estimate(
         residual_std_error_cents=None,
         r_squared=None,
         fallback_reasons=reasons,
+        expected_uncertainty_fraction=mean_uncertainty,
     )
 
 
@@ -508,28 +633,33 @@ def estimate_expected_asking_price(
         )
         return _median_estimate(all_prices, n_included, len(fit_points), coverage, tuple(reasons))
 
-    # The guaranteed baseline: mileage-only OLS on every usable comp. Its
-    # failure is the only one that produces a fallback reason -- see the
-    # module docstring on why the rest are treated as optional refinements.
+    # Junk asks near the TARGET's mileage would be amplified by proximity
+    # weighting rather than diluted by it, so they are screened before any fit
+    # runs. See `_screen_junk`.
+    fit_points, n_junk = _screen_junk(fit_points, float(target_mileage))
+
     xs_all = [float(d.candidate.mileage) for d in fit_points]  # type: ignore[arg-type]
     ys_all = [float(d.candidate.price_cents) for d in fit_points]  # type: ignore[arg-type]
+
+    # The guaranteed baseline: mileage-only, UNWEIGHTED, on every usable comp.
+    # Its failure is the only one that produces a fallback reason -- see the
+    # module docstring on why the rest are treated as optional refinements.
     baseline, failure_reason = _fit_mileage_only(xs_all, ys_all, float(target_mileage), coverage)
     if baseline is None:
-        assert failure_reason is not None
-        reasons.append(failure_reason)
+        if failure_reason is not None:
+            reasons.append(failure_reason)
         return _median_estimate(all_prices, n_included, len(fit_points), coverage, tuple(reasons))
 
     # (fit, points used, restricted-to-trim) for every candidate that succeeded.
     candidates: list[tuple[_Fit, list[CompDecision], bool]] = [(baseline, fit_points, False)]
 
-    # Prefer the trim-matched subset when it alone is enough to support a
-    # slope (spec 4.3; see CompSet.preferred_fit_points): a comp confirmed to
-    # share the target's trim is worth more per point than one that might not
-    # be. But it is a CANDIDATE, not an override -- a smaller, more similar
-    # set can still leave the target's mileage outside the range it covers,
-    # which widens rather than narrows things, so it only wins if it actually
-    # produces a tighter interval than the baseline.
+    # The trim-matched subset as a second candidate when it alone is enough to
+    # support a slope (spec 4.3; see CompSet.preferred_fit_points). A CANDIDATE,
+    # not an override -- a smaller, more similar set can still leave the
+    # target's mileage outside the range it covers, which widens rather than
+    # narrows, so it only wins if it produces a tighter interval.
     trim_matched, trim_restricted = comp_set.preferred_fit_points(params.MIN_COMPS_FOR_SLOPE)
+    xs_trim: list[float] = []
     if trim_restricted:
         xs_trim = [float(d.candidate.mileage) for d in trim_matched]  # type: ignore[arg-type]
         ys_trim = [float(d.candidate.price_cents) for d in trim_matched]  # type: ignore[arg-type]
@@ -605,4 +735,8 @@ def estimate_expected_asking_price(
         fallback_reasons=tuple(reasons),
         interval_widened_to_floor=widened,
         restricted_to_trim_match=chosen_restricted,
+        expected_uncertainty_fraction=(
+            chosen.mean_half_width / chosen.point if chosen.point > 0 else None
+        ),
+        n_junk_excluded=n_junk,
     )

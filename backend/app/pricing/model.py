@@ -120,7 +120,12 @@ def assess_listing(
 
     residual = estimate.residual_fraction(target.price_cents)
     if residual is not None:
-        rating = rate_price_residual(residual)
+        # The verdict is rated against what the comp set can actually resolve,
+        # not against the raw gap -- see `curve.resolvable_residual`. The
+        # margin is the interval's own half-width, so a comp set that already
+        # says it cannot pin the price down does not then get to call one
+        # particular price too high.
+        rating = rate_price_residual(residual, estimate.expected_uncertainty_fraction or 0.0)
 
     # Anchors are withheld, not softened, when the comp set cannot support a
     # specific dollar figure. A buyer repeats these numbers to a stranger, so a
