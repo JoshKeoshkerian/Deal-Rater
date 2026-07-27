@@ -183,11 +183,24 @@ class TestConfidenceLimiters:
         assert a.confidence.level is Confidence.LOW
         assert Limiter.WRONG_MARKET in a.confidence.limiters
 
-    def test_unknown_trim_costs_confidence_rather_than_comps(self):
-        # Spec 4.3: "widen the interval and lower confidence rather than
-        # pretending the comp set is clean."
+    def test_unstated_trim_on_both_sides_is_assumed_to_match(self):
+        # An unstated trim is assumed base (`comps._BASE_TRIM`) rather than
+        # left "unknown", so two vehicles that both say nothing about trim are
+        # treated as the same base trim -- not penalised for a comparison
+        # neither side gave any information for.
+        a = assess_listing(self._target(trim_text=None), self._comps(12, trim_text=None))
+        assert Limiter.TRIM_UNKNOWN not in a.confidence.limiters
+        assert Limiter.TRIM_DISAGREEMENT not in a.confidence.limiters
+        assert a.estimate.n_included == 12
+
+    def test_a_stated_target_trim_against_unstated_comps_reads_as_disagreement(self):
+        # The target says "Touring"; the comps say nothing, which is assumed
+        # base. That assumption disagreeing with a REAL stated trim is exactly
+        # the "may not be the same specification" spec 4.3 warns about, so it
+        # costs confidence -- never comps, which stay included.
         a = assess_listing(self._target(), self._comps(12, trim_text=None))
-        assert Limiter.TRIM_UNKNOWN in a.confidence.limiters
+        assert Limiter.TRIM_DISAGREEMENT in a.confidence.limiters
+        assert a.confidence.level is Confidence.LOW
         assert a.estimate.n_included == 12
 
     def test_disagreeing_trim_is_disqualifying(self):

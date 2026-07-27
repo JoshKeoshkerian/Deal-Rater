@@ -182,7 +182,13 @@ class TestStrata:
         )
         assert buckets == len(predictions)
 
-    def test_a_comp_with_no_trim_is_not_comparable(self):
+    def test_a_comp_with_no_trim_is_assumed_base_and_compared(self):
+        # A comp with no stated trim is assumed base (see `comps._BASE_TRIM`),
+        # not left uncompared. Against a "Touring" target that assumption
+        # disagrees, so it lands in "differs" rather than "not comparable" --
+        # the bucket that stratum is now structurally empty, since every
+        # comparison has an answer once both sides default to base.
         mixed = [*on_a_line(10), comp(30, price=1_400_000, mileage=95_000, trim=None)]
         strata = dict(_strata(run(mixed)))
-        assert "c30" in {p.source_listing_id for p in strata["trim not comparable"]}
+        assert "c30" in {p.source_listing_id for p in strata["trim differs from target"]}
+        assert strata["trim not comparable"] == []

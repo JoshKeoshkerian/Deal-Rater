@@ -265,6 +265,18 @@ def trim_tokens(trim_text: str | None) -> frozenset[str]:
     return frozenset(t for t in text.split() if t and not t.replace(".", "").isdigit())
 
 
+#: Stood in for a listing's trim when nothing was stated. Most Marketplace
+#: listings say nothing about trim at all (spec 4.3: "frequently missing"), and
+#: leaving that as an empty set made `trim_matches` collapse to `None` for
+#: nearly every comp the moment the TARGET's trim was unstated -- not because
+#: the comps disagreed with anything, but because there was nothing to compare.
+#: Treating "unstated" as the base trim turns that into an actual comparison:
+#: two unstated-trim vehicles are assumed to match (both base), and an
+#: unstated-trim vehicle against a comp with a real trim ("Touring") correctly
+#: reads as a mismatch rather than as unknown.
+_BASE_TRIM = frozenset({"base"})
+
+
 def trims_agree(target_trim: frozenset[str], comp_trim: frozenset[str]) -> bool:
     """Whether two normalised trims describe the same specification.
 
@@ -611,7 +623,8 @@ def filter_comps(
 
     target_model = normalize_key(target.model)
     target_make = normalize_key(target.make)
-    target_trim = trim_tokens(target.trim_text)
+    # Unstated is assumed base trim (see `_BASE_TRIM`), not "unknown".
+    target_trim = trim_tokens(target.trim_text) or _BASE_TRIM
 
     def same_vehicle(a: CompCandidate, b: CompCandidate) -> bool:
         """Whether two listings are the same physical car.
@@ -684,12 +697,10 @@ def filter_comps(
         seen_source_ids.add(c.source_listing_id)
 
         # Soft signal only (spec 4.3): never excludes, only moves confidence.
-        comp_trim = trim_tokens(c.trim_text)
-        matches: bool | None
-        if not target_trim or not comp_trim:
-            matches = None
-        else:
-            matches = trims_agree(target_trim, comp_trim)
+        # Unstated is assumed base trim on both sides, so this is always an
+        # actual comparison rather than an "unknown" -- see `_BASE_TRIM`.
+        comp_trim = trim_tokens(c.trim_text) or _BASE_TRIM
+        matches: bool = trims_agree(target_trim, comp_trim)
 
         notes: list[str] = []
         if c.drivetrain is not DrivetrainSignal.UNKNOWN:
