@@ -183,10 +183,9 @@ class TestStrata:
         assert buckets == len(predictions)
 
     def test_a_comp_with_no_trim_is_not_comparable(self):
-        # The base-trim assumption applies to the TARGET only
-        # (`comps._BASE_TRIM`): an unstated comp trim is not turned into a
-        # confirmed mismatch, so it still lands in "not comparable" rather
-        # than being counted against the comp set.
+        # An unstated comp trim is not turned into a confirmed mismatch
+        # against the target's stated trim -- it lands in "not comparable"
+        # rather than being counted against the comp set.
         mixed = [*on_a_line(10), comp(30, price=1_400_000, mileage=95_000, trim=None)]
         strata = dict(_strata(run(mixed)))
         assert "c30" in {p.source_listing_id for p in strata["trim not comparable"]}

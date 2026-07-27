@@ -303,10 +303,9 @@ class TestMissingFieldPolicy:
 
     def test_no_trim_is_included_and_flagged_unknown(self):
         # 21% of captured comps have no trim string. Excluding on trim would
-        # empty the comp set. The base-trim assumption is TARGET-only (see
-        # `comps._BASE_TRIM`): an unstated COMP trim is not evidence of
-        # anything, so it stays an honest "not comparable" rather than being
-        # counted as a confirmed mismatch against whatever the target says.
+        # empty the comp set. An unstated trim on either side (target or comp)
+        # is not evidence of anything, so it stays an honest "not comparable"
+        # rather than being counted as a confirmed mismatch.
         result = filter_comps(TARGET, [comp(source_listing_id="x", trim_text=None)])
         assert result.included[0].trim_matches is None
 
@@ -314,6 +313,21 @@ class TestMissingFieldPolicy:
         result = filter_comps(TARGET, [comp(source_listing_id="x", trim_text="Grand Touring")])
         assert len(result.included) == 1
         assert result.included[0].trim_matches is False
+
+    def test_target_with_no_trim_is_not_comparable_either(self):
+        # Regression test: this used to assume the target was "base" when its
+        # trim was unstated, which meant a comp with a real trim ("SE") read
+        # as a confirmed mismatch even though nothing about the target's
+        # actual trim was known. That fired "most comparable listings look
+        # like a different trim" on nearly every evaluation whose target
+        # didn't name a trim -- disproportionately base-trim cars, since those
+        # are exactly the listings least likely to name one. An unstated
+        # target trim is now as uncomparable as an unstated comp trim: both
+        # sides must state a real trim before `trims_agree` runs at all.
+        target = comp(source_listing_id="target", trim_text=None, mileage=137_000, price_cents=1_050_000)
+        result = filter_comps(target, [comp(source_listing_id="x", trim_text="SE")])
+        assert result.included[0].trim_matches is None
+        assert result.trim_coverage == 0.0
 
     def test_trim_coverage_and_agreement_are_reported(self):
         comps = [
@@ -323,8 +337,8 @@ class TestMissingFieldPolicy:
         ]
         result = filter_comps(TARGET, comps)
         # Two of three comps have a comparable trim; "c" stays uncounted --
-        # the base-trim assumption applies to the TARGET only, so an unstated
-        # comp trim is not turned into a confirmed mismatch.
+        # its unstated trim is not turned into a confirmed mismatch against
+        # the target's stated "Touring".
         assert result.trim_coverage == pytest.approx(2 / 3)
         # ...and only one of those two is the target's "Touring". "Grand
         # Touring" is a different and materially more expensive trim.

@@ -184,11 +184,24 @@ class TestConfidenceLimiters:
         assert Limiter.WRONG_MARKET in a.confidence.limiters
 
     def test_unstated_trim_on_both_sides_stays_an_honest_unknown(self):
-        # The base-trim assumption is TARGET-only (`comps._BASE_TRIM`). When
-        # the comps ALSO say nothing, there is genuinely nothing to compare --
-        # asserting a match neither side gave any information for would be the
-        # same overclaiming the assumption exists to avoid on the other side.
+        # When neither side says anything, there is genuinely nothing to
+        # compare -- asserting a match (or a mismatch) neither side gave any
+        # information for would be overclaiming.
         a = assess_listing(self._target(trim_text=None), self._comps(12, trim_text=None))
+        assert Limiter.TRIM_UNKNOWN in a.confidence.limiters
+        assert Limiter.TRIM_DISAGREEMENT not in a.confidence.limiters
+        assert a.estimate.n_included == 12
+
+    def test_unstated_target_trim_does_not_manufacture_disagreement(self):
+        # Regression test for the bug this replaced: the target's unstated
+        # trim used to be assumed "base", which a comp with a real, stated
+        # trim could never actually match (nobody types the literal word
+        # "base" either) -- so this used to fire TRIM_DISAGREEMENT on nearly
+        # every listing whose own trim wasn't captured, independent of
+        # whether a real mismatch existed. An unstated TARGET trim is now as
+        # uncomparable as an unstated comp trim: this is TRIM_UNKNOWN, not
+        # TRIM_DISAGREEMENT.
+        a = assess_listing(self._target(trim_text=None), self._comps(12, trim_text="Grand Touring"))
         assert Limiter.TRIM_UNKNOWN in a.confidence.limiters
         assert Limiter.TRIM_DISAGREEMENT not in a.confidence.limiters
         assert a.estimate.n_included == 12
