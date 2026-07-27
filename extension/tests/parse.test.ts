@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cleanLocationText,
   detectTitleStatus,
+  detectTrimInText,
   epochSecondsToDate,
   listingIdFromUrl,
   parseMileage,
@@ -227,6 +228,57 @@ describe("detectTitleStatus", () => {
 
   it("returns null when the title is not mentioned", () => {
     expect(detectTitleStatus("Runs great, cold AC")).toBeNull();
+  });
+});
+
+describe("detectTrimInText", () => {
+  it("finds a real trim mentioned only in the description", () => {
+    // The motivating case: a 2016 Mazda CX-5 whose structured field and title
+    // both carried no trim, but the seller wrote it into the description.
+    const description =
+      "2016 Mazda CX-5 Grand Touring, one owner, clean carfax, fully loaded " +
+      "with navigation, leather, and moonroof. 40 miles on a fresh rebuild.";
+    expect(detectTrimInText(description)).toBe("Grand Touring");
+  });
+
+  it("prefers the longer phrase over the trim name nested inside it", () => {
+    expect(detectTrimInText("Loaded Touring trim")).toBe("Touring");
+    expect(detectTrimInText("Grand Touring package, low miles")).toBe("Grand Touring");
+  });
+
+  it.each([
+    ["Jeep Grand Cherokee Overland, fully loaded", "Overland"],
+    ["Laredo edition, cold AC, runs great", "Laredo"],
+    ["GMC Denali, heated everything", "Denali"],
+    ["Ford Lariat, king cab", "Lariat"],
+  ])("reads %s", (text, trim) => {
+    expect(detectTrimInText(text)).toBe(trim);
+  });
+
+  it("is case-insensitive and normalises casing on output", () => {
+    expect(detectTrimInText("touring model, well maintained")).toBe("Touring");
+    expect(detectTrimInText("TOURING MODEL")).toBe("Touring");
+  });
+
+  it("does not match short trim codes at all, by design", () => {
+    // SE/LE/EX/LX/LT and similar are the majority of real trim names, and are
+    // excluded on purpose: as bare words in marketing-copy prose they produce
+    // far more false positives than genuine catches. See the module docstring
+    // on `DESCRIPTION_TRIM_PHRASES` for the reasoning.
+    expect(detectTrimInText("Runs great, LE me know if you have questions")).toBeNull();
+    expect(detectTrimInText("Clean SE Missouri title")).toBeNull();
+  });
+
+  it("returns null on ordinary prose with no trim mentioned", () => {
+    expect(
+      detectTrimInText("Runs and drives great, new tires, no accidents, clean title."),
+    ).toBeNull();
+  });
+
+  it("returns null for empty or missing text", () => {
+    expect(detectTrimInText(null)).toBeNull();
+    expect(detectTrimInText(undefined)).toBeNull();
+    expect(detectTrimInText("")).toBeNull();
   });
 });
 

@@ -188,10 +188,23 @@ def assess_confidence(
         limiters.append(Limiter.ADVERSE_SELECTION)
 
     # --- roll up ------------------------------------------------------------
-    # Some limiters are disqualifying on their own rather than merely additive:
-    # a comp set drawn from the wrong metro is not weak evidence, it is evidence
+    # WRONG_MARKET is disqualifying on its own rather than merely additive: a
+    # comp set drawn from the wrong metro is not weak evidence, it is evidence
     # about a different question.
-    disqualifying = {Limiter.WRONG_MARKET, Limiter.TRIM_DISAGREEMENT}
+    #
+    # TRIM_DISAGREEMENT was here too, and measurement rejected it: across ~150
+    # stored captures it fired on 83% of them and, because disqualifying meant
+    # "force LOW no matter what else is true", it alone made LOW the default
+    # outcome even for a 38-comp fit with R-squared 0.65. The rejection is
+    # trim's OWN fault, not a bug in reading it -- most vehicles genuinely have
+    # several trim levels, so a metro-wide comp pull rarely has a majority
+    # sharing the target's exact trim, and treating that ordinary variety as
+    # disqualifying defeated the point of a confidence signal: it stopped
+    # separating good evidence from bad. It still counts as an ordinary
+    # limiter below, so a real trim mismatch still costs confidence and still
+    # blocks HIGH -- it just no longer overrides a comp set that is otherwise
+    # thick and well fit.
+    disqualifying = {Limiter.WRONG_MARKET}
     if any(limiter in disqualifying for limiter in limiters):
         level = Confidence.LOW
     elif estimate.kind is EstimatorKind.COMP_MEDIAN or n < params.MIN_COMPS_FOR_REGRESSION:

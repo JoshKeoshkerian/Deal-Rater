@@ -394,6 +394,73 @@ export function detectTitleStatus(...texts: Array<string | null | undefined>): s
 }
 
 /* -------------------------------------------------------------------------- */
+/* trim in free text (spec 4.3)                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Trim names distinctive enough that a match inside description PROSE is
+ * unlikely to be a false positive: multi-word phrases, or single words that
+ * are not also ordinary English words.
+ *
+ * DELIBERATELY NOT EXHAUSTIVE. The short alphanumeric codes that make up most
+ * real trim names -- SE, LE, EX, LX, LT, LTZ, SV, SL, S -- are excluded on
+ * purpose. Matched as a bare word inside marketing-copy prose ("for SE
+ * reasons", "runs great, LT me know"), a two-letter code produces far more
+ * false positives than genuine catches, and this module's own docstring rule
+ * ("a wrong trim is worse than an absent one") is not a display-only concern:
+ * a false match here can steer `preferred_fit_points` in the backend's comp
+ * filtering toward the wrong subset of comps for the regression fit, which is
+ * a worse failure than the trim staying unknown.
+ *
+ * Longest phrases first, so "Grand Touring" is matched whole rather than the
+ * bare "Touring" inside it.
+ */
+const DESCRIPTION_TRIM_PHRASES = [
+  "grand touring",
+  "grand sport",
+  "grand limited",
+  "trailhawk",
+  "overland",
+  "laredo",
+  "altitude",
+  "summit",
+  "touring",
+  "limited",
+  "platinum",
+  "titanium",
+  "denali",
+  "lariat",
+  "premium",
+];
+
+const DESCRIPTION_TRIM_PATTERN = new RegExp(
+  `\\b(${DESCRIPTION_TRIM_PHRASES.map((phrase) => phrase.replace(/ /g, "\\s+")).join("|")})\\b`,
+  "i",
+);
+
+/**
+ * Recover a trim from free description text, when neither Facebook's
+ * structured field nor the title yielded one.
+ *
+ * Spec 4.3: "Trim and drivetrain drive large price variance and are
+ * frequently missing. Use VIN decode where available; otherwise extract from
+ * title and description text." The title half of that already ran (this is
+ * the vehicle-title parser); this is the description half, which previously
+ * did not exist at all -- trim resolution only ever tried Facebook's
+ * structured field and the title.
+ *
+ * Opportunistic and conservative by design -- see `DESCRIPTION_TRIM_PHRASES`.
+ * Most listings will not match. That is the intended trade-off, not a gap:
+ * this is the LAST tier in the trim cascade, tried only once the higher-trust
+ * sources have already come back empty.
+ */
+export function detectTrimInText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const match = text.match(DESCRIPTION_TRIM_PATTERN);
+  return match ? titleCase(match[0]!.replace(/\s+/g, " ").toLowerCase()) : null;
+}
+
+/* -------------------------------------------------------------------------- */
 /* location                                                                    */
 /* -------------------------------------------------------------------------- */
 

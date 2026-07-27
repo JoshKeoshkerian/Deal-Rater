@@ -16,18 +16,6 @@
 import type { EvaluationResponse, ScoreComponent } from "../../shared/types";
 import type { Tone } from "./tokens";
 
-/**
- * Interval width, as a share of its own midpoint, beyond which the range is too
- * wide to lead with a number.
- *
- * The same 0.35 the backend uses for its WIDE_INTERVAL confidence limiter
- * (`pricing/confidence.py`). Deliberately duplicated rather than plumbed
- * through: this is the panel's threshold for how it TALKS, and the backend's is
- * a threshold for what it BELIEVES. They agree today; if one moves, the other
- * should move on its own evidence.
- */
-export const WIDE_INTERVAL_RATIO = 0.35;
-
 /** Sub-score spread below which the four dimensions are "all much the same". */
 export const FLAT_BREAKDOWN_SPREAD = 15;
 
@@ -50,15 +38,25 @@ export function intervalWidthRatio(pricing: EvaluationResponse["pricing"]): numb
  * willing to give it: a large precise score sitting above the caveats that
  * invalidate it reads as confidence the evaluation does not have, and the
  * caveats lose every time.
+ *
+ * CONFIDENCE ALONE DECIDES THIS. An earlier version also escalated to
+ * "unreliable" whenever the interval passed 35% of its own midpoint,
+ * independent of confidence. That redundancy is exactly what broke it: a wide
+ * interval is already one of the inputs `assess_confidence` weighs (spec
+ * `pricing/confidence.py`'s WIDE_INTERVAL limiter, same 35% threshold), so
+ * checking it again here meant a listing the backend had already called MEDIUM
+ * -- specifically because it weighed the width and still landed on MEDIUM --
+ * could get overridden back to "unreliable" by this function re-deriving the
+ * same signal. Measured against ~150 real captures the two limiters that
+ * dominate MEDIUM confidence are the two structural ones that fire on every
+ * evaluation plus a wide interval, so this branch was firing on nearly every
+ * MEDIUM-confidence listing: "this vehicle cannot be priced confidently" on
+ * every capture, which is a second-guess of the backend's own verdict, not a
+ * presentation decision.
  */
 export function headlineState(data: EvaluationResponse): HeadlineState {
   const { confidence } = data.pricing;
-  if (confidence === "low" || confidence === "none") return "unreliable";
-
-  const ratio = intervalWidthRatio(data.pricing);
-  if (ratio !== null && ratio > WIDE_INTERVAL_RATIO) return "unreliable";
-
-  return "confident";
+  return confidence === "low" || confidence === "none" ? "unreliable" : "confident";
 }
 
 export function confidenceTone(confidence: string): Tone {
@@ -281,20 +279,6 @@ export function titleTone(titleRisk: string): Tone {
       // not know to ask about.
       return "caution";
   }
-}
-
-/**
- * Recall tone.
- *
- * Never adverse, whatever the count. NHTSA returns recall CAMPAIGNS for the
- * year/make/model; whether this particular car had the work done is not public
- * data. A red banner would assert a fact about the vehicle that nobody has --
- * so the tone is caution and the callout says what it is instead. Null means
- * the lookup did not run (usually no VIN), which is not good news either.
- */
-export function recallTone(recallCount: number | null): Tone {
-  if (recallCount === null) return "neutral";
-  return recallCount > 0 ? "caution" : "favorable";
 }
 
 /**

@@ -265,15 +265,29 @@ def trim_tokens(trim_text: str | None) -> frozenset[str]:
     return frozenset(t for t in text.split() if t and not t.replace(".", "").isdigit())
 
 
-#: Stood in for a listing's trim when nothing was stated. Most Marketplace
+#: Stood in for the TARGET's trim when nothing was stated. Most Marketplace
 #: listings say nothing about trim at all (spec 4.3: "frequently missing"), and
 #: leaving that as an empty set made `trim_matches` collapse to `None` for
-#: nearly every comp the moment the TARGET's trim was unstated -- not because
-#: the comps disagreed with anything, but because there was nothing to compare.
-#: Treating "unstated" as the base trim turns that into an actual comparison:
-#: two unstated-trim vehicles are assumed to match (both base), and an
-#: unstated-trim vehicle against a comp with a real trim ("Touring") correctly
-#: reads as a mismatch rather than as unknown.
+#: every comp the moment the TARGET's trim was unstated -- not because the
+#: comps disagreed with anything, but because there was nothing to compare.
+#: Assuming base lets a comp that DOES state a real trim ("Touring") actually
+#: be compared, and correctly read as a mismatch, instead of being thrown out
+#: as unknown along with everything else.
+#:
+#: TARGET ONLY. This was first tried on both sides -- an unstated COMP trim
+#: assumed base too -- and it broke confidence market-wide: measured against
+#: ~140 stored captures, EVERY one landed under 50% trim agreement, because
+#: most sellers simply don't type a trim word, and every one of those silent
+#: comps was then counted as a confirmed "differs" against the target's real
+#: trim. Trim disagreement is a DISQUALIFYING limiter (forces confidence to
+#: LOW outright, see `confidence.py`), so that one assumption alone was enough
+#: to cap nearly every evaluation in the corpus at LOW regardless of comp count
+#: or fit quality (one capture: 38 comps, R-squared 0.65, still LOW).
+#: An unstated comp trim is not evidence of anything -- it stays `None` and is
+#: excluded from `trim_coverage` / `trim_agreement`, same as before this
+#: constant existed. Only the target's own silence gets the assumption, because
+#: that is the case spec 4.3 is actually about: the listing under evaluation,
+#: not every other seller's blank field.
 _BASE_TRIM = frozenset({"base"})
 
 
@@ -697,10 +711,10 @@ def filter_comps(
         seen_source_ids.add(c.source_listing_id)
 
         # Soft signal only (spec 4.3): never excludes, only moves confidence.
-        # Unstated is assumed base trim on both sides, so this is always an
-        # actual comparison rather than an "unknown" -- see `_BASE_TRIM`.
-        comp_trim = trim_tokens(c.trim_text) or _BASE_TRIM
-        matches: bool = trims_agree(target_trim, comp_trim)
+        # The base-trim assumption is TARGET-only (see `_BASE_TRIM`); an
+        # unstated comp trim stays an honest unknown rather than a comparison.
+        comp_trim = trim_tokens(c.trim_text)
+        matches: bool | None = trims_agree(target_trim, comp_trim) if comp_trim else None
 
         notes: list[str] = []
         if c.drivetrain is not DrivetrainSignal.UNKNOWN:

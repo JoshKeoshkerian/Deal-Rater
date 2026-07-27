@@ -301,13 +301,14 @@ class TestMissingFieldPolicy:
         assert decision.usable_in_fit is False
         assert result.fit_points == []
 
-    def test_no_trim_is_included_and_assumed_base(self):
+    def test_no_trim_is_included_and_flagged_unknown(self):
         # 21% of captured comps have no trim string. Excluding on trim would
-        # empty the comp set. Unstated is assumed base trim rather than left
-        # "unknown" (see `comps._BASE_TRIM`), so against TARGET's stated
-        # "Touring" this reads as an actual mismatch, not an uncertainty.
+        # empty the comp set. The base-trim assumption is TARGET-only (see
+        # `comps._BASE_TRIM`): an unstated COMP trim is not evidence of
+        # anything, so it stays an honest "not comparable" rather than being
+        # counted as a confirmed mismatch against whatever the target says.
         result = filter_comps(TARGET, [comp(source_listing_id="x", trim_text=None)])
-        assert result.included[0].trim_matches is False
+        assert result.included[0].trim_matches is None
 
     def test_trim_mismatch_never_excludes(self):
         result = filter_comps(TARGET, [comp(source_listing_id="x", trim_text="Grand Touring")])
@@ -321,13 +322,13 @@ class TestMissingFieldPolicy:
             comp(source_listing_id="c", trim_text=None, mileage=80_000),
         ]
         result = filter_comps(TARGET, comps)
-        # All three are now comparable: an unstated trim is assumed base
-        # (`comps._BASE_TRIM`) rather than left uncompared.
-        assert result.trim_coverage == pytest.approx(1.0)
-        # Only "a" actually matches the target's "Touring". "Grand Touring" is
-        # a different and materially more expensive trim, and the assumed-base
-        # comp is a mismatch against a target that stated a real trim.
-        assert result.trim_agreement == pytest.approx(1 / 3)
+        # Two of three comps have a comparable trim; "c" stays uncounted --
+        # the base-trim assumption applies to the TARGET only, so an unstated
+        # comp trim is not turned into a confirmed mismatch.
+        assert result.trim_coverage == pytest.approx(2 / 3)
+        # ...and only one of those two is the target's "Touring". "Grand
+        # Touring" is a different and materially more expensive trim.
+        assert result.trim_agreement == pytest.approx(0.5)
 
     def test_implausible_mileage_is_dropped(self):
         result = filter_comps(TARGET, [comp(source_listing_id="x", mileage=9_000_000)])

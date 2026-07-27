@@ -9,7 +9,7 @@
  * about and folds the rest behind a summary line that carries the finding.
  *
  *   always visible   the headline state, the four pricing numbers, and any
- *                    adverse finding (scam combination, branded title, recalls)
+ *                    adverse finding (scam combination, branded title)
  *   one click away   everything else, in spec 7's order, each row summarised
  *
  * THREE THINGS THE MARKUP IS NOT ALLOWED TO DROP
@@ -107,26 +107,26 @@ export function renderEvaluation(data: EvaluationResponse): void {
   // 1. Headline (spec 7.1), in whichever state the evidence supports.
   sheet.append(buildHeader(data, close));
 
+  // The breakdown belongs with the headline (spec 5.2) and is the section
+  // closest to it for that reason -- nothing else renders between them.
+  sheet.append(
+    disclosure("Score breakdown", breakdownSummary(data), buildBreakdown(data)),
+  );
+
   // 2. Pricing (spec 7.2, 5.1's four numbers). Always visible.
   sheet.append(section("Pricing", buildPricing(data))!);
   sheet.append(
     disclosure("Comp quality", compQualitySummary(data), buildCompQuality(data)),
   );
 
-  // Adverse findings, before anything collapsed. Spec 6.2 and 6.3 both require
-  // prominence that does not depend on a score weight or on a click.
+  // Adverse findings, before anything collapsed. Spec 6.3 requires prominence
+  // that does not depend on a score weight or on a click.
   const adverse = buildAdverseFindings(data);
   if (adverse.length) {
     const holder = el("section", "findings");
     holder.append(...adverse);
     sheet.append(holder);
   }
-
-  // The breakdown belongs with the headline (spec 5.2) and is the first
-  // collapsed row for that reason.
-  sheet.append(
-    disclosure("Score breakdown", breakdownSummary(data), buildBreakdown(data)),
-  );
 
   // 3. Vehicle risk (spec 7.3).
   sheet.append(

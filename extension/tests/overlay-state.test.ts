@@ -18,7 +18,6 @@ import {
   intervalWidthRatio,
   knownIssuesReasonIsShowable,
   priceComparison,
-  recallTone,
   scamDisplay,
   scoreTone,
   sellerSectionVisible,
@@ -108,16 +107,22 @@ describe("headline state", () => {
     );
   });
 
-  it("refuses it on a wide interval even at medium confidence", () => {
-    // $9,100-$15,400 is 51% of its own midpoint: a range that wide is not a
-    // price, whatever the confidence roll-up called it.
+  it("does not re-flag a wide interval the backend already weighed into MEDIUM", () => {
+    // An earlier version escalated to "unreliable" on interval width alone,
+    // regardless of confidence. Wide intervals are already an input to the
+    // backend's confidence roll-up (same 35%-of-midpoint threshold, see
+    // `pricing/confidence.py`'s WIDE_INTERVAL limiter), so re-deriving the
+    // same signal here meant a listing MEDIUM specifically because the
+    // backend weighed a wide interval and still called it MEDIUM would get
+    // second-guessed straight back to "unreliable". Measured against ~150
+    // real captures that fired on nearly every MEDIUM-confidence listing.
     const wide = pricing({
       confidence: "medium",
       asking_interval_low_cents: 910_000,
       asking_interval_high_cents: 1_540_000,
     });
-    expect(headlineState(evaluation({ pricing: wide }))).toBe("unreliable");
     expect(intervalWidthRatio(wide)!).toBeCloseTo(0.514, 2);
+    expect(headlineState(evaluation({ pricing: wide }))).toBe("confident");
   });
 
   it("treats a missing interval as no evidence either way", () => {
@@ -240,14 +245,6 @@ describe("score breakdown", () => {
 });
 
 describe("semantic tone", () => {
-  it("never colours a recall count red", () => {
-    // NHTSA publishes campaigns for the MODEL. Whether this car had the work
-    // done is not public data, and red would assert that it did not.
-    expect(recallTone(12)).toBe("caution");
-    expect(recallTone(0)).toBe("favorable");
-    expect(recallTone(null)).toBe("neutral");
-  });
-
   it("does not treat an unstated title as a clean one", () => {
     expect(titleTone("clean")).toBe("favorable");
     expect(titleTone("unstated")).toBe("caution");

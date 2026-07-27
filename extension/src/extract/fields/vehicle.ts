@@ -7,7 +7,12 @@
  * a VIN was recovered, and a normalisation applied now would have to be undone.
  */
 
-import { detectTitleStatus, parseVehicleTitle, textOrNull } from "../../shared/parse";
+import {
+  detectTitleStatus,
+  detectTrimInText,
+  parseVehicleTitle,
+  textOrNull,
+} from "../../shared/parse";
 import { FB_KEYS } from "../fb-keys";
 import type { ExtractionRecorder } from "../self-check";
 import { headingText } from "../strategies/aria-dom";
@@ -70,6 +75,11 @@ export function resolveVehicle(
   const trim = recorder.resolve<string>("trim_text", [
     ["json_payload", () => textOrNull(pickString(node, FB_KEYS.vehicleTrim))],
     ["json_payload", () => (title ? parsed.trim : null)],
+    // Spec 4.3: "otherwise extract from title and description text." The
+    // title half is above; this is the description half, tried last and only
+    // when the higher-trust sources found nothing -- see
+    // `detectTrimInText`'s docstring for why it stays deliberately narrow.
+    ["text_pattern", () => detectTrimInText(description)],
   ]);
 
   const titleStatus = recorder.resolve<string>("title_status", [

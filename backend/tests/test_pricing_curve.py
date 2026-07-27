@@ -183,30 +183,51 @@ class TestConfidenceLimiters:
         assert a.confidence.level is Confidence.LOW
         assert Limiter.WRONG_MARKET in a.confidence.limiters
 
-    def test_unstated_trim_on_both_sides_is_assumed_to_match(self):
-        # An unstated trim is assumed base (`comps._BASE_TRIM`) rather than
-        # left "unknown", so two vehicles that both say nothing about trim are
-        # treated as the same base trim -- not penalised for a comparison
-        # neither side gave any information for.
+    def test_unstated_trim_on_both_sides_stays_an_honest_unknown(self):
+        # The base-trim assumption is TARGET-only (`comps._BASE_TRIM`). When
+        # the comps ALSO say nothing, there is genuinely nothing to compare --
+        # asserting a match neither side gave any information for would be the
+        # same overclaiming the assumption exists to avoid on the other side.
         a = assess_listing(self._target(trim_text=None), self._comps(12, trim_text=None))
-        assert Limiter.TRIM_UNKNOWN not in a.confidence.limiters
+        assert Limiter.TRIM_UNKNOWN in a.confidence.limiters
         assert Limiter.TRIM_DISAGREEMENT not in a.confidence.limiters
         assert a.estimate.n_included == 12
 
-    def test_a_stated_target_trim_against_unstated_comps_reads_as_disagreement(self):
-        # The target says "Touring"; the comps say nothing, which is assumed
-        # base. That assumption disagreeing with a REAL stated trim is exactly
-        # the "may not be the same specification" spec 4.3 warns about, so it
-        # costs confidence -- never comps, which stay included.
+    def test_unknown_trim_costs_confidence_rather_than_comps(self):
+        # Spec 4.3: "widen the interval and lower confidence rather than
+        # pretending the comp set is clean." An unstated COMP trim is not
+        # evidence it differs from the target's stated "Touring" -- it is
+        # just missing, so this is confidence lost to uncertainty, not to a
+        # disagreement that was never actually observed.
         a = assess_listing(self._target(), self._comps(12, trim_text=None))
-        assert Limiter.TRIM_DISAGREEMENT in a.confidence.limiters
-        assert a.confidence.level is Confidence.LOW
+        assert Limiter.TRIM_UNKNOWN in a.confidence.limiters
+        assert Limiter.TRIM_DISAGREEMENT not in a.confidence.limiters
         assert a.estimate.n_included == 12
 
-    def test_disagreeing_trim_is_disqualifying(self):
+    def test_disagreeing_trim_costs_confidence_but_no_longer_disqualifies(self):
+        # TRIM_DISAGREEMENT was disqualifying (forced LOW outright) until
+        # measurement rejected it: across ~150 stored captures it fired on 83%
+        # of them, because most vehicles genuinely have several trim levels and
+        # a metro-wide comp pull rarely has a majority sharing the target's
+        # exact one. Forcing LOW there made LOW the default regardless of comp
+        # count or fit quality. It still counts as an ordinary limiter -- with
+        # 12 comps this stays MEDIUM rather than reaching HIGH.
         a = assess_listing(self._target(), self._comps(12, trim_text="Grand Touring"))
         assert Limiter.TRIM_DISAGREEMENT in a.confidence.limiters
-        assert a.confidence.level is Confidence.LOW
+        assert a.confidence.level is Confidence.MEDIUM
+
+    def test_a_thick_comp_set_is_capped_at_medium_not_forced_to_low(self):
+        # The improvement this change is for: 15+ comps with trim disagreement
+        # used to be indistinguishable from 3 comps with trim disagreement --
+        # both forced to LOW. Now the comp count is allowed to matter: still
+        # blocked from HIGH (trim disagreement is a real limiter, and HIGH
+        # requires nothing wrong beyond the two structural gaps), but no
+        # longer floored at LOW either.
+        a = assess_listing(
+            self._target(), self._comps(params.COMPS_FOR_HIGH_CONFIDENCE, trim_text="Grand Touring")
+        )
+        assert Limiter.TRIM_DISAGREEMENT in a.confidence.limiters
+        assert a.confidence.level is Confidence.MEDIUM
 
     def test_extrapolating_past_the_comps_is_reported(self):
         a = assess_listing(self._target(mileage=400_000), self._comps(12))

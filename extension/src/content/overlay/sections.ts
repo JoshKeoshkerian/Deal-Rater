@@ -24,7 +24,6 @@ import {
   hasOnlyStructuralLimiters,
   headlineState,
   intervalWidthRatio,
-  recallTone,
   scamDisplay,
   scoreTone,
   titleTone,
@@ -137,9 +136,15 @@ export function buildCompQuality(data: EvaluationResponse): HTMLElement[] {
 /**
  * The findings that must be on screen without expanding anything.
  *
- * Spec 6.2: open recalls are "surfaced prominently regardless of score weight".
  * Spec 6.3: a scam combination is "a distinct, prominent warning rather than a
- * numerical deduction buried in a composite". Both were grey bullets.
+ * numerical deduction buried in a composite". Used to be a grey bullet.
+ *
+ * Recalls used to surface here too (spec 6.2 asks for it), but NHTSA has open
+ * campaigns against nearly every VIN it's asked about, so the callout fired on
+ * almost every listing and stopped reading as a finding -- it was noise, not
+ * signal, and the same was true of the recall count folded into the collapsed
+ * "Vehicle risk" summary and detail rows. Recall data has been dropped from
+ * the panel entirely rather than kept in a form that would fire just as often.
  */
 export function buildAdverseFindings(data: EvaluationResponse): HTMLElement[] {
   const nodes: HTMLElement[] = [];
@@ -162,27 +167,14 @@ export function buildAdverseFindings(data: EvaluationResponse): HTMLElement[] {
     nodes.push(callout("adverse", `Title: ${risk.title_risk}`, [risk.title_message]));
   }
 
-  if (risk.recall_count !== null && risk.recall_count > 0) {
-    nodes.push(
-      callout("caution", `${risk.recall_count} open recall campaigns for this model`, [
-        "Whether this particular car had the work done is not public data. Ask the seller " +
-          "for service records, or give the VIN to any franchised dealer — they will check " +
-          "it for free.",
-      ]),
-    );
-  }
-
   return nodes;
 }
 
 export function vehicleRiskSummary(data: EvaluationResponse): string {
   const risk = data.vehicle_risk;
   const parts: string[] = [`title ${risk.title_risk}`];
-  if (risk.recall_count !== null) {
-    parts.push(`${risk.recall_count} recall campaign${risk.recall_count === 1 ? "" : "s"}`);
-  }
   if (risk.complaint_count !== null) parts.push(`${risk.complaint_count} owner complaints`);
-  if (risk.recall_count === null && risk.complaint_count === null) {
+  if (risk.complaint_count === null) {
     parts.push("no NHTSA data for this vehicle");
   }
   return parts.join(", ") + ".";
@@ -193,13 +185,6 @@ export function buildVehicleRisk(data: EvaluationResponse): HTMLElement[] {
   const nodes: HTMLElement[] = [];
 
   const figures: Row[] = [["Title", risk.title_risk, { tone: titleTone(risk.title_risk) }]];
-  if (risk.recall_count !== null) {
-    figures.push([
-      "Recall campaigns",
-      `${risk.recall_count}`,
-      { tone: recallTone(risk.recall_count) },
-    ]);
-  }
   if (risk.complaint_count !== null) {
     figures.push(["Owner complaints", `${risk.complaint_count}`]);
   }

@@ -9,7 +9,14 @@ import {
   peersFor,
   verifyMetroResults,
 } from "../src/comps/metros";
-import { countUsable, looksUsable, pendingPeers, shouldWiden } from "../src/comps/widen";
+import {
+  countTrimMatched,
+  countUsable,
+  looksUsable,
+  pendingPeers,
+  shouldWiden,
+  trimLooksSimilar,
+} from "../src/comps/widen";
 import type { ObservationPayload } from "../src/shared/types";
 
 const obs = (patch: Partial<ObservationPayload>): ObservationPayload =>
@@ -193,6 +200,99 @@ describe("tiered widening", () => {
     const peers = peersFor(findMetro("tulsa")!, 4);
     const filtered = pendingPeers(peers, [peers[0]!.slug]);
     expect(filtered.map((m) => m.slug)).not.toContain(peers[0]!.slug);
+  });
+});
+
+describe("widening for trim, not just count", () => {
+  const target = obs({ role: "target", trim_text: "Grand Touring" });
+
+  it("counts a comp with the same trim word as similar", () => {
+    expect(trimLooksSimilar(target, obs({ trim_text: "Grand Touring" }))).toBe(true);
+    expect(trimLooksSimilar(target, obs({ trim_text: "Touring" }))).toBe(true);
+  });
+
+  it("does not count a genuinely different trim as similar", () => {
+    expect(trimLooksSimilar(target, obs({ trim_text: "Sport" }))).toBe(false);
+  });
+
+  it("does not count as similar when either side has no trim at all", () => {
+    expect(trimLooksSimilar(target, obs({ trim_text: null }))).toBe(false);
+    expect(trimLooksSimilar(obs({ role: "target", trim_text: null }), obs({ trim_text: "Sport" }))).toBe(
+      false,
+    );
+  });
+
+  it("does not let a model name repeated inside the trim cause a false match", () => {
+    // Some listings write the model into the trim text too ("CX-5 Touring").
+    // Without stripping it, every comp of the same model would share that
+    // token and register as similar regardless of their real trim.
+    const repeated = obs({ role: "target", model: "CX-5", trim_text: "CX-5 Grand Touring" });
+    expect(trimLooksSimilar(repeated, obs({ model: "CX-5", trim_text: "CX-5 Sport" }))).toBe(
+      false,
+    );
+    expect(
+      trimLooksSimilar(repeated, obs({ model: "CX-5", trim_text: "CX-5 Grand Touring" })),
+    ).toBe(true);
+  });
+
+  it("KNOWN GAP: a model name split across model+trim can still false-match", () => {
+    // Documented limitation, not a passing guarantee -- see the docstring on
+    // `trimTokens`. Facebook's own structured data has put model="Grand" and
+    // trim_text="Cherokee Limited..." on a real Jeep Grand Cherokee capture,
+    // and this function only knows to strip what `model` actually contains,
+    // so it cannot recover "Cherokee" as part of the model here. The failure
+    // mode is benign: it just means less widening for this specific vehicle,
+    // not an incorrect score -- this function only ever gates a search.
+    const leaked = obs({ role: "target", model: "Grand", trim_text: "Cherokee Limited" });
+    const differentRealTrim = obs({ model: "Grand", trim_text: "Cherokee Altitude" });
+    expect(trimLooksSimilar(leaked, differentRealTrim)).toBe(true);
+  });
+
+  it("ignores body-style and drivetrain noise words", () => {
+    const noisyTarget = obs({ role: "target", trim_text: "Touring Sport Utility 4D" });
+    expect(trimLooksSimilar(noisyTarget, obs({ trim_text: "Touring AWD" }))).toBe(true);
+  });
+
+  it("counts trim-matched comps among the usable ones", () => {
+    const comps = [
+      obs({ trim_text: "Grand Touring" }),
+      obs({ trim_text: "Touring" }),
+      obs({ trim_text: "Sport" }),
+      obs({ model: "CX-9", trim_text: "Grand Touring" }), // wrong model
+    ];
+    expect(countTrimMatched(target, comps)).toBe(2);
+  });
+
+  it("keeps widening on a full usable count when too few share the trim", () => {
+    const comps = [
+      ...Array.from({ length: 29 }, () => obs({ trim_text: "Sport" })),
+      obs({ trim_text: "Grand Touring" }),
+    ];
+    expect(countUsable(target, comps)).toBe(30);
+    expect(shouldWiden(target, comps, 3)).toBe(true);
+  });
+
+  it("stops once both the usable count and the trim count are met", () => {
+    const comps = [
+      ...Array.from({ length: 24 }, () => obs({ trim_text: "Sport" })),
+      ...Array.from({ length: 6 }, () => obs({ trim_text: "Grand Touring" })),
+    ];
+    expect(countUsable(target, comps)).toBe(30);
+    expect(countTrimMatched(target, comps)).toBe(6);
+    expect(shouldWiden(target, comps, 3)).toBe(false);
+  });
+
+  it("does not widen for trim when the target's own trim is unknown", () => {
+    // Nothing to widen FOR: there is no basis to judge whether a comp matches
+    // a trim we do not know. The usable-count check still applies on its own.
+    const noTrimTarget = obs({ role: "target", trim_text: null });
+    const many = Array.from({ length: 30 }, () => obs({ trim_text: "Sport" }));
+    expect(shouldWiden(noTrimTarget, many, 3)).toBe(false);
+  });
+
+  it("stops widening for trim once the peer list runs out, regardless of count", () => {
+    const thin = [obs({ trim_text: "Sport" })];
+    expect(shouldWiden(target, thin, 0)).toBe(false);
   });
 });
 
