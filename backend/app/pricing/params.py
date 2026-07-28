@@ -160,11 +160,37 @@ DUPLICATE_PRICE_TOLERANCE = 0.05
 # stops the term firing, converging on the baseline from above and never
 # crossing it.
 #
-# THE FINDING THAT SETTLED IT. Where the term did win the interval comparison it
-# won on 5 of 114 fits (4%), and among those the estimated premium was NEGATIVE
-# on 40% of them -- "matching the target's trim makes the car cheaper". A
-# coefficient whose sign is a coin flip is fitting noise, and the narrowest-
-# interval rule cannot tell that apart from signal on eight points.
+# THE FINDING THAT SETTLED IT (ORIGINAL VERSION). Where the term did win the
+# interval comparison it won on 5 of 114 fits (4%), and among those the
+# estimated premium was NEGATIVE on 40% of them -- "matching the target's trim
+# makes the car cheaper".
+#
+# THAT SPECIFIC STATISTIC IS UNDERPOWERED AND WAS OVER-READ. 40% negative out
+# of 5 has a Wilson 95% CI of roughly 12% to 77% -- a coin flip sits
+# comfortably inside it, so "a coefficient whose sign is a coin flip" was a
+# real risk being described, not a settled fact from this count alone. The
+# win/lose selection also only samples the fits where the narrowest-interval
+# rule happened to prefer the trim candidate, not whether the coefficient is
+# identifiable in general.
+#
+# THE CORRECTED MEASUREMENT (2026-07-28, `app.cli.backtest --trim-premium`).
+# Fits `asking price ~ mileage + trim_matches` directly on every capture with
+# enough trim variation to identify the term -- not only the rare ones the
+# selection rule picked -- and pools the per-capture coefficients by
+# inverse-variance weighting (fixed-effect meta-analysis): 103 fittable
+# captures, pooled premium $61, 95% CI -$154 to $275. The CI spans zero, but
+# it is NARROW relative to asking prices in the thousands -- this is a
+# precise null, not an underpowered one. The original conclusion holds, on
+# firmer statistical ground than the number that originally supported it.
+#
+# CAVEAT, shared with the weighting finding above and NOT yet resolved by the
+# reanalysis: both were measured on data where trim came from
+# `parseVehicleTitle` on effectively every row, because tier 1 of the
+# vehicle-fact JSON cascade was dead code until 2026-07-28 (wrong payload key
+# names; see `extension/src/extract/fb-keys.ts`). 231 of 244 stored captures
+# predate that fix. A precise null on a noisier-than-necessary trim signal is
+# suggestive, not dispositive, about what a cleanly-extracted trim field would
+# show -- re-run `--trim-premium` once enough post-fix captures accumulate.
 #
 # The obvious rescue was that the trim STRINGS are too dirty (which is what the
 # weighting note above concluded, and which the normalisation fixes in

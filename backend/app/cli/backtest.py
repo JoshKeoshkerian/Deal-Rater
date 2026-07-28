@@ -142,8 +142,28 @@ from ..db import session_scope
 from ..pricing import params
 from ..pricing.comps import CompSet
 from ..pricing.loader import StoredCapture, load_captures
-from ..pricing.model import assess_listing
-from ..pricing.regression import EstimatorKind, estimate_expected_asking_price
+from ..pricing.model import _filter_with_progressive_widening, assess_listing
+from ..pricing.regression import EstimatorKind, _fit_multi, estimate_expected_asking_price
+
+# ---------------------------------------------------------------------------
+# Empirical interval coverage (spec 9.5)
+# ---------------------------------------------------------------------------
+#
+# `params.INTERVAL_COVERAGE` has carried "UNCALIBRATED: spec 9.5 requires
+# checking that ~80% of held-out listings actually fall inside it, and that
+# check has not been run" since it was written. This closes that gap using a
+# held-out point that already exists for free: the TARGET's own asking price
+# is never part of the fit -- only comps enter `estimate_expected_asking_price`
+# -- so it is a genuine out-of-sample observation, at no cost of building a
+# second interval-at-an-arbitrary-mileage capability the way scoring the
+# leave-one-out COMPS against the published interval would have required (that
+# interval is only valid at the mileage it was built for, which is the
+# target's, not each held-out comp's).
+#
+# This deliberately does NOT reuse `predictions_for`'s per-comp loop: comps
+# only ever get a POINT prediction there (`predict_asking_cents`), not an
+# interval, because the published interval's leverage term is specific to the
+# mileage (and year) it was constructed at.
 
 
 @dataclass(frozen=True)
@@ -166,6 +186,131 @@ class Prediction:
     def ape(self) -> float:
         """Absolute percentage error against the comp's real asking price."""
         return abs(self.predicted_cents - self.actual_cents) / self.actual_cents
+
+
+@dataclass(frozen=True)
+class CoverageObservation:
+    """One capture's published interval, checked against its target's real ask."""
+
+    capture_id: int
+    kind: EstimatorKind
+    ask_cents: int
+    low_cents: int
+    high_cents: int
+    inside: bool
+
+
+def coverage_for(capture: StoredCapture, *, coverage: float) -> CoverageObservation | None:
+    """Check one capture's published interval against its target's real ask.
+
+    None when there is nothing to check: no estimate, no target price, or a
+    target price below `MIN_PLAUSIBLE_PRICE_CENTS` (a $0 or placeholder ask is
+    not a real point to score coverage against -- see
+    `AskingPriceEstimate.residual_fraction`).
+    """
+    assessment = assess_listing(
+        capture.target,
+        capture.candidates,
+        coverage=coverage,
+        location_scoped=capture.location_scoped,
+    )
+    estimate = assessment.estimate
+    ask = capture.target.price_cents
+    if (
+        ask is None
+        or ask < params.MIN_PLAUSIBLE_PRICE_CENTS
+        or estimate.asking_interval_low_cents is None
+        or estimate.asking_interval_high_cents is None
+    ):
+        return None
+
+    inside = estimate.within_interval(ask)
+    assert inside is not None
+    return CoverageObservation(
+        capture_id=capture.capture_id,
+        kind=estimate.kind,
+        ask_cents=ask,
+        low_cents=estimate.asking_interval_low_cents,
+        high_cents=estimate.asking_interval_high_cents,
+        inside=inside,
+    )
+
+
+def _coverage_row(label: str, sample: list[CoverageObservation], nominal: float) -> str:
+    if not sample:
+        return f"{label:<28}{0:>7}{'n/a':>12}{f'{nominal:.0%}':>10}"
+    empirical = sum(1 for o in sample if o.inside) / len(sample)
+    return f"{label:<28}{len(sample):>7}{empirical:>11.1%}{f'{nominal:.0%}':>10}"
+
+
+def run_coverage(session: Session, capture_ids: list[int] | None, as_json: bool) -> int:
+    captures = load_captures(session, capture_ids)
+    if not captures:
+        print("No captures stored.")
+        return 1
+
+    observations = [
+        obs
+        for capture in captures
+        if (obs := coverage_for(capture, coverage=params.INTERVAL_COVERAGE)) is not None
+    ]
+
+    if not observations:
+        print(
+            f"{len(captures)} captures stored, none produced a scoreable interval "
+            "(no estimate, or the target's own ask is missing / below the plausible-price floor)."
+        )
+        return 1
+
+    nominal = params.INTERVAL_COVERAGE
+    by_kind: dict[EstimatorKind, list[CoverageObservation]] = {}
+    for obs in observations:
+        by_kind.setdefault(obs.kind, []).append(obs)
+
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "captures_loaded": len(captures),
+                    "captures_scored": len(observations),
+                    "nominal_coverage": nominal,
+                    "empirical_coverage": sum(1 for o in observations if o.inside)
+                    / len(observations),
+                    "by_kind": {
+                        kind.value: {
+                            "n": len(sample),
+                            "empirical_coverage": sum(1 for o in sample if o.inside) / len(sample),
+                        }
+                        for kind, sample in by_kind.items()
+                    },
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"\nCaptures loaded:  {len(captures)}")
+    print(
+        f"Captures scored:  {len(observations)}  "
+        "(target has a real ask and a published interval)"
+    )
+    print(f"\n{'stratum':<28}{'n':>7}{'empirical':>11}{'nominal':>10}")
+    print("-" * 56)
+    print(_coverage_row("ALL", observations, nominal))
+    print("-" * 56)
+    for kind, sample in by_kind.items():
+        print(_coverage_row(f"estimator: {kind.value}", sample, nominal))
+
+    print(
+        "\nEmpirical coverage is the fraction of TARGETS' real asking prices that fall "
+        "inside their own published interval. The target's ask is never part of the "
+        "fit that produces the interval -- only comps are -- so this is a genuine "
+        "held-out check, not the leave-one-out comp accuracy above.\n"
+        "Spec 9.5: an interval that is systematically too narrow (empirical well "
+        "below nominal) is worse than no interval, because it manufactures false "
+        "confidence."
+    )
+    return 0
 
 
 def _without(comp_set: CompSet, index: int) -> CompSet:
@@ -327,6 +472,162 @@ def run(session: Session, capture_ids: list[int] | None, as_json: bool) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Trim premium, reanalysed (params.py: "Trim as a regressor: TRIED, MEASURED,
+# REJECTED")
+# ---------------------------------------------------------------------------
+#
+# That section's headline numbers -- "won the interval comparison on 5 of 114
+# fits, negative 40% of the time it won" -- describe the rare cases the
+# narrowest-interval SELECTION rule picked the trim-indicator candidate over
+# the others, not the coefficient's identifiability in general. On n=5, "40%
+# negative" has a Wilson 95% CI of roughly 12% to 77%: a coin flip is well
+# inside it, so that specific statistic cannot support "trim does not predict
+# price" on its own -- it is simply too small a sample of a rare event.
+#
+# This instead fits `asking price ~ mileage + trim_matches` on EVERY capture
+# with enough trim variation to identify the term at all (not just the ones
+# where it happened to win the selection), and pools the resulting per-capture
+# coefficients by inverse-variance weighting -- a standard fixed-effect
+# meta-analysis, not the win/lose count above. That is a fair test of whether
+# the term carries a real, if small, signal that the selection rule was simply
+# declining to use.
+#
+# Simplified to two regressors (mileage + trim_matches, no year term) to keep
+# n from shrinking further across three parameters; reported as what it is, a
+# diagnostic recomputation, not a replacement for the removed experiment.
+
+
+def _trim_premium_fit(points, n_min: int) -> tuple[float, float, int] | None:
+    """(coefficient_cents, standard_error_cents, n) for one capture's comp set.
+
+    None when there is not enough trim variation to identify the term: fewer
+    than `n_min` comps on either side of the match/no-match split.
+    """
+    matched = [d for d in points if d.trim_matches is True]
+    differs = [d for d in points if d.trim_matches is False]
+    if len(matched) < n_min or len(differs) < n_min:
+        return None
+
+    usable = matched + differs
+    xs_mileage = [float(d.candidate.mileage) for d in usable]
+    xs_trim = [1.0 if d.trim_matches else 0.0 for d in usable]
+    ys = [float(d.candidate.price_cents) for d in usable]
+    n = len(ys)
+
+    mean_mileage = statistics.mean(xs_mileage)
+    mean_trim = statistics.mean(xs_trim)
+    target_x = [mean_mileage, mean_trim]
+
+    # `_fit_multi` only special-cases the literal labels "mileage" and "year"
+    # when populating the returned `_Fit.slope_mileage` / `.slope_year` --
+    # labelling the trim column "year" is what surfaces its coefficient below,
+    # not a claim that trim is being treated as a year term.
+    fit = _fit_multi(
+        [xs_mileage, xs_trim], ("mileage", "year"), ys, target_x, params.INTERVAL_COVERAGE
+    )
+    if fit is None or fit.slope_year is None:
+        return None
+
+    centered_trim = [x - mean_trim for x in xs_trim]
+    centered_mileage = [x - mean_mileage for x in xs_mileage]
+    cross_mm = sum(x * x for x in centered_mileage)
+    cross_tt = sum(x * x for x in centered_trim)
+    cross_mt = sum(a * b for a, b in zip(centered_mileage, centered_trim, strict=True))
+    det = cross_mm * cross_tt - cross_mt * cross_mt
+    if abs(det) < 1e-6:
+        return None
+    # (X_c'X_c)^-1 diagonal entry for the trim column, via Cramer's rule on the
+    # 2x2 system -- the general `_solve` path `_fit_multi` uses internally
+    # isn't exposed, so this reproduces just the one entry this needs.
+    inv_trim_trim = cross_mm / det
+    if inv_trim_trim <= 0:
+        return None
+    se = fit.residual_se * (inv_trim_trim**0.5)
+    return fit.slope_year, se, n
+
+
+def run_trim_premium(session: Session, capture_ids: list[int] | None, as_json: bool) -> int:
+    captures = load_captures(session, capture_ids)
+    if not captures:
+        print("No captures stored.")
+        return 1
+
+    n_min = params.MIN_COMPS_FOR_YEAR_TERM // 2  # >= this many on EACH side of the split
+    per_capture: list[tuple[int, float, float, int]] = []
+    for capture in captures:
+        comp_set = _filter_with_progressive_widening(
+            capture.target,
+            capture.candidates,
+            year_window=params.YEAR_WINDOW,
+            location_scoped=capture.location_scoped,
+        )
+        points = [d for d in comp_set.fit_points if d.trim_matches is not None]
+        result = _trim_premium_fit(points, n_min)
+        if result is not None:
+            beta, se, n = result
+            per_capture.append((capture.capture_id, beta, se, n))
+
+    if not per_capture:
+        print(
+            f"{len(captures)} captures stored, none had >= {n_min} trim-matched AND "
+            f">= {n_min} trim-differing comps to identify the term at all."
+        )
+        return 1
+
+    betas = [b for _, b, _, _ in per_capture]
+    n_negative = sum(1 for b in betas if b < 0)
+    weights = [1.0 / (se**2) for _, _, se, _ in per_capture]
+    pooled_beta = sum(w * b for w, (_, b, _, _) in zip(weights, per_capture, strict=True)) / sum(
+        weights
+    )
+    pooled_se = (1.0 / sum(weights)) ** 0.5
+    ci_low = pooled_beta - 1.96 * pooled_se
+    ci_high = pooled_beta + 1.96 * pooled_se
+    individually_significant = sum(1 for _, b, se, _ in per_capture if abs(b) > 1.96 * se)
+
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "captures_loaded": len(captures),
+                    "captures_fittable": len(per_capture),
+                    "median_premium_cents": statistics.median(betas),
+                    "fraction_negative": n_negative / len(betas),
+                    "pooled_premium_cents": pooled_beta,
+                    "pooled_ci_95_cents": [ci_low, ci_high],
+                    "ci_spans_zero": ci_low < 0 < ci_high,
+                    "individually_significant_p05": individually_significant,
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"\nCaptures loaded:    {len(captures)}")
+    print(
+        f"Fittable (>= {n_min} comps each side of trim match/no-match): "
+        f"{len(per_capture)}"
+    )
+    print(f"\nPer-capture premium: median ${statistics.median(betas) / 100:,.0f}, "
+          f"negative on {n_negative} of {len(betas)} ({n_negative / len(betas):.1%})")
+    print(
+        f"Pooled (fixed-effect, inverse-variance): ${pooled_beta / 100:,.0f}, "
+        f"95% CI ${ci_low / 100:,.0f} to ${ci_high / 100:,.0f}"
+    )
+    print(f"CI spans zero: {ci_low < 0 < ci_high}")
+    print(
+        f"Individually significant at p<.05 on the capture's own data alone: "
+        f"{individually_significant} of {len(per_capture)}"
+    )
+    print(
+        "\nThis pools every capture with enough trim variation to identify the term, "
+        "not only the rare ones the narrowest-interval rule happened to select -- "
+        "see the module comment above for why that distinction matters."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = ArgumentParser(description="Leave-one-out CV of the expected-asking-price model.")
     parser.add_argument(
@@ -337,9 +638,26 @@ def main(argv: list[str] | None = None) -> int:
         help="restrict to this capture id; repeatable",
     )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument(
+        "--coverage",
+        action="store_true",
+        help="check published intervals against targets' real asks (spec 9.5) instead of "
+        "the leave-one-out comp accuracy",
+    )
+    parser.add_argument(
+        "--trim-premium",
+        action="store_true",
+        help="pooled CI on the trim-match premium coefficient, reanalysing params.py's "
+        "'Trim as a regressor' finding across every fittable capture instead of only "
+        "the ones the narrowest-interval rule happened to select",
+    )
     args = parser.parse_args(argv)
 
     with session_scope() as session:
+        if args.coverage:
+            return run_coverage(session, args.captures, args.json)
+        if args.trim_premium:
+            return run_trim_premium(session, args.captures, args.json)
         return run(session, args.captures, args.json)
 
 

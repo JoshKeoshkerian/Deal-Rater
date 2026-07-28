@@ -63,12 +63,34 @@ weighting one above -- the natural response to "weighting trim did not work" is
 "then model trim properly", so that was built too: a trim-match indicator
 alongside mileage and year, using the same `_fit_multi` solver the year term
 uses, selected by the same narrowest-interval rule. Every guard configuration
-measured WORSE than leaving it out, it fired on 4% of fits, and where it did
-fire its estimated premium was negative 40% of the time. Numbers and the full
-sweep are in `params` under "Trim as a regressor: TRIED, MEASURED, REJECTED".
-Trim stays what spec 4.3 asks for: a soft signal that moves confidence, never
-the price. `app.cli.backtest` is the harness; re-run it before proposing any of
-this again.
+measured WORSE than leaving it out, and among the 5% of fits where the
+narrowest-interval rule picked it anyway, the premium came out negative
+about as often as positive.
+
+THAT WIN/LOSE COUNT IS UNDERPOWERED ON ITS OWN -- it describes maybe a dozen
+fits, and a coin flip is comfortably inside its confidence interval at that n.
+`app.cli.backtest --trim-premium` (2026-07-28) fits the term on every capture
+with enough trim variation to identify it AT ALL, not only the ones the
+selection rule happened to pick, and pools the per-capture coefficients by
+inverse-variance weighting: 103 fittable captures, pooled premium $61 with a
+95% CI of -$154 to $275. The CI spans zero, but it is NOT wide from lack of
+data -- $154-$275 is a precise band on typical asking prices in the
+thousands, not "unidentifiable, revisit at n=500." Trim really does not move
+the published price by a material amount in this data.
+
+CAVEAT THIS SHARES WITH THE WEIGHTING FINDING ABOVE: both were measured on
+comp sets where trim came from `parseVehicleTitle` on effectively every row --
+tier 1 of the vehicle-fact JSON cascade was dead code until 2026-07-28 (see
+`extension/src/extract/fb-keys.ts`), so "trim" here means a noisier signal
+than the field is capable of once fixed. 231 of 244 stored captures predate
+that fix. Re-run `--trim-premium` once enough post-fix captures exist to
+matter; a null on noisy trim strings is suggestive, not dispositive, about
+what a cleanly-extracted trim field would do.
+
+Numbers and the full sweep are in `params` under "Trim as a regressor: TRIED,
+MEASURED, REJECTED". Trim stays what spec 4.3 asks for: a soft signal that
+moves confidence, never the price. `app.cli.backtest` is the harness; re-run
+it before proposing any of this again.
 """
 
 from __future__ import annotations

@@ -46,10 +46,19 @@ export function sellerListingsBlock(main: Element): Element | null {
   );
 }
 
-/** The description block, identified by its heading rather than its position. */
+/**
+ * The description block, identified by its heading rather than its position.
+ *
+ * "Seller's description" is tried first and on its own: on the current layout
+ * it is the actual free-text seller writeup, but "About this vehicle" comes
+ * *earlier* in the DOM and is a structured facts grid (Color/Interior/VIN/…),
+ * not prose. `sectionByHeading` returns the first heading match in document
+ * order, so combining both patterns in one regex silently preferred the facts
+ * grid over the real description whenever a listing had both sections.
+ */
 export function descriptionBlock(main: Element): Element | null {
-  return sectionByHeading(
-    main,
-    /^description$|^details$|about this vehicle|seller.?s\s*description/i,
+  return (
+    sectionByHeading(main, /seller.?s\s*description/i) ??
+    sectionByHeading(main, /^description$|^details$|about this vehicle/i)
   );
 }

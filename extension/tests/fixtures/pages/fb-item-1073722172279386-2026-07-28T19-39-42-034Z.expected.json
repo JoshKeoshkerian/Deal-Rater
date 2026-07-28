@@ -1,20 +1,21 @@
 {
   "kind": "item",
-  "url": "https://www.facebook.com/marketplace/item/1239865998004348/",
+  "url": "https://www.facebook.com/marketplace/item/1073722172279386/",
   "expect": {
-    "price_cents": 450000,
-    "year": 2013,
+    "price_cents": 1650000,
+    "year": 2021,
     "make": "Honda",
-    "model": "Civic",
-    "mileage": 165839,
+    "model": "HR-V",
+    "mileage": 56000,
     "photo_count": null,
-    "location_text": "Lake St Louis, MO"
+    "location_text": "Fenton, MO"
   },
   "requirePresent": [
     "source_listing_id",
     "listing_url",
     "price_cents",
-    "currency",
+    "mileage",
+    "mileage_unit",
     "year",
     "make",
     "model",
@@ -22,7 +23,6 @@
     "description",
     "posted_at",
     "location_text",
-    "latitude",
-    "longitude"
+    "vin"
   ]
 }
