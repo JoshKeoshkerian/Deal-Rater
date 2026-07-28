@@ -68,6 +68,17 @@ def fake_call(completion: _Completion | None, calls: list):
     return _call
 
 
+def fake_call_sequence(completions: list, calls: list):
+    """One `_call_model` stub per call, in order -- for exercising the retry."""
+    it = iter(completions)
+
+    def _call(**kwargs):
+        calls.append(kwargs)
+        return next(it)
+
+    return _call
+
+
 def completion(rep: KnownIssuesReport | None = None, *, inp=1200, out=300) -> _Completion:
     return _Completion(report=rep or report(), input_tokens=inp, output_tokens=out)
 
@@ -80,6 +91,23 @@ def fetch(session, monkeypatch, *, completion_=..., cfg=None, **overrides):
         "_call_model",
         fake_call(completion() if completion_ is ... else completion_, calls),
     )
+    args = {
+        "year": 2013,
+        "make": "Ford",
+        "model": "Focus",
+        "trim": "SE",
+        "mileage": 90_000,
+    }
+    args.update(overrides)
+    reading = fetch_known_issues(session, cfg or settings(), **args)
+    return reading, calls
+
+
+def fetch_seq(session, monkeypatch, completions: list, *, cfg=None, **overrides):
+    """Like `fetch`, but each `_call_model` invocation gets the next completion
+    in `completions` -- for tests where the first and retry answers differ."""
+    calls: list = []
+    monkeypatch.setattr(ki_client, "_call_model", fake_call_sequence(completions, calls))
     args = {
         "year": 2013,
         "make": "Ford",
@@ -165,6 +193,73 @@ class TestNoDollarFiguresEverReachAUser:
     def test_the_prompt_also_forbids_it(self):
         # Belt and braces: the guard is the guarantee, the prompt is the ask.
         assert "NEVER STATE A COST" in SYSTEM_PROMPT
+
+
+class TestCorrectiveRetry:
+    """A dollar figure on the first attempt earns one retry before the guard's
+    scrub becomes the answer cached indefinitely for this vehicle and band."""
+
+    def test_a_clean_retry_replaces_the_tainted_first_answer(self, session, monkeypatch):
+        bad = report(summary="Budget about $3,000 for the clutch.")
+        clean = report(summary="This generation is durable with proper maintenance.")
+        reading, calls = fetch_seq(session, monkeypatch, [completion(bad), completion(clean)])
+
+        assert len(calls) == 2
+        assert "dollar figure" not in calls[0]["user_prompt"].lower()
+        assert "dollar figure" in calls[1]["user_prompt"].lower()
+        assert reading.available
+        assert reading.report.summary == clean.summary
+        assert reading.report.summary != SUMMARY_WITHHELD
+        assert session.query(KnownIssuesEntry).one().currency_items_dropped == 0
+
+    def test_a_second_violation_falls_back_to_the_guard(self, session, monkeypatch):
+        bad = report(summary="Budget about $3,000 for the clutch.")
+        reading, calls = fetch_seq(session, monkeypatch, [completion(bad), completion(bad)])
+
+        assert len(calls) == 2
+        assert reading.available
+        assert reading.report.summary == SUMMARY_WITHHELD
+
+    def test_a_clean_first_answer_never_retries(self, session, monkeypatch):
+        # A second `next()` on the sequence would raise if a retry fired here.
+        reading, calls = fetch_seq(session, monkeypatch, [completion()])
+        assert len(calls) == 1
+        assert reading.report.summary == report().summary
+
+    def test_cost_covers_both_calls_when_a_retry_happens(self, session, monkeypatch):
+        bad = report(summary="Budget about $3,000 for the clutch.")
+        clean = report(summary="This generation is durable with proper maintenance.")
+        fetch_seq(
+            session,
+            monkeypatch,
+            [completion(bad, inp=1000, out=200), completion(clean, inp=900, out=250)],
+        )
+        row = session.query(KnownIssuesEntry).one()
+        assert (row.input_tokens, row.output_tokens) == (1900, 450)
+        assert row.cost_microdollars == params.cost_microdollars(1900, 450)
+
+    def test_a_failed_retry_call_falls_back_to_the_first_guarded_answer(self, session, monkeypatch):
+        # The retry's network call itself comes back empty rather than with a
+        # bad report -- the first attempt's guarded result must still be used,
+        # not treated as if nothing was ever produced.
+        bad = report(summary="Budget about $3,000 for the clutch.")
+        reading, calls = fetch_seq(session, monkeypatch, [completion(bad), None])
+
+        assert len(calls) == 2
+        assert reading.available
+        assert reading.report.summary == SUMMARY_WITHHELD
+
+    def test_a_total_wash_still_gets_a_retry_despite_zero_dropped(self, session, monkeypatch):
+        # `_apply_guard` reports `dropped=0` on a total refusal (nothing
+        # survived to count), which is exactly the case the retry trigger must
+        # not miss by checking `dropped` alone.
+        all_money = KnownIssuesReport(summary="Budget about $3,000.", failure_modes=["Costs $900."])
+        clean = report(summary="This generation is durable with proper maintenance.")
+        reading, calls = fetch_seq(session, monkeypatch, [completion(all_money), completion(clean)])
+
+        assert len(calls) == 2
+        assert reading.available
+        assert reading.report.summary == clean.summary
 
 
 class TestSpecTenGate:

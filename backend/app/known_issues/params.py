@@ -33,7 +33,20 @@ MAX_TOKENS = 1200
 #: Bumped whenever the prompt or the output shape changes in a way that makes
 #: previously cached text wrong or unparseable. Part of the cache key, so a bump
 #: invalidates every stored answer without a migration or a manual purge.
-PROMPT_VERSION = 1
+#:
+#: Bumped to 2: the prompt let a dollar figure land in `summary` specifically
+#: (the per-field description never repeated the no-currency rule, only the
+#: system prompt did), which `guard.py` then had to redact after the fact.
+#: Cached answers written under version 1 may carry that same withheld-summary
+#: text and must not keep being served now that the prompt says it per field.
+#:
+#: Bumped to 3: version 2 still produced an occasional dollar figure -- the
+#: reinforced prompt lowers the rate but does not zero it -- and `client.py`
+#: had no retry, so the FIRST tainted answer for a given vehicle and band
+#: became its permanent cached answer. A corrective retry now runs before that
+#: happens (see `fetch_known_issues`); rows written under version 2 predate it
+#: and may carry a withheld summary that a retry would have avoided.
+PROMPT_VERSION = 3
 
 
 # --- Cost accounting (spec 10) ---------------------------------------------

@@ -2,7 +2,12 @@
 
     read cache  ->  hit?  ->  serve, cost 0
                      |
-                    miss  ->  one Claude call  ->  guard  ->  store  ->  serve
+                    miss  ->  Claude call  ->  guard caught a $ figure?
+                                                        |
+                                                       yes -> one corrective
+                                                              retry -> guard
+                                                        |
+                                                  store  <-'  ->  serve
 
 Every path returns a `KnownIssuesReading`. Nothing here raises: an outage, a
 missing key, a malformed response and a refusal all degrade to a reading with an
@@ -329,16 +334,18 @@ def fetch_known_issues(
             mileage_band=band,
         )
 
-    completion = _call_model(
-        api_key=settings.anthropic_api_key,
-        llm_model=llm_model,
-        user_prompt=build_user_prompt(
+    def _prompt(*, corrective: bool) -> str:
+        return build_user_prompt(
             year=year,
             make=make.strip(),
             model=model.strip(),
             trim=trim.strip() if trim else None,
             mileage_band=band,
-        ),
+            corrective=corrective,
+        )
+
+    completion = _call_model(
+        api_key=settings.anthropic_api_key, llm_model=llm_model, user_prompt=_prompt(corrective=False)
     )
     if completion is None:
         return KnownIssuesReading(
@@ -346,6 +353,37 @@ def fetch_known_issues(
         )
 
     guarded, dropped = _apply_guard(completion.report)
+    input_tokens = completion.input_tokens
+    output_tokens = completion.output_tokens
+
+    if dropped or guarded is None:
+        # The prompt already forbids this (prompt.py's SYSTEM_PROMPT); a slip is
+        # rare but not eliminated by asking nicely, and the guard's scrub -- or
+        # its refusal, when nothing survived at all -- is what would otherwise
+        # get cached indefinitely for this vehicle and band (spec 10). One
+        # retry, naming the exact violation, before that becomes the permanent
+        # answer. (`_apply_guard` reports `dropped=0` on total refusal, which is
+        # why this checks `guarded is None` too rather than `dropped` alone.)
+        logger.warning(
+            "known-issues answer stated a money figure; retrying once with a "
+            "corrective instruction"
+        )
+        retry = _call_model(
+            api_key=settings.anthropic_api_key,
+            llm_model=llm_model,
+            user_prompt=_prompt(corrective=True),
+        )
+        if retry is not None:
+            input_tokens += retry.input_tokens
+            output_tokens += retry.output_tokens
+            retry_guarded, retry_dropped = _apply_guard(retry.report)
+            if retry_guarded is not None and (guarded is None or retry_dropped == 0):
+                # Either the first attempt had nothing to salvage at all (any
+                # retry answer beats that), or it did but the retry is clean --
+                # in either case the retry is a strict improvement.
+                logger.info("known-issues retry improved on the first answer")
+                guarded, dropped = retry_guarded, retry_dropped
+
     if guarded is None:
         # Not cached: storing it would make one bad answer permanent, and the
         # next attempt may well be clean.
@@ -368,11 +406,9 @@ def fetch_known_issues(
         ask=list(guarded.ask),
         ownership_notes=list(guarded.ownership_notes),
         currency_items_dropped=dropped,
-        input_tokens=completion.input_tokens,
-        output_tokens=completion.output_tokens,
-        cost_microdollars=params.cost_microdollars(
-            completion.input_tokens, completion.output_tokens
-        ),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_microdollars=params.cost_microdollars(input_tokens, output_tokens),
         served_count=0,
     )
     session.add(entry)
