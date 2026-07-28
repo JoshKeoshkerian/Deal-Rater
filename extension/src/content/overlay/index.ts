@@ -30,7 +30,7 @@
 
 import type { EvaluationResponse } from "../../shared/types";
 import { buildBreakdown } from "./breakdown";
-import { disclosure, el, section } from "./elements";
+import { aiBadge, disclosure, el, section } from "./elements";
 import { buildHeader } from "./headline";
 import {
   alternativesSummary,
@@ -54,12 +54,8 @@ import { stylesheet } from "./styles";
 const HOST_ID = "deal-rater-overlay";
 
 /**
- * Spec 7's liability framing, as one block rather than three stacked greys.
- *
- * The asking-price notice is not here: it moved into the pricing section, where
- * spec 4.5 wants it ("belongs in the UI, not the terms of service"). What is
- * left is the beta signal and the liability line, which are about the tool
- * rather than the car and belong at the end.
+ * Spec 7's liability framing, plus spec 4.5's asking-vs-sale-price notice,
+ * as one block rather than three stacked greys.
  */
 function buildNotices(data: EvaluationResponse): HTMLElement {
   const node = el("div", "notices");
@@ -77,9 +73,10 @@ function buildNotices(data: EvaluationResponse): HTMLElement {
   );
   node.append(body);
 
-  // Anything the backend adds beyond the three known notices still renders, so
-  // a new notice cannot go missing because this function did not expect it.
-  const known = /beta signal|asking prices|informational analysis/i;
+  // Spec 4.5's asking-vs-sale-price distinction used to live inline in the
+  // pricing section; that section is now trimmed to its four figures, so this
+  // is the only place left to say it -- it must not go missing.
+  const known = /beta signal|informational analysis/i;
   for (const notice of data.notices) {
     if (!known.test(notice)) node.append(el("p", undefined, notice));
   }
@@ -115,9 +112,6 @@ export function renderEvaluation(data: EvaluationResponse): void {
 
   // 2. Pricing (spec 7.2, 5.1's four numbers). Always visible.
   sheet.append(section("Pricing", buildPricing(data))!);
-  sheet.append(
-    disclosure("Comp quality", compQualitySummary(data), buildCompQuality(data)),
-  );
 
   // Adverse findings, before anything collapsed. Spec 6.3 requires prominence
   // that does not depend on a score weight or on a click.
@@ -159,9 +153,19 @@ export function renderEvaluation(data: EvaluationResponse): void {
         "What to check on this car",
         knownIssuesSummary(data),
         buildKnownIssues(data),
+        // The badge is a brag, not a disclaimer -- only earned when there is an
+        // actual model-written report, not when this row is showing a gate
+        // verdict ("title is disqualifying...") in its place.
+        data.known_issues ? aiBadge() : undefined,
       ),
     );
   }
+
+  // Comp quality, moved to the very bottom: it explains the pricing figures'
+  // ancestry rather than answering a question about the car, so it reads last.
+  sheet.append(
+    disclosure("Comp quality", compQualitySummary(data), buildCompQuality(data)),
+  );
 
   sheet.append(buildNotices(data));
 

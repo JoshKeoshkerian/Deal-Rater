@@ -22,8 +22,6 @@ import {
   compProblems,
   confidenceTone,
   hasOnlyStructuralLimiters,
-  headlineState,
-  intervalWidthRatio,
   scamDisplay,
   scoreTone,
   titleTone,
@@ -33,20 +31,8 @@ import {
 /* 2. pricing (spec 5.1) -- always visible                                    */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Spec 4.5, in the pricing block rather than the footer.
- *
- * "Marketplace exposes asking prices, not transaction prices... This
- * distinction is load-bearing and belongs in the UI, not the terms of service."
- * It was in a stack of three grey paragraphs at the bottom of the panel, which
- * is the terms of service with extra steps. One line, attached to the figures
- * it qualifies, at the moment the user is reading them.
- */
-const ASKING_PRICE_LINE = "Asking prices, not sale prices — nobody publishes what these sell for.";
-
 export function buildPricing(data: EvaluationResponse): HTMLElement[] {
   const p = data.pricing;
-  const nodes: HTMLElement[] = [];
 
   const figures: Row[] = [["Current ask", money(p.ask_cents), { big: true }]];
   if (p.expected_asking_cents !== null) {
@@ -55,37 +41,9 @@ export function buildPricing(data: EvaluationResponse): HTMLElement[] {
       `${money(p.asking_interval_low_cents)} – ${money(p.asking_interval_high_cents)}`,
     ]);
   }
-  if (p.strong_offer_cents !== null) {
-    figures.push(["Strong offer", money(p.strong_offer_cents)]);
-    figures.push(["Walk away above", money(p.walk_away_above_cents)]);
-  }
   figures.push(["Comps used", `${p.comps_included}`]);
   figures.push(["Confidence", p.confidence, { tone: confidenceTone(p.confidence) }]);
-  nodes.push(rows(figures));
-
-  // Inline, not a footnote. A range the panel does not believe should say so
-  // where the range is, not 400 pixels below it.
-  if (headlineState(data) === "unreliable" && p.expected_asking_cents !== null) {
-    const ratio = intervalWidthRatio(p);
-    const width = ratio === null ? "" : ` It spans ${Math.round(ratio * 100)}% of its own midpoint.`;
-    nodes.push(
-      el(
-        "p",
-        "inline-warning",
-        `Treat this range as unreliable.${width} It is the honest width of what the ` +
-          "comparable listings support, not a precise estimate.",
-      ),
-    );
-  }
-
-  if (p.strong_offer_cents === null && p.expected_asking_cents !== null) {
-    nodes.push(
-      el("p", "muted", "No offer figures: the expected range is too wide to name one."),
-    );
-  }
-
-  nodes.push(el("p", "asking-note", ASKING_PRICE_LINE));
-  return nodes;
+  return [rows(figures)];
 }
 
 /** The collapsed comp-quality row that sits under the pricing block. */
@@ -417,17 +375,6 @@ export function buildKnownIssues(data: EvaluationResponse): HTMLElement[] {
 /* -------------------------------------------------------------------------- */
 
 export const SECTION_STYLES = `
-  .inline-warning {
-    margin: 12px 0 0; padding: 9px 11px;
-    font-size: 12.5px; line-height: 1.5;
-    color: var(--tone-caution-text);
-    background: var(--tone-caution-surface);
-    border: 1px solid var(--tone-caution-border);
-    border-radius: 6px;
-  }
-  .asking-note {
-    margin: 12px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text-dim);
-  }
   .summary-inline { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .alt {
     padding: 9px 0; border-top: 1px solid var(--border-faint);

@@ -16,7 +16,7 @@
  */
 
 import type { EvaluationResponse } from "../../shared/types";
-import { confidenceTone, compProblems, headlineState, priceComparison, scoreGrade } from "./state";
+import { compProblems, headlineState, priceComparison, scoreGrade } from "./state";
 import { TONE_GLYPH } from "./tokens";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
@@ -35,10 +35,6 @@ function chip(tone: string, label: string): HTMLElement {
     el("span", undefined, label),
   );
   return node;
-}
-
-function confidenceChip(confidence: string): HTMLElement {
-  return chip(confidenceTone(confidence), `${confidence} confidence`);
 }
 
 /** Spec 9's beta badge. Always, until the ground truth set exists. */
@@ -61,7 +57,6 @@ function buildConfident(data: EvaluationResponse): HTMLElement[] {
     scoreNode.dataset["grade"] = scoreGrade(score);
     row.append(scoreNode, el("span", "score-of", "/ 100"));
   }
-  row.append(confidenceChip(data.pricing.confidence));
   if (beta) row.append(betaBadge());
 
   const comparison = suppressed ?? priceComparison(data.pricing) ?? data.headline;
@@ -90,10 +85,11 @@ function buildUnreliable(data: EvaluationResponse): HTMLElement[] {
     nodes.push(list);
   }
 
-  const meta = el("div", "meta-row");
-  meta.append(confidenceChip(data.pricing.confidence));
-  if (beta) meta.append(betaBadge());
-  nodes.push(meta);
+  if (beta) {
+    const meta = el("div", "meta-row");
+    meta.append(betaBadge());
+    nodes.push(meta);
+  }
 
   // The score, behind one click. `suppressed_reason` is the backend declining
   // to publish a number at all (a scam-pattern combination, no price residual),

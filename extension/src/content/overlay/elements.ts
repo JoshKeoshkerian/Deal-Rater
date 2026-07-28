@@ -64,18 +64,40 @@ export function callout(tone: Tone, title: string, body: (string | Node)[]): HTM
  * screen-reader-announced without any of that being written here, and the
  * browser's find-in-page can open it. The summary line is not a label -- it
  * carries the finding, so a user who never expands the row has still been told.
+ *
+ * `badge` is an optional mark next to the title -- currently only `aiBadge()`,
+ * for the one section (spec 6.6) written by the model rather than the rules.
  */
-export function disclosure(title: string, summary: string | Node, body: Node[]): HTMLElement {
+export function disclosure(
+  title: string,
+  summary: string | Node,
+  body: Node[],
+  badge?: Node,
+): HTMLElement {
   const node = el("details", "disclosure");
   const line = el("summary");
 
   const heading = el("span", "disclosure-title", title);
   const detail = typeof summary === "string" ? el("span", "disclosure-summary", summary) : summary;
-  line.append(heading, detail);
+  line.append(heading);
+  if (badge) line.append(badge);
+  line.append(detail);
 
   const inner = el("div", "disclosure-body");
   inner.append(...body);
   node.append(line, inner);
+  return node;
+}
+
+/**
+ * A quality mark for the one section the model writes (spec 6.6), not a
+ * disclaimer -- the disclaimers already live in the footer notices. This is
+ * the panel taking credit for it.
+ */
+export function aiBadge(): HTMLElement {
+  const node = el("span", "ai-badge");
+  node.title = "Written by Claude for this model and mileage.";
+  node.append(el("span", "ai-badge-glyph", "✦"), el("span", undefined, "AI"));
   return node;
 }
 
@@ -187,6 +209,15 @@ export const ELEMENT_STYLES = `
   }
   .disclosure-summary { font-size: 12.5px; color: var(--text-muted); }
   .disclosure-body { padding: 2px 20px 16px; }
+
+  .ai-badge {
+    display: inline-flex; align-items: center; gap: 4px; flex: none;
+    font-size: 10px; font-weight: 700; letter-spacing: .03em;
+    padding: 2px 7px; border-radius: 999px; color: #fff;
+    background: linear-gradient(135deg, #7c5cff, #4f9eff 55%, #34d8c9);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.12) inset;
+  }
+  .ai-badge-glyph { font-size: 9.5px; }
 
   a { color: var(--link); text-decoration: none; word-break: break-word; }
   a:hover { text-decoration: underline; }
