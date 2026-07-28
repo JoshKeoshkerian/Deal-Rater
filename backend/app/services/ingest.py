@@ -24,6 +24,7 @@ from app.models import (
 from app.schemas import CaptureIn, ObservationIn, SellerIn
 from app.services.redact import redact_contact_details
 from app.services.relisting_key import compute_relisting_key
+from app.services.vehicle_facts import decompose
 
 # Only `required` flips extraction_ok. A missing `expected` field is often real
 # data — a listing genuinely has no price, a card genuinely shows no mileage —
@@ -177,6 +178,13 @@ def _build_observation(
     observed_at: datetime,
     seller_id: int | None,
 ) -> ListingObservation:
+    # Derived here rather than in the extension: `extract/fields/vehicle.ts`
+    # keeps trim unnormalised because build step 6 replaces it with the
+    # VIN-decoded value, and a normalisation applied at capture time would have
+    # to be undone. Deriving server-side from the verbatim string is also what
+    # makes these columns backfillable for observations already collected.
+    facts = decompose(obs.trim_text)
+
     return ListingObservation(
         listing_id=listing_id,
         capture_id=capture_id,
@@ -190,6 +198,13 @@ def _build_observation(
         make=obs.make,
         model=obs.model,
         trim_text=obs.trim_text,
+        trim_level=facts.trim_level,
+        body_style=facts.body_style,
+        engine_text=facts.engine_text,
+        drivetrain=facts.drivetrain,
+        trim_source=obs.trim_source,
+        seller_type=obs.seller_type,
+        transmission=obs.transmission,
         title_status=obs.title_status,
         description=redact_contact_details(obs.description),
         photo_count=obs.photo_count,

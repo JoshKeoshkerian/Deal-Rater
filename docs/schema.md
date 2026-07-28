@@ -84,13 +84,74 @@ it should be an explicit decision.
 
 ## `listing_observations`
 
-The §4.1 fields, plus two columns that are not listing data:
+The §4.1 fields, plus the derived vehicle columns and two columns that are not
+listing data.
+
+### `trim_text` and the columns derived from it
+
+`trim_text` is stored verbatim and is never rewritten. It is one free-text
+column that encodes at least four separate facts — `2.0i Premium Sport Utility
+4D` is trim level *Premium*, body *sport_utility*, engine *2.0i*, drivetrain
+unstated — so `trim_level`, `body_style`, `engine_text` and `drivetrain` are
+derived from it at ingest by `services/vehicle_facts.decompose`.
+
+Comparing the whole string made a body-style mismatch indistinguishable from a
+trim-level one: `EX-L Hatchback 4D` vs `EX Sedan 4D` failed as a single opaque
+comparison, and `Premium Sport Utility 4D` vs `2.0i Premium Sport Utility 4D`
+failed on an engine prefix alone (28 such pairs on one model in captured data).
+
+Derived **server-side rather than in the extension** on purpose. `extract/
+fields/vehicle.ts` keeps trim unnormalised because spec §4.2's VIN decode
+(build step 6) replaces it with the vPIC value, and a normalisation applied at
+capture time would have to be undone. Keeping `trim_text` untouched means step 6
+can overwrite `trim_level` without destroying what the seller actually wrote —
+and it is what made these columns backfillable for observations already
+collected.
+
+`trim_source` records which tier produced `trim_text`:
+
+| value | meaning |
+|---|---|
+| `fb_catalog` | Facebook's own catalog string, after the `·` in the title or from `vehicle_trim_display_name`. Written identically every time. |
+| `title_text` | Parsed out of a seller-typed title. `Touring 🤘 174160 Miles`, `grand touring awd - `. |
+| `description` | Recovered from description prose by `detectTrimInText`. Rarest and least trusted. |
+
+Two trims are not equally trustworthy just because both are populated, and until
+this column existed the difference was unrecoverable once the row was stored.
+66% of backfilled observations are `fb_catalog`, 19% `title_text`, 15%
+unattributable because no raw title was retained.
+
+### `seller_type` and `transmission`
+
+Straight from the payload, and the reason a note in `pricing/comps.py` had to be
+withdrawn. That module documented spec §4.3's dealer exclusion as impossible —
+correctly observing that a comp card carries no description and no seller
+listing count — but Facebook states the answer outright in
+`vehicle_seller_type` (`PRIVATE_SELLER` / `DEALER`), and `FB_KEYS` was searching
+for keys that do not exist (`vehicle_trim` rather than
+`vehicle_trim_display_name`). Tier 1 of every vehicle cascade was dead code.
+
+Both are **NULL on every observation captured before that fix**, and the
+backfill deliberately does not invent them: nothing was ever stored to recover
+them from. `DealerSignal.UNAVAILABLE` carries that distinction, so a pre-fix
+comp set never reads as "checked, no dealers found".
+
+### Not listing data
 
 **`field_strategies`** — `{"price_cents": "json_payload", "mileage": "text_pattern"}`.
 The most useful column in the schema for keeping this thing alive. A field
 degrading from `json_payload` to `text_pattern` means Facebook has already
 changed something, while the field is still populated and nothing looks wrong.
 `GET /v1/telemetry/extraction-health` surfaces the distribution.
+
+It is only as useful as its labels are honest, and for the vehicle fields they
+were not. `fields/vehicle.ts` labelled *both* "read a structured payload key"
+and "regex-split the title string" as `json_payload`, so 213 target and 6,917
+comp trims reported `json_payload` while the structured tier had never once
+fired — the exact silent degradation this column exists to catch, invisible
+because the two tiers shared a name. Title-derived values now record
+`title_text`, which is a genuine step down in trust even though the title itself
+came out of the payload.
 
 **`raw_extract`** — a small whitelist of the strings a value was parsed from
 (title, price text, mileage text, posted text). It exists so a parser fix can be

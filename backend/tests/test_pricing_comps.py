@@ -13,6 +13,8 @@ from app.pricing.comps import (
     CompCandidate,
     DealerSignal,
     DrivetrainSignal,
+    TrimMatch,
+    grade_trim,
     Exclusion,
     filter_comps,
     normalize_key,
@@ -185,8 +187,121 @@ class TestInertHooks:
         assert len(result.included) == 2
 
     def test_dealer_filtering_is_reported_unavailable_not_clean(self):
+        # No candidate states a seller type -- every observation captured before
+        # the payload keys were fixed. "We could not check" must not read as
+        # "we checked and found none".
         result = filter_comps(TARGET, [comp()])
         assert result.dealer_filtering is DealerSignal.UNAVAILABLE
+
+
+class TestDealerExclusion:
+    """Spec 4.3's dealer exclusion, once `vehicle_seller_type` is captured."""
+
+    def test_a_dealer_listing_is_excluded(self):
+        dealer = comp(source_listing_id="d", seller_type="DEALER", mileage=110_000)
+        result = filter_comps(TARGET, [dealer])
+        assert result.included == []
+        assert result.excluded[0].exclusion is Exclusion.DEALER_LISTING
+
+    def test_a_private_seller_is_kept(self):
+        private = comp(source_listing_id="p", seller_type="PRIVATE_SELLER", mileage=110_000)
+        result = filter_comps(TARGET, [private])
+        assert len(result.included) == 1
+
+    def test_filtering_is_reported_applied_once_any_candidate_states_a_type(self):
+        result = filter_comps(
+            TARGET, [comp(source_listing_id="p", seller_type="PRIVATE_SELLER")]
+        )
+        assert result.dealer_filtering is DealerSignal.APPLIED
+
+    def test_an_unstated_seller_type_never_excludes(self):
+        # Three-valued on purpose: absent is not "not a dealer", and it is also
+        # not grounds to drop the comp. Every pre-fix row is in this state.
+        result = filter_comps(TARGET, [comp(source_listing_id="u", seller_type=None)])
+        assert len(result.included) == 1
+        assert result.dealer_filtering is DealerSignal.UNAVAILABLE
+
+    def test_the_classification_is_case_and_space_insensitive(self):
+        result = filter_comps(TARGET, [comp(source_listing_id="d", seller_type=" dealer ")])
+        assert result.excluded[0].exclusion is Exclusion.DEALER_LISTING
+
+
+class TestGradedTrimMatching:
+    """`trim_match` says WHICH part of a trim differs; `trim_matches` cannot."""
+
+    def test_identical_trims_are_exact(self):
+        assert grade_trim("Touring Sport Utility 4D", "Touring Sport Utility 4D") is TrimMatch.EXACT
+
+    def test_body_style_written_by_only_one_side_is_still_exact(self):
+        # A comp card that omits the body style is not evidence of a different
+        # body. Demoting these would put most cards in TRIM_ONLY for saying
+        # nothing at all.
+        assert grade_trim("Touring", "Touring Sport Utility 4D") is TrimMatch.EXACT
+
+    def test_same_trim_level_different_body_is_trim_only(self):
+        assert grade_trim("EX-L Hatchback 4D", "EX-L Sedan 4D") is TrimMatch.TRIM_ONLY
+
+    def test_an_engine_designator_alone_does_not_break_the_match(self):
+        # The case `trims_agree` gets wrong: 28 such pairs on one model in
+        # captured data, reported as different trims on a displacement prefix.
+        assert grade_trim("Premium Sport Utility 4D", "2.0i Premium Sport Utility 4D") is (
+            TrimMatch.EXACT
+        )
+        assert not trims_agree(
+            trim_tokens("Premium Sport Utility 4D"),
+            trim_tokens("2.0i Premium Sport Utility 4D"),
+        )
+
+    def test_a_real_trim_difference_still_differs(self):
+        assert grade_trim("Touring", "Grand Touring") is TrimMatch.DIFFERS
+        assert grade_trim("DX Sedan 4D", "LX Sedan 4D") is TrimMatch.DIFFERS
+        assert grade_trim("EX Sedan 4D", "EX-L Sedan 4D") is TrimMatch.DIFFERS
+
+    def test_word_order_does_not_cause_a_false_mismatch(self):
+        # trim_level is stored as an ordered join for readability, but two
+        # sellers typing the same trim in a different order must not read as
+        # different vehicles -- that would make this signal LESS tolerant than
+        # `trim_tokens`, which already ignores order for the boolean.
+        assert grade_trim("S Carbon Edition Sport Utility 4D", "Carbon Edition S SUV 4D") is (
+            TrimMatch.EXACT
+        )
+
+    def test_word_order_tolerance_does_not_hide_a_missing_word(self):
+        # A same-BAG-of-words check must still catch a genuinely different
+        # (shorter or longer) trim, not just a reordered one.
+        assert grade_trim("Grand Touring", "Touring") is TrimMatch.DIFFERS
+
+    @pytest.mark.parametrize(
+        ("target_trim", "comp_trim"),
+        [(None, "Touring"), ("Touring", None), (None, None), ("Sedan 4D", "Touring")],
+    )
+    def test_unknown_when_either_side_states_no_trim_level(self, target_trim, comp_trim):
+        # Same guard as `trims_agree`: assuming an unstated trim means "base"
+        # collapsed the agreement ratio on nearly every evaluation.
+        assert grade_trim(target_trim, comp_trim) is TrimMatch.UNKNOWN
+
+    def test_the_boolean_is_left_untouched_by_the_graded_signal(self):
+        # `backtest.py`'s strata and the confidence model read `trim_matches`,
+        # and `params.py` forbids moving a calibrated threshold without a
+        # calibration run. The graded value is additional, never a replacement.
+        result = filter_comps(
+            TARGET, [comp(source_listing_id="c", trim_text="Touring", mileage=110_000)]
+        )
+        decision = result.included[0]
+        assert decision.trim_matches is True
+        assert decision.trim_match is TrimMatch.EXACT
+
+    def test_counts_are_reportable(self):
+        result = filter_comps(
+            TARGET,
+            [
+                comp(source_listing_id="a", trim_text="Touring", mileage=110_000),
+                comp(source_listing_id="b", trim_text="Grand Touring", mileage=95_000),
+            ],
+        )
+        counts = result.trim_match_counts()
+        assert counts.get(TrimMatch.EXACT.value) == 1
+        assert counts.get(TrimMatch.DIFFERS.value) == 1
 
 
 class TestIdentityExclusion:

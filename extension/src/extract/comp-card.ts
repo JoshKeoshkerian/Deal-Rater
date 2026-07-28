@@ -44,6 +44,9 @@ function emptyObservation(id: string): ObservationPayload {
     make: null,
     model: null,
     trim_text: null,
+    trim_source: null,
+    seller_type: null,
+    transmission: null,
     title_status: null,
     description: null,
     photo_count: null,
@@ -100,6 +103,9 @@ async function fromPayloads(
     observation.make = vehicle.make;
     observation.model = vehicle.model;
     observation.trim_text = vehicle.trim;
+    observation.trim_source = vehicle.trimSource;
+    observation.seller_type = vehicle.sellerType;
+    observation.transmission = vehicle.transmission;
     observation.title_status = vehicle.titleStatus;
     observation.location_text = place.text;
     observation.latitude = place.latitude;
@@ -177,6 +183,7 @@ function fromDom(
     observation.make = vehicle.make;
     observation.model = vehicle.model;
     observation.trim_text = vehicle.trim;
+    observation.trim_source = vehicle.trimSource;
     if (vehicle.year !== null) recorder.strategies["year"] = "text_pattern";
     if (vehicle.make !== null) recorder.strategies["make"] = "text_pattern";
     if (vehicle.model !== null) recorder.strategies["model"] = "text_pattern";

@@ -88,6 +88,42 @@ describe("parseVehicleTitle", () => {
       make: "Toyota",
       model: "Camry",
       trim: "SE",
+      // No separator in the title, so the trim is whatever the seller typed.
+      trimSource: "title_text",
+    });
+  });
+
+  describe("trim provenance", () => {
+    it("marks the trim after Marketplace's separator as catalog data", () => {
+      expect(parseVehicleTitle("2016 Mazda CX-5 · Touring Sport Utility 4D")).toMatchObject({
+        model: "CX-5",
+        trim: "Touring Sport Utility 4D",
+        trimSource: "fb_catalog",
+      });
+    });
+
+    it("marks a seller-typed trim as title text", () => {
+      expect(parseVehicleTitle("2016 Mazda cx-5 grand touring awd")).toMatchObject({
+        trim: "grand touring awd",
+        trimSource: "title_text",
+      });
+    });
+
+    // Regression: splitting ON the separator and taking the tail as the trim
+    // loses the model entirely here, because Facebook repeats the make in the
+    // model slot and pushes the real model past the separator. The separator is
+    // read as provenance only, and the existing repeated-make handling still
+    // does the parsing.
+    it("keeps the model when the separator sits before it", () => {
+      expect(parseVehicleTitle("2008 Mazda MAZDA · MAZDA3 2.0 Sedan 4D")).toMatchObject({
+        model: "MAZDA3",
+        trim: "2.0 Sedan 4D",
+        trimSource: "fb_catalog",
+      });
+    });
+
+    it("reports no source when no trim was found", () => {
+      expect(parseVehicleTitle("2016 Audi Q3").trimSource).toBeNull();
     });
   });
 
@@ -182,6 +218,7 @@ describe("parseVehicleTitle", () => {
       make: null,
       model: null,
       trim: null,
+      trimSource: null,
     });
   });
 });

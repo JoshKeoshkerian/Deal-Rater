@@ -8,33 +8,52 @@ traced to the comp that caused it rather than guessed at.
 
 WHAT THIS MODULE CANNOT DO, AND WHY
 -----------------------------------
-Three requirements in spec 4.3 have no data behind them at step 3 and are not
-silently approximated here. Each is represented by an explicit, inert hook so
-that the gap is visible in code rather than forgotten:
+Spec 4.3 asks for four things. One of them turned out to be available after all,
+and the correction is worth recording because the old note here was confidently
+wrong for months:
 
-  Dealer exclusion      Spec 4.3 requires excluding dealer listings, detected
-                        via multiple active listings on a profile, business page
-                        indicators, or dealer boilerplate. Comp cards carry
-                        neither description nor seller listing count -- the
-                        field is NULL on every seller observation captured -- so
-                        none of the three signals exists. See `DealerSignal`.
+  Dealer exclusion      NOW AVAILABLE, on rows captured after the vehicle
+                        payload keys were fixed. This module used to state that
+                        none of the spec's three dealer signals existed, which
+                        was true of all three -- but Facebook states the answer
+                        outright in `vehicle_seller_type` ("PRIVATE_SELLER" /
+                        "DEALER"), and the extractor was simply not reading it.
+                        See `DealerSignal`, which is still UNAVAILABLE for every
+                        row captured before the fix and for comp cards that
+                        carry no such field.
 
   Recency weighting     Spec 4.3 wants recent listings weighted higher. No comp
                         card carries a posted date, so every comp is weighted
                         equally and the fit cannot down-weight a stale ask.
 
-  Drivetrain / trans.   Requested as hard filters. Transmission is parseable on
-                        0% of captured comps and drivetrain on 7%, because both
-                        come from VIN decode, which spec 13 sequences at step 6
-                        -- AFTER this step. Spec 4.2 is explicit that VIN decode
-                        is what solves trim and drivetrain ambiguity.
+  Drivetrain            Requested as a hard filter. Parseable on ~7% of captured
+                        comps because its only source is a regex over trim text;
+                        there is no payload key for it. VIN decode (spec 4.2,
+                        build step 6) is what fixes this.
 
-For the third, spec 4.3 prescribes the behaviour directly: "When trim cannot be
+  Transmission          Also requested as a hard filter, and also previously
+                        recorded here as "parseable on 0% of captured comps".
+                        That was a statement about the regex, not about the
+                        data: `vehicle_transmission_type` is a payload field.
+                        Populated going forward, null on backfilled rows.
+
+For trim, spec 4.3 prescribes the behaviour directly: "When trim cannot be
 determined for the target or most comps, widen the interval and lower confidence
 rather than pretending the comp set is clean." So trim is a SOFT signal here --
 it never excludes a comp, it costs confidence -- and drivetrain and transmission
-are parsed where present and recorded, but gate nothing. When step 6 lands and
-populates them, `DrivetrainSignal` becomes a real filter without restructuring.
+are recorded but gate nothing.
+
+TRIM COMPARISON IS GRADED, BUT `trim_matches` IS UNCHANGED
+----------------------------------------------------------
+`trim_matches` (bool | None) keeps exactly the semantics it has always had:
+token-set equality with body style, drivetrain and listing noise stripped, and
+None whenever either side stated no trim. `backtest.py` strata and the
+confidence model both read it, and `params.py` forbids moving a calibrated
+threshold without a calibration run behind it.
+
+`trim_match` (TrimMatch) is the new, strictly additional signal. It uses the
+decomposed columns to say WHY two trims differ -- a body-style mismatch is not
+the same event as a trim-level one -- which the boolean cannot express.
 
 MISSING-FIELD POLICY
 --------------------
@@ -74,7 +93,26 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from statistics import median
 
+from ..services.vehicle_facts import (
+    DrivetrainSignal,
+    decompose,
+    parse_drivetrain,
+    parse_transmission,
+    trim_tokens,
+)
 from . import params
+
+# Re-exported for existing callers and tests. The definitions moved to
+# `services/vehicle_facts` so that ingest-time decomposition and comp-time
+# comparison cannot drift apart -- there is one set of body-style phrases and
+# one notion of a trim token, not a copy on each side.
+__all__ = [
+    "DrivetrainSignal",
+    "decompose",
+    "parse_drivetrain",
+    "parse_transmission",
+    "trim_tokens",
+]
 
 # ---------------------------------------------------------------------------
 # Normalisation
@@ -94,175 +132,6 @@ def normalize_key(value: str | None) -> str:
         return ""
     return _NON_ALNUM.sub("", value.lower())
 
-
-class DrivetrainSignal(StrEnum):
-    """Drivetrain parsed from free text.
-
-    Inert at step 3: recorded, never filtered on. Parseable on 7% of captured
-    comps because the real source is VIN decode (spec 4.2), which is step 6.
-    """
-
-    AWD = "awd"
-    FWD = "fwd"
-    RWD = "rwd"
-    FOUR_WD = "4wd"
-    UNKNOWN = "unknown"
-
-
-_DRIVETRAIN_PATTERNS: list[tuple[re.Pattern[str], DrivetrainSignal]] = [
-    (re.compile(r"\b(awd|all[\s-]?wheel[\s-]?drive)\b", re.I), DrivetrainSignal.AWD),
-    (re.compile(r"\b(4wd|4x4|four[\s-]?wheel[\s-]?drive)\b", re.I), DrivetrainSignal.FOUR_WD),
-    (re.compile(r"\b(fwd|front[\s-]?wheel[\s-]?drive)\b", re.I), DrivetrainSignal.FWD),
-    (re.compile(r"\b(rwd|rear[\s-]?wheel[\s-]?drive)\b", re.I), DrivetrainSignal.RWD),
-]
-
-_TRANSMISSION_PATTERN = re.compile(
-    r"\b(automatic|manual|cvt|\d[\s-]?speed|stick[\s-]?shift)\b", re.I
-)
-
-
-def parse_drivetrain(*texts: str | None) -> DrivetrainSignal:
-    """Best-effort drivetrain from trim text. Returns UNKNOWN far more often
-    than not, which is the honest answer until step 6 supplies VIN decodes."""
-    for text in texts:
-        if not text:
-            continue
-        for pattern, signal in _DRIVETRAIN_PATTERNS:
-            if pattern.search(text):
-                return signal
-    return DrivetrainSignal.UNKNOWN
-
-
-def parse_transmission(*texts: str | None) -> str | None:
-    """Best-effort transmission. Returns None on 100% of captured comp data."""
-    for text in texts:
-        if not text:
-            continue
-        match = _TRANSMISSION_PATTERN.search(text)
-        if match:
-            return match.group(0).lower()
-    return None
-
-
-# Body-style noise, stripped as PHRASES before tokenising rather than as loose
-# words. The ordering matters and the phrase form is load-bearing: "Sport" is a
-# body-style word in "Touring Sport Utility 4D" and a genuine trim level in
-# "Sport SUV 4D", and both spellings occur in captured data for the same model.
-# Dropping "sport" as a bare stopword would erase the trim from the second.
-#
-# The van/pickup/cab entries were added after a database pass over the 3,109
-# populated trim strings: without them "EX-L Sedan 4D" and "EX-L Minivan 4D"
-# read as different trims, as do "1500 LT Pickup 4D 5 3/4 ft" and "LT". Both
-# pairs are the same trim written against different body styles.
-_BODY_STYLE_PHRASES = (
-    "sport utility",
-    "suv",
-    "sedan",
-    "hatchback",
-    "coupe",
-    "convertible",
-    "wagon",
-    "truck",
-    "passenger van",
-    "minivan",
-    "pickup",
-    "van",
-    "crew cab",
-    "regular cab",
-    "extended cab",
-    "ext cab",
-    "quad cab",
-    "double cab",
-    "supercrew",
-    "cab",
-    "4dr",
-    "2dr",
-    "4d",
-    "2d",
-    # Bed-length tail, left behind once "5 3/4" tokenises away as bare digits.
-    "ft",
-)
-
-# Drivetrain words, stripped from the TRIM comparison specifically because
-# drivetrain is already parsed out of the same string separately
-# (`parse_drivetrain`, recorded as a note on every decision). Leaving them here
-# would count one signal twice and, worse, report a false trim mismatch every
-# time one seller wrote "EX-L FWD" and another wrote "EX-L" -- which is most of
-# them, since drivetrain is stated on a minority of listings.
-#
-# "quattro" is deliberately NOT in this list: it is Audi branding that forms
-# part of the trim name ("quattro Premium Plus"), not a bare drivetrain note.
-_DRIVETRAIN_PHRASES = (
-    "all wheel drive",
-    "front wheel drive",
-    "rear wheel drive",
-    "four wheel drive",
-    "awd",
-    "fwd",
-    "rwd",
-    "4wd",
-    "4x4",
-)
-
-# Noise stripped BEFORE punctuation is flattened, because every pattern here
-# needs the punctuation to identify itself. All of these are real forms found in
-# the stored trim strings, where the field is the leftover remainder of a title
-# split (`extension/src/shared/parse.ts`) and carries whatever the seller wrote.
-_TRIM_NOISE_PATTERNS = (
-    # Emoji and other non-ASCII: "LT 🤘 74173 Miles", "Turbo – ¡El deportivo...".
-    re.compile(r"[^\x00-\x7f]+"),
-    # Option packages. "EX-L w/Honda Sensing" is an EX-L; the package is not a
-    # trim level, and treating it as one splits a trim into two.
-    re.compile(r"\bw/.*$"),
-    # Mileage claims: "74173 Miles", "66k Miles", "124K MILES ONLY", "60k miles".
-    re.compile(r"\b\d[\d,]*\s*k?\s*miles?\b"),
-    re.compile(r"\b\d+k\b"),
-    re.compile(r"\bmiles?\b"),
-    # Dealer stock numbers, always trailing a dash: "GLI Autobahn - 515266A".
-    re.compile(r"-\s*\d{4,}[a-z]?\b"),
-    # Location bleed from dealer-style titles, anchored at the end so a real
-    # trim word is never eaten: "... FWD in Chesterfield MO".
-    re.compile(r"\bin\s+[a-z.]+(?:\s+[a-z.]+)*\s+[a-z]{2}\s*$"),
-)
-
-#: Separators to flatten, KEEPING the dot so decimal displacements survive.
-_TRIM_SEPARATORS = re.compile(r"[^a-z0-9.]+")
-
-#: A dot that is not between two digits, i.e. not part of a displacement.
-_DANGLING_DOT = re.compile(r"(?<!\d)\.|\.(?!\d)")
-
-
-def trim_tokens(trim_text: str | None) -> frozenset[str]:
-    """Meaningful trim tokens, body-style and listing noise removed.
-
-    "Touring Sport Utility 4D" and "Touring" read as the same trim; captured
-    data writes the same car both ways. "Sport SUV 4D" keeps its "sport",
-    because there it is the trim rather than the body.
-
-    ENGINE DISPLACEMENT IS PRESERVED, and that is why this does not simply
-    reuse `normalize_key`. Flattening every non-alphanumeric splits "2.0T" into
-    "2" and "0t", and the "2" is then dropped as a bare number -- so every
-    Audi and Subaru displacement trim collapsed to the token "0t" and 2.0T was
-    indistinguishable from 3.0T. "0t" was the 15th most common token across the
-    stored trim strings. The dot is kept between digits for exactly this case.
-
-    Bare integers are still dropped: they are overwhelmingly body-style
-    leftovers ("4D"), bed lengths ("5 3/4 ft") and stock numbers rather than
-    trim levels.
-    """
-    if not trim_text:
-        return frozenset()
-
-    text = trim_text.lower()
-    for pattern in _TRIM_NOISE_PATTERNS:
-        text = pattern.sub(" ", text)
-
-    text = _DANGLING_DOT.sub(" ", _TRIM_SEPARATORS.sub(" ", text))
-    text = f" {' '.join(text.split())} "
-    for phrase in (*_BODY_STYLE_PHRASES, *_DRIVETRAIN_PHRASES):
-        text = text.replace(f" {phrase} ", " ")
-
-    return frozenset(t for t in text.split() if t and not t.replace(".", "").isdigit())
 
 
 #: There is deliberately no TARGET-side fallback for an unstated trim (there
@@ -305,6 +174,75 @@ def trims_agree(target_trim: frozenset[str], comp_trim: frozenset[str]) -> bool:
     false "matches" would quietly assert the comp set is cleaner than it is.
     """
     return target_trim == comp_trim
+
+
+class TrimMatch(StrEnum):
+    """How two trims relate, once decomposed into their parts.
+
+    Strictly additional to `trims_agree`, which stays a boolean because the
+    confidence model and `backtest.py`'s strata are calibrated against it.
+    This says WHICH PART differs, which the boolean cannot:
+
+      EXACT       trim level and body style both agree, or agree as far as
+                  either side states them
+      TRIM_ONLY   same trim level, different body -- "EX-L Hatchback 4D" vs
+                  "EX-L Sedan 4D". A real difference in the vehicle, but not
+                  the difference between an EX and an EX-L
+      DIFFERS     different trim level: Touring vs Grand Touring, DX vs LX
+      UNKNOWN     either side stated no trim level at all
+
+    ENGINE IS NOT PART OF THE COMPARISON. "Premium Sport Utility 4D" and
+    "2.0i Premium Sport Utility 4D" are the same trim written by two sellers,
+    one of whom included the displacement -- 28 such pairs in captured data on
+    one model alone. `trims_agree` still calls those different, because the
+    engine token survives `trim_tokens`; this does not.
+
+    TRIM LEVEL IS COMPARED AS A TOKEN SET, NOT A STRING. `decompose` returns
+    `trim_level` as an ordered join because that is the readable column value,
+    but "S Carbon Edition" and "Carbon Edition S" are the same trim typed in a
+    different order, and a straight string comparison would call them
+    different. `grade_trim` re-splits before comparing so this signal is at
+    least as order-tolerant as `trim_tokens` already is for the boolean.
+    """
+
+    EXACT = "exact"
+    TRIM_ONLY = "trim_only"
+    DIFFERS = "differs"
+    UNKNOWN = "unknown"
+
+
+def grade_trim(target_trim: str | None, comp_trim: str | None) -> TrimMatch:
+    """Compare two raw trim strings by their decomposed parts.
+
+    Takes the RAW strings rather than pre-decomposed facts so that callers
+    without database columns -- unit tests, and any candidate built by hand --
+    get the same answer as the ingest path.
+    """
+    target, comp = decompose(target_trim), decompose(comp_trim)
+
+    # Same guard as `trims_agree`: both sides must genuinely state a trim
+    # before any comparison happens. See the long note above -- assuming a
+    # missing trim means "base" produced a mismatch on nearly every evaluation.
+    if target.trim_level is None or comp.trim_level is None:
+        return TrimMatch.UNKNOWN
+
+    # Token-SET equality, not string equality. `trim_level` is stored as an
+    # ordered join ("s carbon edition") because that is the readable column
+    # value, but comparing it as a string would fail "Carbon Edition S" against
+    # "S Carbon Edition" -- the same trim, typed in a different order, which is
+    # exactly the kind of seller variance `trim_tokens` already tolerates for
+    # the boolean signal. Splitting on whitespace before comparing keeps this
+    # signal at least as tolerant as that one.
+    if set(target.trim_level.split()) != set(comp.trim_level.split()):
+        return TrimMatch.DIFFERS
+
+    # Body style is compared only when BOTH state one. A comp card that omits
+    # the body style is not evidence of a different body, and treating it as
+    # such would demote the majority of cards to TRIM_ONLY for saying nothing.
+    if target.body_style and comp.body_style and target.body_style != comp.body_style:
+        return TrimMatch.TRIM_ONLY
+
+    return TrimMatch.EXACT
 
 
 # COMP RELEVANCE WEIGHTING (a proximity kernel on mileage, a three-valued trim
@@ -452,15 +390,23 @@ def looks_like_a_financing_offer(text: str | None) -> bool:
 
 
 class DealerSignal(StrEnum):
-    """Placeholder for spec 4.3's dealer exclusion.
+    """Whether spec 4.3's dealer exclusion could run on this comp set.
 
-    Always UNAVAILABLE at step 3. Comp cards carry no description and no seller
-    listing count (NULL on every seller observation captured), so none of the
-    three signals the spec names can be computed. Kept as a named value so the
-    absence is reported to the user rather than reading as "no dealers found".
+    This was a permanent `UNAVAILABLE` placeholder, on the reasoning that comp
+    cards carry no description and no seller listing count, so none of the three
+    signals the spec names can be computed. All of that is still true -- and it
+    was still the wrong conclusion, because Facebook states the answer directly
+    in `vehicle_seller_type` and the extractor was not reading the key.
+
+    UNAVAILABLE therefore now means "this comp set predates the fix, or its
+    cards carry no seller type", not "this is impossible". It is still the
+    common case: every one of the observations captured before the fix has a
+    NULL `seller_type`, and reporting those as "no dealers found" would be a
+    false clean bill of health.
     """
 
     UNAVAILABLE = "unavailable"
+    APPLIED = "applied"
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +430,13 @@ class CompCandidate:
     relisting_key: str | None = None
     seller_hash: str | None = None
     listing_url: str | None = None
+    #: "fb_catalog" | "title_text" | "description". Facebook's catalog string is
+    #: written the same way every time; a seller-typed one is not.
+    trim_source: str | None = None
+    #: Marketplace's own "PRIVATE_SELLER" / "DEALER". None on every observation
+    #: captured before the payload keys were fixed, and on cards without one.
+    seller_type: str | None = None
+    transmission_text: str | None = None
     #: The raw listing title, kept because the part/accessory signals live in
     #: the portion `parseVehicleTitle` discards -- everything before the year.
     #: "double din dash kit 2002 Mazda protege" parses to a clean 2002 Protege
@@ -496,7 +449,25 @@ class CompCandidate:
 
     @property
     def transmission(self) -> str | None:
-        return parse_transmission(self.trim_text)
+        """Transmission, preferring the payload field over the trim-text regex.
+
+        The regex found this on 0% of captured comps, which is why the field is
+        captured directly now. It stays as the fallback for rows that predate
+        the fix.
+        """
+        return self.transmission_text or parse_transmission(self.trim_text)
+
+    @property
+    def is_dealer(self) -> bool | None:
+        """True/False from Marketplace's own classification, None when unstated.
+
+        Three-valued deliberately: "not a dealer" and "we do not know" are
+        different facts, and collapsing them would let every pre-fix row read as
+        a confirmed private seller.
+        """
+        if not self.seller_type:
+            return None
+        return self.seller_type.strip().upper() == "DEALER"
 
 
 class Exclusion(StrEnum):
@@ -515,6 +486,9 @@ class Exclusion(StrEnum):
     MILEAGE_IMPLAUSIBLE = "mileage_implausible"
     NOT_A_VEHICLE = "not_a_vehicle"
     NOT_AN_ASKING_PRICE = "not_an_asking_price"
+    #: Spec 4.3: "Dealers posting as private sellers pollute the baseline with
+    #: retail pricing." Only ever fires on rows that state a seller type.
+    DEALER_LISTING = "dealer_listing"
 
 
 @dataclass(frozen=True)
@@ -528,7 +502,12 @@ class CompDecision:
     #: the x axis. Still counts as evidence the market is thick.
     mileage_unknown: bool = False
     #: Trim comparison against the target. None when either side has no trim.
+    #: UNCHANGED SEMANTICS: token-set equality, the value the confidence model
+    #: and `backtest.py`'s strata are calibrated against.
     trim_matches: bool | None = None
+    #: The same comparison, decomposed, saying which part differs. Additional
+    #: to `trim_matches`, never a replacement for it.
+    trim_match: TrimMatch = TrimMatch.UNKNOWN
     notes: tuple[str, ...] = ()
 
     @property
@@ -603,7 +582,32 @@ class CompSet:
         matched = [d for d in self.fit_points if d.trim_matches is True]
         if len(matched) >= min_points:
             return matched, True
+
+        # Second candidate set, from the decomposed comparison: same trim level,
+        # differing only in body style or an engine designator one seller wrote
+        # and the other did not. `trim_matches` calls those a mismatch because
+        # the engine token survives `trim_tokens`, so on a thin comp set this
+        # recovers points that are genuinely the same trim.
+        #
+        # Still only a CANDIDATE -- `regression.py` compares every candidate fit
+        # on interval half-width at the target's mileage and keeps the tightest,
+        # so this can only be chosen when it actually produces a better fit.
+        graded = [
+            d
+            for d in self.fit_points
+            if d.trim_match in (TrimMatch.EXACT, TrimMatch.TRIM_ONLY)
+        ]
+        if len(graded) >= min_points:
+            return graded, True
+
         return self.fit_points, False
+
+    def trim_match_counts(self) -> dict[str, int]:
+        """Included comps by graded trim relation, for reporting."""
+        counts: dict[str, int] = {}
+        for d in self.included:
+            counts[d.trim_match.value] = counts.get(d.trim_match.value, 0) + 1
+        return counts
 
     @property
     def trim_coverage(self) -> float:
@@ -720,6 +724,12 @@ def filter_comps(
             return Exclusion.NOT_A_VEHICLE
         if looks_like_a_financing_offer(c.title) or looks_like_a_financing_offer(c.trim_text):
             return Exclusion.NOT_AN_ASKING_PRICE
+        # Spec 4.3's first differentiator: a dealer ask carries reconditioning
+        # markup, warranty and overhead, so benchmarking a private-party car
+        # against one is an accuracy problem, not a positioning one. Only fires
+        # when Marketplace actually said so -- `is_dealer` is None otherwise.
+        if c.is_dealer:
+            return Exclusion.DEALER_LISTING
         if not c.model:
             return Exclusion.MODEL_UNKNOWN
         if target_make and normalize_key(c.make) != target_make:
@@ -760,6 +770,11 @@ def filter_comps(
         notes: list[str] = []
         if c.drivetrain is not DrivetrainSignal.UNKNOWN:
             notes.append(f"drivetrain {c.drivetrain.value} (recorded, not filtered)")
+        # Recorded, not filtered on: a catalog trim and a seller-typed one are
+        # not equally trustworthy, and knowing which is which is what makes a
+        # trim disagreement interpretable.
+        if c.trim_source and c.trim_source != "fb_catalog":
+            notes.append(f"trim from {c.trim_source}")
 
         provisional.append(
             CompDecision(
@@ -767,6 +782,7 @@ def filter_comps(
                 included=True,
                 mileage_unknown=c.mileage is None,
                 trim_matches=matches,
+                trim_match=grade_trim(target.trim_text, c.trim_text),
                 notes=tuple(notes),
             )
         )
@@ -788,6 +804,11 @@ def filter_comps(
             else d
             for d in provisional
         ]
+
+    # APPLIED only when at least one candidate actually stated a seller type.
+    # A comp set where nobody did is not one where no dealers were found.
+    if any(c.seller_type for c in candidates):
+        comp_set.dealer_filtering = DealerSignal.APPLIED
 
     comp_set.decisions = provisional
     return comp_set

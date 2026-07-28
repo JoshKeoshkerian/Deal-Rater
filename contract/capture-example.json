@@ -8,7 +8,11 @@
     "captured_at": "2026-07-25T12:00:00.000Z",
     "comp_search_query": {
       "query": "2014 Toyota Camry",
-      "derived_from": { "year": 2014, "make": "Toyota", "model": "Camry" },
+      "derived_from": {
+        "year": 2014,
+        "make": "Toyota",
+        "model": "Camry"
+      },
       "source": "same_origin_fetch"
     }
   },
@@ -25,6 +29,9 @@
     "make": "Toyota",
     "model": "Camry",
     "trim_text": "SE",
+    "trim_source": "title_text",
+    "seller_type": "PRIVATE_SELLER",
+    "transmission": "AUTOMATIC",
     "title_status": "clean",
     "description": "Runs great, cold AC, clean title in hand. Call [PHONE].",
     "photo_count": 12,
@@ -49,13 +56,16 @@
       "mileage": "json_payload",
       "year": "json_payload",
       "make": "json_payload",
-      "model": "json_payload",
+      "model": "title_text",
       "location_text": "json_payload",
       "photo_count": "json_payload",
       "posted_at": "json_payload",
       "description": "json_payload",
       "vin": "text_pattern",
-      "seller_hash": "json_payload"
+      "seller_hash": "json_payload",
+      "trim_text": "json_payload",
+      "trim_source": "json_payload",
+      "seller_type": "json_payload"
     },
     "raw_extract": {
       "title": "2014 Toyota Camry SE",
@@ -79,6 +89,9 @@
       "make": "Toyota",
       "model": "Camry",
       "trim_text": "SE",
+      "trim_source": "fb_catalog",
+      "seller_type": null,
+      "transmission": null,
       "title_status": null,
       "description": null,
       "photo_count": null,
@@ -98,7 +111,9 @@
       },
       "raw_extract": {
         "title": "2014 Toyota Camry SE",
-        "subtitles": ["88K miles"]
+        "subtitles": [
+          "88K miles"
+        ]
       }
     }
   ],
@@ -108,7 +123,10 @@
       "field_name": "price_changed",
       "status": "missing",
       "expectation": "optional",
-      "strategies_attempted": ["aria_dom", "text_pattern"],
+      "strategies_attempted": [
+        "aria_dom",
+        "text_pattern"
+      ],
       "page_signature": "1a2b3c4d"
     },
     {
@@ -116,7 +134,10 @@
       "field_name": "posted_at",
       "status": "missing",
       "expectation": "optional",
-      "strategies_attempted": ["json_payload", "text_pattern"],
+      "strategies_attempted": [
+        "json_payload",
+        "text_pattern"
+      ],
       "page_signature": "5e6f7a8b"
     }
   ]

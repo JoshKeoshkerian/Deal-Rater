@@ -78,6 +78,13 @@ class ObservationIn(BaseModel):
     make: Annotated[str | None, Field(max_length=64)] = None
     model: Annotated[str | None, Field(max_length=128)] = None
     trim_text: Annotated[str | None, Field(max_length=128)] = None
+    #: Which tier produced `trim_text`. Free text rather than an enum: an
+    #: unrecognised value from a newer client should not 422 a whole capture,
+    #: and the column is descriptive rather than something scoring branches on.
+    trim_source: Annotated[str | None, Field(max_length=16)] = None
+    #: Marketplace's own PRIVATE_SELLER / DEALER (spec 4.3's dealer exclusion).
+    seller_type: Annotated[str | None, Field(max_length=32)] = None
+    transmission: Annotated[str | None, Field(max_length=32)] = None
     title_status: Annotated[str | None, Field(max_length=32)] = None
     description: Annotated[str | None, Field(max_length=20_000)] = None
     photo_count: Annotated[int | None, Field(ge=0, le=1000)] = None
@@ -104,7 +111,16 @@ class ObservationIn(BaseModel):
             raise ValueError("vin must be 17 characters excluding I, O and Q")
         return v
 
-    @field_validator("make", "model", "trim_text", "location_text", "title_status")
+    @field_validator(
+        "make",
+        "model",
+        "trim_text",
+        "location_text",
+        "title_status",
+        "trim_source",
+        "seller_type",
+        "transmission",
+    )
     @classmethod
     def _blank_to_none(cls, v: str | None) -> str | None:
         if v is None:

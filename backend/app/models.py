@@ -158,6 +158,36 @@ class ListingObservation(Base):
     make: Mapped[str | None] = mapped_column(String(64))
     model: Mapped[str | None] = mapped_column(String(128))
     trim_text: Mapped[str | None] = mapped_column(String(128))
+
+    # --- trim, decomposed (derived from trim_text at ingest) -----------------
+    # `trim_text` above stays the verbatim audit trail. These are derived by
+    # `services/vehicle_facts.decompose` because one free-text string encodes at
+    # least four separate facts -- "2.0i Premium Sport Utility 4D" is trim level
+    # Premium, body sport_utility, engine 2.0i -- and comparing the whole string
+    # made a body-style mismatch indistinguishable from a trim-level one.
+    #
+    # Derived server-side rather than in the extension on purpose: spec 4.2
+    # sequences VIN decode at build step 6, and it will overwrite `trim_level`
+    # with the vPIC value. Keeping `trim_text` untouched means that can happen
+    # without destroying what the seller actually wrote.
+    trim_level: Mapped[str | None] = mapped_column(String(128))
+    body_style: Mapped[str | None] = mapped_column(String(32))
+    engine_text: Mapped[str | None] = mapped_column(String(16))
+    drivetrain: Mapped[str | None] = mapped_column(String(8))
+    #: Which tier produced `trim_text`: 'fb_catalog' | 'title_text' |
+    #: 'description'. Facebook's catalog string is written identically every
+    #: time; a seller-typed one is not, and until this column existed the two
+    #: were indistinguishable once stored.
+    trim_source: Mapped[str | None] = mapped_column(String(16))
+
+    #: Marketplace's own 'PRIVATE_SELLER' / 'DEALER'. Spec 4.3's dealer
+    #: exclusion, which this project long recorded as impossible to obtain --
+    #: the payload key was simply never read. NULL on every observation captured
+    #: before that fix, which is why `DealerSignal` still has an UNAVAILABLE.
+    seller_type: Mapped[str | None] = mapped_column(String(32))
+    #: 'AUTOMATIC' / 'MANUAL' from the payload, not the trim-text regex.
+    transmission: Mapped[str | None] = mapped_column(String(32))
+
     title_status: Mapped[str | None] = mapped_column(String(32))
     description: Mapped[str | None] = mapped_column(Text)
     photo_count: Mapped[int | None] = mapped_column(Integer)

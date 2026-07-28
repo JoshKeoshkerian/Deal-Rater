@@ -52,6 +52,44 @@ not to. Estimator kind is broken out because a median fallback and a fitted
 regression are different models, and averaging them together hides which one
 moved.
 
+CALIBRATION RUN, 2026-07-28: vehicle capture reorganisation
+-----------------------------------------------------------
+233 captures stored, 219 contributing, 4,540 predictions. Before and after the
+trim decomposition, the payload-key fix and graded trim matching.
+
+    stratum                        n           before     after
+    ALL                         4540          15.613%   15.613%
+    lowest-mileage 20%           908          17.642%   17.642%
+    highest-mileage 20%          908          15.394%   15.394%
+    trim matches target        758/761        14.900%   14.810%
+    trim differs from target  2760/2752       14.787%   14.787%
+    trim not comparable       1022/1027       18.687%   18.787%
+    estimator: regression       4289          15.414%   15.414%
+    estimator: comp_median       251          19.422%   19.422%
+
+THE HEADLINE DID NOT MOVE AT ALL, to five decimal places. That is the correct
+result and not a disappointment, for two reasons worth writing down before
+someone re-runs this and concludes the work did nothing:
+
+  1. `trim_matches` was deliberately left untouched, so the fit selection can
+     only change where the new graded fallback in `preferred_fit_points` fires.
+     It is newly reachable on 6 of 233 captures (2.6%), and `regression.py`
+     still only adopts a candidate fit when it produces a TIGHTER interval at
+     the target's mileage -- so most of those 6 keep the fit they already had.
+
+  2. The accuracy win this work was aimed at cannot appear here at all. Dealer
+     exclusion needs `seller_type`, which is NULL on every stored observation
+     because it was never captured. Backfill deliberately does not invent it.
+     Measuring that requires NEW captures through the fixed extractor.
+
+The only stratum movement comes from adding "roadster" to the body-style
+phrases (61 affected observations): trim-matched comps improved 14.900% ->
+14.810% and 3 more comps became trim-matched, while 5 more became
+not-comparable as a bare "Roadster 2D" correctly reduced to no trim at all.
+Noise, in the honest sense.
+
+THE INVERSION BELOW IS UNCHANGED and still unexplained.
+
 BASELINE, 2026-07-27
 --------------------
 136 captures stored, 125 contributing, 2,158 predictions. Two runs: before and

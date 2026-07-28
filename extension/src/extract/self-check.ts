@@ -45,12 +45,22 @@ export const TARGET_FIELD_EXPECTATIONS: Record<string, Expectation> = {
 
   description: "optional",
   trim_text: "optional",
+  // Follows `trim_text`: a listing that states no trim has no trim source
+  // either, and that is normal rather than breakage.
+  trim_source: "optional",
   title_status: "optional",
   vin: "optional",
   price_changed: "optional",
   seller_listing_count: "optional",
   latitude: "optional",
   currency: "optional",
+  // `expected`, not `optional`: Facebook states this on the listing node for
+  // essentially every vehicle (13 of 16 captured fixtures, and the three
+  // without it carried no vehicle payload at all). If its fill rate falls, the
+  // dealer exclusion in spec 4.3 has quietly stopped working, which is exactly
+  // the case an `expected` field exists to make visible.
+  seller_type: "expected",
+  transmission: "optional",
 };
 
 /** A search card shows far less than a listing page, so most fields drop a level. */
@@ -70,8 +80,14 @@ export const COMP_FIELD_EXPECTATIONS: Record<string, Expectation> = {
   seller_hash: "optional",
   description: "optional",
   trim_text: "optional",
+  trim_source: "optional",
   title_status: "optional",
   vin: "optional",
+  // Optional on a card, unlike on a target: a search result carries only the
+  // fields Marketplace renders into the feed, and `docs/schema.md` sets comp
+  // expectations per-scope for exactly this reason.
+  seller_type: "optional",
+  transmission: "optional",
 };
 
 export type Attempt<T> = readonly [StrategyName, () => T | null | undefined];

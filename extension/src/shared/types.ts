@@ -15,6 +15,17 @@ export type MileageUnit = "mi" | "km";
  * in which tier is winning shows up in telemetry before fields go null. */
 export type StrategyName =
   | "json_payload"
+  /**
+   * Parsed out of the listing TITLE STRING, as distinct from read off a
+   * structured payload key.
+   *
+   * These were both reported as `json_payload` until the vehicle cascades were
+   * fixed, which made the two indistinguishable in telemetry -- the exact
+   * degradation `field_strategies` exists to catch. A title parse is a genuine
+   * step down in trust from a payload field even though the title itself came
+   * out of the payload, so it gets its own name.
+   */
+  | "title_text"
   | "meta_tag"
   | "aria_dom"
   | "text_pattern"
@@ -50,6 +61,18 @@ export interface ObservationPayload {
   make: string | null;
   model: string | null;
   trim_text: string | null;
+  /**
+   * Provenance for `trim_text`: "fb_catalog" | "title_text" | "description".
+   *
+   * `trim_text` stays verbatim (the backend derives the decomposed trim columns
+   * from it), so this is the only thing that distinguishes Facebook's catalog
+   * string from a seller's free text once the row is stored.
+   */
+  trim_source: string | null;
+  /** Marketplace's own "PRIVATE_SELLER" / "DEALER" classification (spec 4.3). */
+  seller_type: string | null;
+  /** "AUTOMATIC" / "MANUAL", straight from the payload. */
+  transmission: string | null;
   title_status: string | null;
   description: string | null;
   photo_count: number | null;

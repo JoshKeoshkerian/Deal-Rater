@@ -107,6 +107,9 @@ def _to_candidate(obs: ListingObservation, listing: Listing) -> CompCandidate:
         location_text=obs.location_text,
         relisting_key=listing.relisting_key,
         listing_url=obs.listing_url,
+        trim_source=obs.trim_source,
+        seller_type=obs.seller_type,
+        transmission_text=obs.transmission,
         title=title if isinstance(title, str) else None,
     )
 

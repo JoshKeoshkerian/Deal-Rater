@@ -193,12 +193,36 @@ const MAKE_CANONICAL: Record<string, string> = {
   kia: "Kia",
 };
 
+/**
+ * Where a trim string came from. Stored per observation as `trim_source`.
+ *
+ * `fb_catalog` is materially more trustworthy than `title_text`: it is
+ * Facebook's own vehicle-catalog string, written the same way every time
+ * ("Touring Sport Utility 4D"), whereas a seller-typed title yields whatever
+ * they felt like typing ("Touring 🤘 174160 Miles", "grand touring awd - ").
+ * Both currently land in `trim_text` indistinguishably, which is why comp
+ * filtering cannot tell a catalog trim from a scrap of marketing copy.
+ */
+export type TrimSource = "fb_catalog" | "title_text";
+
 export interface ParsedVehicleTitle {
   year: number | null;
   make: string | null;
   model: string | null;
   trim: string | null;
+  /** Null exactly when `trim` is null. */
+  trimSource: TrimSource | null;
 }
+
+/**
+ * Marketplace's separator between the vehicle and its catalog trim:
+ * "2016 Mazda CX-5 · Touring Sport Utility 4D".
+ *
+ * Present on 83% of captured target titles and 65% of comp titles. It is a
+ * structural delimiter, not punctuation a seller typed, and everything after it
+ * is the same string Facebook exposes as `vehicle_trim_display_name`.
+ */
+const TRIM_SEPARATOR = "·";
 
 function titleCase(value: string): string {
   return value
@@ -228,10 +252,30 @@ function startsWithKnownMake(fragment: string): boolean {
  * silently narrow the comp set in step 3.
  */
 export function parseVehicleTitle(raw: string | null | undefined): ParsedVehicleTitle {
-  const empty: ParsedVehicleTitle = { year: null, make: null, model: null, trim: null };
+  const empty: ParsedVehicleTitle = {
+    year: null,
+    make: null,
+    model: null,
+    trim: null,
+    trimSource: null,
+  };
   if (!raw) return empty;
 
   const text = collapseWhitespace(raw);
+
+  // The separator is read as PROVENANCE, not as a parse boundary.
+  //
+  // Splitting on it and treating the tail as the trim is the obvious reading
+  // and it is wrong: Facebook's structured title repeats the make in the model
+  // slot for some manufacturers, which pushes the real model past the
+  // separator. "2008 Mazda MAZDA · MAZDA3 2.0 Sedan 4D" is model MAZDA3, trim
+  // "2.0 Sedan 4D" -- splitting there yields model "MAZDA" and loses the car.
+  // The repeated-make handling below already solves that case correctly on the
+  // flattened string, so the parse is left exactly as it was and the separator
+  // is used only to say where the resulting trim CAME FROM.
+  const separatorAt = text.indexOf(TRIM_SEPARATOR);
+  const catalogPortion =
+    separatorAt >= 0 ? collapseWhitespace(text.slice(separatorAt + TRIM_SEPARATOR.length)) : null;
   const yearMatch = text.match(/\b(1[89]\d{2}|20\d{2})\b/);
   const year =
     yearMatch && Number(yearMatch[1]) >= MIN_YEAR && Number(yearMatch[1]) <= MAX_YEAR
@@ -275,7 +319,7 @@ export function parseVehicleTitle(raw: string | null | undefined): ParsedVehicle
     }
   }
 
-  if (make === null) return { year, make: null, model: null, trim: null };
+  if (make === null) return { year, make: null, model: null, trim: null, trimSource: null };
 
   const parts = remainder.split(" ").filter(Boolean);
 
@@ -306,7 +350,24 @@ export function parseVehicleTitle(raw: string | null | undefined): ParsedVehicle
   const model = parts.length > 0 ? titleCase(parts[0]!) : null;
   const trim = parts.length > 1 ? parts.slice(1).join(" ") : null;
 
-  return { year, make, model, trim };
+  return { year, make, model, trim, trimSource: trimSourceFor(trim, catalogPortion) };
+}
+
+/**
+ * Whether a parsed trim came from Facebook's catalog string or a seller's prose.
+ *
+ * Tested by containment rather than equality, because the parse can legitimately
+ * consume the front of the catalog portion as the model -- "MAZDA3 2.0 Sedan 4D"
+ * yields model MAZDA3 and trim "2.0 Sedan 4D", and that trim is still catalog
+ * data. Anything the catalog portion does not end with came from the
+ * seller-typed part of the title.
+ */
+function trimSourceFor(trim: string | null, catalogPortion: string | null): TrimSource | null {
+  if (trim === null) return null;
+  if (catalogPortion !== null && catalogPortion.toLowerCase().endsWith(trim.toLowerCase())) {
+    return "fb_catalog";
+  }
+  return "title_text";
 }
 
 /**

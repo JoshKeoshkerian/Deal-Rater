@@ -191,3 +191,60 @@ def test_captured_at_drives_observed_at_not_server_time(session):
     observation_row = session.scalar(select(ListingObservation))
     assert observation_row.observed_at.replace(tzinfo=UTC) == CAPTURED_AT
     assert result.capture.received_at is not None
+
+
+class TestVehicleFactsAtIngest:
+    """The decomposed trim columns are derived server-side, at write time.
+
+    Deliberately not derived in the extension: `extract/fields/vehicle.ts` keeps
+    trim unnormalised because build step 6 replaces it with the VIN-decoded
+    value, and a normalisation applied at capture time would have to be undone.
+    """
+
+    def test_trim_is_decomposed_into_its_parts(self, session):
+        _ingest(
+            session,
+            capture_payload(target=observation(trim_text="2.0i Premium Sport Utility 4D")),
+        )
+        obs = session.scalar(
+            select(ListingObservation).where(ListingObservation.role == "target")
+        )
+        assert obs.trim_level == "premium"
+        assert obs.body_style == "sport_utility"
+        assert obs.engine_text == "2.0i"
+
+    def test_the_verbatim_trim_is_kept_alongside_the_decomposition(self, session):
+        """`trim_text` is the audit trail and must survive untouched."""
+        raw = "2.5 S Carbon Edition Sport Utility 4D"
+        _ingest(session, capture_payload(target=observation(trim_text=raw)))
+        obs = session.scalar(
+            select(ListingObservation).where(ListingObservation.role == "target")
+        )
+        assert obs.trim_text == raw
+
+    def test_provenance_and_payload_fields_round_trip(self, session):
+        _ingest(
+            session,
+            capture_payload(
+                target=observation(
+                    trim_source="fb_catalog",
+                    seller_type="PRIVATE_SELLER",
+                    transmission="AUTOMATIC",
+                )
+            ),
+        )
+        obs = session.scalar(
+            select(ListingObservation).where(ListingObservation.role == "target")
+        )
+        assert obs.trim_source == "fb_catalog"
+        assert obs.seller_type == "PRIVATE_SELLER"
+        assert obs.transmission == "AUTOMATIC"
+
+    def test_a_listing_with_no_trim_stores_nulls_not_empty_strings(self, session):
+        _ingest(session, capture_payload(target=observation(trim_text=None)))
+        obs = session.scalar(
+            select(ListingObservation).where(ListingObservation.role == "target")
+        )
+        assert obs.trim_level is None
+        assert obs.body_style is None
+        assert obs.trim_source is None

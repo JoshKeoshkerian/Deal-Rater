@@ -78,10 +78,38 @@ export const FB_KEYS = {
     "listing_count",
   ],
 
-  vehicleTrim: ["vehicle_trim", "trim"],
-  vehicleMake: ["vehicle_make", "make", "make_display_name"],
-  vehicleModel: ["vehicle_model", "model", "model_display_name"],
+  // The `*_display_name` spellings are FIRST because they are the keys
+  // Marketplace actually uses, and for a long time they were absent here
+  // entirely. `pick` is an EXACT key lookup, so the old arrays
+  // (["vehicle_trim", "trim"]) matched nothing on any real page: none of the 16
+  // captured page fixtures contains a bare `vehicle_trim`, `vehicle_make` or
+  // `vehicle_model` key. Tier 1 of every vehicle cascade was therefore dead
+  // code, and year/make/model/trim came from `parseVehicleTitle` on every row
+  // in the database while `field_strategies` still reported `json_payload`.
+  //
+  // The shorter spellings are kept as trailing fallbacks: they cost one failed
+  // property read each and cover payload variants this project has not seen.
+  vehicleTrim: ["vehicle_trim_display_name", "vehicle_trim", "trim"],
+  vehicleMake: ["vehicle_make_display_name", "vehicle_make", "make"],
+  vehicleModel: ["vehicle_model_display_name", "vehicle_model", "model"],
   vehicleYear: ["vehicle_year", "year"],
+
+  /**
+   * Marketplace's own PRIVATE_SELLER / DEALER classification.
+   *
+   * Spec 4.3 requires excluding dealer listings and names three signals for
+   * detecting them, none of which a search card carries. This field is a fourth
+   * that the spec did not anticipate: Facebook states it outright, on the
+   * listing node, non-null on 13 of 16 captured fixtures. It is what lets
+   * `DealerSignal` stop being a permanent `UNAVAILABLE` placeholder.
+   */
+  vehicleSellerType: ["vehicle_seller_type", "seller_type"],
+  /**
+   * "AUTOMATIC" / "MANUAL". `pricing/comps.py` records transmission as
+   * "parseable on 0% of captured comps" because it was only ever recovered by
+   * regex over trim text; it is a plain payload field.
+   */
+  vehicleTransmission: ["vehicle_transmission_type", "vehicle_transmission"],
   // "vehicle_condition" is deliberately not a fallback here: it is Facebook's
   // physical/wear condition rating (e.g. "GOOD", "FAIR"), a different field
   // from legal title branding. A 2016 Audi Q3 fixture had vehicle_title_status
