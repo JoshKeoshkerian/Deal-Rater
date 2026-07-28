@@ -8,4 +8,7 @@
     python -m app.cli.backtest  leave-one-out CV of the expected-asking-price fit
     python -m app.cli.audit     data hygiene over stored captures
     python -m app.cli.cost      spec 10's per-evaluation LLM cost report
+    python -m app.cli.confidence_report  confidence-level, limiter, and
+                                anchor-publication distribution (docs/scoring-
+                                audit.md findings #4, #5)
 """

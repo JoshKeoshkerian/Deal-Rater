@@ -20,11 +20,20 @@ export type StrategyName =
   | "text_pattern"
   | "url_path";
 
-/** Spec 8.2: a hash and an integer. There is no third field. */
+/**
+ * Spec 8.2: identity never leaves the browser in any form other than the
+ * hash. `rating_average` and `rating_count` are the buyer-facing star rating
+ * Marketplace already shows on the listing page itself (no profile visit
+ * required) -- a reputation NUMBER, not identity, so it's exempt from the
+ * "never collected" list (display name, profile URL, photo, join date) the
+ * same way `active_vehicle_listing_count` already was.
+ */
 export interface SellerPayload {
   seller_hash: string;
   hash_version: number;
   active_vehicle_listing_count: number | null;
+  rating_average: number | null;
+  rating_count: number | null;
 }
 
 export interface ObservationPayload {
@@ -161,6 +170,8 @@ export interface EvaluationResponse {
     scam_signals_evaluable: number;
     scam_signals_total: number;
     scam_reduced_sensitivity: boolean;
+    seller_rating_average: number | null;
+    seller_rating_count: number | null;
     messages: string[];
   } | null;
   negotiation: {

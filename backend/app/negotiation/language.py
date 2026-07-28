@@ -19,6 +19,15 @@ then assigns it to phase three (spec 12), because it needs accumulated
 observations that do not exist yet. `price_changed` is NULL on every observation
 captured. Implementing it against a column that is always null would produce a
 signal that silently never fires.
+
+UNCALIBRATED, LIKE EVERY OTHER SCORING CONSTANT IN THIS CODEBASE
+-----------------------------------------------------------------
+Every per-phrase `weight` (1-3) in `SIGNALS` below is a relative judgment call
+-- "must sell by Friday" is a stronger statement than "moving", so they are not
+flattened to the same weight -- but none of them are fitted to anything. Kept
+inline rather than moved to `negotiation/params.py` (which centralizes this
+module's OTHER constants, see its docstring) because splitting a phrase from
+its own weight and pattern would hurt readability more than centralizing helps.
 """
 
 from __future__ import annotations

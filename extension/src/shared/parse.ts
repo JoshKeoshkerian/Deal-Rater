@@ -82,13 +82,32 @@ const MAX_PLAUSIBLE_MILEAGE = 1_500_000;
 /**
  * Parse an odometer reading.
  *
- * Handles the two forms Marketplace actually renders: the full number on a
- * listing page ("96,400 miles") and the abbreviated form on search cards
- * ("96K miles").
+ * Handles the three forms Marketplace listings actually use: the full number
+ * ("96,400 miles"), the abbreviated form on search cards ("96K miles"), and
+ * masked low-order digits ("120xxx miles", or bare "134,xxx" with no unit
+ * word at all -- sellers write this to mean "about 134,000" without
+ * committing to an exact figure, and it was previously read as no mileage at
+ * all since it does not sit next to a unit word the way the other two forms
+ * do).
  */
 export function parseMileage(raw: string | null | undefined): ParsedMileage | null {
   if (!raw) return null;
   const text = collapseWhitespace(raw);
+
+  const masked = text.match(/\b(\d{1,3}),?([xX]{2,4})\b(?:\s*(km\b|kilometers|kilometres))?/);
+  if (masked) {
+    const digits = Number(masked[1]);
+    if (Number.isFinite(digits)) {
+      // "120xxx" -> the x's stand in for the low-order digits a full number
+      // would have there, so the value is the stated digits scaled up by how
+      // many were masked out ("xxx" = 3 masked digits = *1000).
+      const value = Math.round(digits * 10 ** masked[2]!.length);
+      if (value >= 0 && value <= MAX_PLAUSIBLE_MILEAGE) {
+        const unit: MileageUnit = masked[3] ? "km" : "mi";
+        return { value, unit };
+      }
+    }
+  }
 
   const match = text.match(
     /(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k\b)?\s*(miles|mile|mi\b|km\b|kilometers|kilometres)/i,

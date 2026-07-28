@@ -228,10 +228,19 @@ export function buildSellerRisk(data: EvaluationResponse): HTMLElement[] {
     nodes.push(list(seller.dealer_markers)!);
   }
 
+  if (seller.seller_rating_average !== null) {
+    nodes.push(
+      rows([["Marketplace rating", `${seller.seller_rating_average.toFixed(1)} / 5`]]),
+    );
+  }
+
   // Spec 6.3 flags combinations. Below two signals nothing is rendered here at
   // all -- see `scamDisplay` -- and at four the warning is already at the top
-  // of the panel, so this stays the detail rather than repeating it.
-  if (scamDisplay(seller) !== "hidden") {
+  // of the panel, so this stays the detail rather than repeating it. A star
+  // rating is a separate, independent reason to show `messages` (the backend
+  // appends the rating line to the same list), since it can be the ONLY
+  // reason this section is visible at all -- see `sellerSectionVisible`.
+  if (scamDisplay(seller) !== "hidden" || seller.seller_rating_average !== null) {
     const messages = list(seller.messages);
     if (messages) nodes.push(messages);
     if (seller.scam_reduced_sensitivity) {

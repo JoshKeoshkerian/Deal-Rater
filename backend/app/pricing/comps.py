@@ -417,6 +417,40 @@ def looks_like_a_part(title: str | None) -> bool:
                 and any(noun in text for noun in _WEAK_PART_NOUNS))
 
 
+# A "Buy Here Pay Here" ask advertises a financing term, not an asking price --
+# "$800 down" or "!!DOWN PAYMENT!!" is what a buyer pays UP FRONT toward a much
+# larger total, and `price_cents` captures that up-front figure because it is
+# the only dollar amount on the card. Comp-set filtering has no way to recover
+# the real total from a search-result card (spec 4.3: "a title and a mileage
+# and nothing else"), so the honest response is to drop the comp entirely
+# rather than fit a regression line through what looks like a $4,000 Maserati.
+#
+# Rare on captured data -- 3 of 6,736 stored comp observations -- so this will
+# not move an aggregate error figure. Fixed anyway because it is a plain
+# mis-extraction (a down payment is not an ask) rather than a calibration
+# question, the same way `looks_like_a_part` fixes a $25 dash kit regardless
+# of how often one turns up.
+_FINANCING_PATTERN = re.compile(
+    r"down\s*payment|\$\s*\d+\s*down\b|/\s*mo\b|per\s*month|"
+    r"weekly\s*payment|bi[\s-]?weekly|financing\s*available|"
+    r"no\s*credit\s*(check|needed)?|bad\s*credit\s*ok",
+    re.I,
+)
+
+
+def looks_like_a_financing_offer(text: str | None) -> bool:
+    """Whether a comp's title or trim text names a financing term, not a price.
+
+    Checked against both fields because the marker has been observed sitting
+    in `trim_text` (the substring after the parsed model year) as often as it
+    would in a title -- captured data's `!!DOWN PAYMENT!!` is the whole of
+    what the extractor recovered as trim.
+    """
+    if not text:
+        return False
+    return bool(_FINANCING_PATTERN.search(text))
+
+
 class DealerSignal(StrEnum):
     """Placeholder for spec 4.3's dealer exclusion.
 
@@ -480,6 +514,7 @@ class Exclusion(StrEnum):
     PRICE_IMPLAUSIBLE = "price_implausible"
     MILEAGE_IMPLAUSIBLE = "mileage_implausible"
     NOT_A_VEHICLE = "not_a_vehicle"
+    NOT_AN_ASKING_PRICE = "not_an_asking_price"
 
 
 @dataclass(frozen=True)
@@ -683,6 +718,8 @@ def filter_comps(
         # year/make/model and would otherwise pass every one of them.
         if looks_like_a_part(c.title):
             return Exclusion.NOT_A_VEHICLE
+        if looks_like_a_financing_offer(c.title) or looks_like_a_financing_offer(c.trim_text):
+            return Exclusion.NOT_AN_ASKING_PRICE
         if not c.model:
             return Exclusion.MODEL_UNKNOWN
         if target_make and normalize_key(c.make) != target_make:

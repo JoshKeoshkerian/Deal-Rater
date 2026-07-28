@@ -10,8 +10,21 @@
 import { collapseWhitespace } from "../../shared/parse";
 
 export const PRICE_RE = /[$£€]\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\bfree\b/i;
-export const MILEAGE_RE =
-  /\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*k?\s*(?:miles|mile|mi|km|kilometers|kilometres)\b/i;
+
+// Sellers routinely mask the low-order digits of an odometer reading instead
+// of stating it exactly -- "120xxx miles", "87xxx", "134,xxx" -- to signal
+// "about this many" without committing to a precise figure. Distinct shape
+// from the fully-stated form below (no unit word required: "134,xxx" alone,
+// with nothing else in the sentence, is common), so it is its own pattern
+// rather than an extra optional group on the first one. `parseMileage`
+// reconstructs the value from the digit count and the run of x's.
+export const MASKED_MILEAGE_RE = /\b\d{1,3},?[xX]{2,4}\b/;
+
+export const MILEAGE_RE = new RegExp(
+  `\\b\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?\\s*k?\\s*(?:miles|mile|mi|km|kilometers|kilometres)\\b` +
+    `|${MASKED_MILEAGE_RE.source}(?:\\s*(?:miles|mile|mi|km|kilometers|kilometres)\\b)?`,
+  "i",
+);
 export const POSTED_RE =
   /\b(?:just listed|listed\s+(?:about\s+)?(?:an?|\d+)\s*(?:minute|hour|day|week|month|year)s?\s+ago|(?:an?|\d+)\s*(?:minute|hour|day|week|month|year)s?\s+ago)/i;
 export const PHOTO_COUNT_RE = /\b(\d+)\s+of\s+(\d+)\b/;

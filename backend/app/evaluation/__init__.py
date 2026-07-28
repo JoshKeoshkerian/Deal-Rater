@@ -171,6 +171,8 @@ def evaluate_capture(
         title=title,
         vehicle_risk=vehicle_risk,
         scam=scam,
+        seller_rating_average=capture.target_seller_rating_average,
+        seller_rating_count=capture.target_seller_rating_count,
     )
 
     # Last, and deliberately outside `compute_deal_score`: spec 6.6 is
@@ -195,4 +197,6 @@ def evaluate_capture(
         alternatives=alternatives,
         deal_score=deal_score,
         known_issues=known_issues,
+        seller_rating_average=capture.target_seller_rating_average,
+        seller_rating_count=capture.target_seller_rating_count,
     )

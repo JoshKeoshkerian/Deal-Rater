@@ -305,11 +305,19 @@ export function scamDisplay(seller: EvaluationResponse["seller_risk"]): ScamDisp
 /**
  * Whether the seller section renders at all (spec 7.4: "only when there is
  * something to say"). A dealer listing is worth saying on its own -- it means
- * the comparison is not like for like -- independently of scam signals.
+ * the comparison is not like for like -- independently of scam signals. A
+ * seller star rating is the same kind of independent reason: the backend
+ * only ever populates it once there are enough reviews to trust
+ * (`SELLER_RATING_MIN_REVIEWS`), so its mere presence here already means
+ * there is something worth saying.
  */
 export function sellerSectionVisible(seller: EvaluationResponse["seller_risk"]): boolean {
   if (!seller) return false;
-  return seller.seller_type === "dealer" || scamDisplay(seller) !== "hidden";
+  return (
+    seller.seller_type === "dealer" ||
+    scamDisplay(seller) !== "hidden" ||
+    seller.seller_rating_average !== null
+  );
 }
 
 /**

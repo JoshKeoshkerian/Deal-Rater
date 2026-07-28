@@ -452,6 +452,47 @@ class TestNonVehicleListings:
         }
 
 
+class TestFinancingLanguage:
+    """Spec 9's ground-truth pass: a captured Maserati comp priced its `price_cents`
+    off a "$4,000" figure that was actually a down payment, not an ask. The real
+    example carried the marker in `trim_text`, not `title` -- '!!DOWN PAYMENT!!'
+    was the whole of what the extractor recovered as trim.
+    """
+
+    @pytest.mark.parametrize(
+        "trim_text",
+        [
+            "!!DOWN PAYMENT!!",
+            "$800 down with soso credit!",
+            "3 BASE $3000 DOWN PAYMENT",
+            "$299/mo financing available",
+            "no credit check, bad credit ok",
+        ],
+    )
+    def test_financing_language_in_trim_text_is_excluded(self, trim_text):
+        result = filter_comps(
+            TARGET, [comp(source_listing_id="f", mileage=95_000, trim_text=trim_text)]
+        )
+        assert result.excluded[0].exclusion is Exclusion.NOT_AN_ASKING_PRICE
+
+    def test_financing_language_in_title_is_excluded(self):
+        result = filter_comps(
+            TARGET,
+            [comp(source_listing_id="f", mileage=95_000, title="2014 Maserati $500 down!")],
+        )
+        assert result.excluded[0].exclusion is Exclusion.NOT_AN_ASKING_PRICE
+
+    @pytest.mark.parametrize(
+        "trim_text",
+        ["Grand Touring", "S Q4 Sedan 4D", "Touring 4D, moving must sell", None],
+    )
+    def test_ordinary_trim_text_survives(self, trim_text):
+        result = filter_comps(
+            TARGET, [comp(source_listing_id="v", mileage=95_000, trim_text=trim_text)]
+        )
+        assert len(result.included) == 1
+
+
 class TestProgressiveYearWidening:
     """Spec 4.3: "fall back progressively (widen radius, then year range) and
     report low confidence explicitly"."""

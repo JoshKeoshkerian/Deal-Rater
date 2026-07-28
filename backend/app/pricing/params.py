@@ -226,8 +226,13 @@ JUNK_FRACTION_BELOW_TREND = 0.55
 MIN_COMPS_FOR_REGRESSION = 8
 
 # Below this, no central estimate is published at all. Spec 4.3: "Never silently
-# score off 3 comps." UNCALIBRATED.
-MIN_COMPS_FOR_ANY_ESTIMATE = 3
+# score off 3 comps."
+#
+# Was 3 -- which meant the code scored off EXACTLY 3 comps, the precise count
+# the spec names as too few. Raised to 4 to actually satisfy "never ... off 3",
+# per docs/scoring-audit.md finding #2. Still UNCALIBRATED: 4 is not derived
+# from data any more than 3 was, it just stops contradicting the spec text.
+MIN_COMPS_FOR_ANY_ESTIMATE = 4
 
 # A regression needs enough residual degrees of freedom for the interval to mean
 # anything. With n-2 <= 1 the t multiplier explodes and the interval is honest
@@ -296,6 +301,18 @@ PLATEAU_END = -0.20
 # Where an unexplained discount stops reading as a bargain and starts reading as
 # a problem. Spec 2's "forty-five percent under is more likely to signal a
 # problem" is the source of this number.
+#
+# THE DEEPEST of three independent "how suspicious is this discount" cutoffs
+# in the codebase, and deliberately so -- see `ADVERSE_SELECTION_RESIDUAL`
+# below and `flags/params.py`'s `SCAM_PRICE_RESIDUAL` for the other two. The
+# three answer different questions (a rating floor, a confidence penalty, a
+# scam signal) and are not meant to collapse into one number, but their
+# CURRENT values already form a graduated response worth keeping intentional:
+# confidence gets nervous first (mildest), the scam signal fires next, and
+# this rating floor -- the most extreme reading, "give up on pricing this
+# precisely" -- is last. `test_discount_threshold_ordering.py` asserts
+# IMPLAUSIBLE_DISCOUNT <= SCAM_PRICE_RESIDUAL <= ADVERSE_SELECTION_RESIDUAL
+# so a future edit to any one of them can't silently break that ordering.
 IMPLAUSIBLE_DISCOUNT = -0.45
 
 # Rating awarded at the top of the plateau, and the floor the curve declines to
@@ -311,6 +328,16 @@ OVERPRICED_FLOOR_RATING = 5.0
 # Residual at which an overpriced car bottoms out.
 OVERPRICED_FLOOR = 0.30
 
+# Peak size of the tie-breaking bump `resolvable_residual` substitutes for a
+# literal zero when a raw residual is fully absorbed by its own uncertainty
+# margin (see that function's docstring). UNCALIBRATED, but bounded by
+# construction rather than guessed at freely: the bump's shape
+# (`4*ratio*(1-ratio)`) peaks at exactly this value, so it must stay below
+# `min(OVERPRICED_KNEE, abs(PLATEAU_START))` = 0.05 to guarantee a fully-
+# absorbed residual can never land outside the "fair" band on the strength of
+# the tie-breaker alone. 0.03 leaves a comfortable margin under that ceiling.
+NOISE_FLOOR_TIEBREAKER_SCALE = 0.03
+
 # ---------------------------------------------------------------------------
 # Negotiation anchors (spec 5.1's third and fourth numbers)
 # ---------------------------------------------------------------------------
@@ -325,6 +352,13 @@ WALK_AWAY_ABOVE = 0.04
 # quoting a specific offer figure. Beyond this the anchors are withheld rather
 # than printed, because every figure inside such a range is equally defensible
 # and naming one implies precision the comp set does not have. UNCALIBRATED.
+#
+# MEASURED EFFECT (docs/scoring-audit.md finding #5, `app.cli.confidence_report`):
+# this threshold withholds anchors on roughly 95% of real evaluations. Not
+# changed on the strength of that number alone -- there is no calibrated
+# ground truth yet to say 0.30 is wrong rather than the comp sets this
+# product actually gets being this noisy. Re-run `confidence_report` after
+# any change here or upstream in the comp-filtering pipeline.
 MAX_INTERVAL_WIDTH_FOR_ANCHORS = 0.30
 
 # ---------------------------------------------------------------------------
@@ -345,6 +379,9 @@ MIN_TRIM_COVERAGE = 0.5
 # A discount past this point costs confidence regardless of how the price rating
 # reads, because the most likely explanation is something the listing is not
 # saying (spec 2). UNCALIBRATED.
+#
+# THE MILDEST of the three discount-suspicion cutoffs -- see `IMPLAUSIBLE_DISCOUNT`
+# above for the full cross-reference and the ordering this is asserted against.
 ADVERSE_SELECTION_RESIDUAL = -0.25
 
 # How far the least-squares estimate may move under a breakdown-resistant
@@ -360,4 +397,13 @@ MAX_ROBUST_DISAGREEMENT = 0.08
 
 # Comp count at or above which count stops limiting confidence. UNCALIBRATED;
 # spec 0's "15 or more usable comps typical: the premise holds" is the source.
+#
+# MEASURED EFFECT (docs/scoring-audit.md finding #4, `app.cli.confidence_report`):
+# HIGH confidence was not reached on ANY stored capture at time of writing,
+# because WIDE_INTERVAL (below) also fires on ~90% of evaluations on top of
+# the two permanent structural limiters, and this threshold's floor is rarely
+# both cleared and free of that limiter at once. Not lowered on the strength
+# of that alone -- there is no calibrated ground truth yet to say 15 is wrong
+# rather than this market's comp sets being this noisy. Re-run
+# `confidence_report` after any change here or to comp filtering.
 COMPS_FOR_HIGH_CONFIDENCE = 15

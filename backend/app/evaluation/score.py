@@ -37,6 +37,22 @@ TWO PLACES THIS DEPARTS FROM A NAIVE WEIGHTED SUM
    as zero would punish a listing for what the tool could not look up. Absent
    components are dropped and the remaining weights renormalised, with
    `coverage` reporting how much of the intended weight was actually available.
+
+3. THE SELLER'S STAR RATING CAPS SELLER_AND_SCAM_RISK DIRECTLY, RATHER THAN
+   JOINING THE SCAM-SIGNAL COMBINATION.
+
+   A real case that motivated this: a listing with zero scam signals fired --
+   clean description, plenty of photos, no red flags -- scored 100/100 on this
+   dimension, on a seller whose OTHER reviews describe him lying about vehicle
+   condition. None of spec 6.3's five evaluable signals are equipped to catch
+   that; they read the LISTING, not the seller's track record. A documented
+   pattern like that is real evidence the signal combination can miss entirely,
+   so `_seller_rating_ceiling` acts on the score directly: the lower of the
+   signal-based score and the rating-based ceiling wins. It deliberately does
+   NOT feed `ScamAssessment`'s four-signals-fire-a-warning logic (that stays
+   spec 6.3's combination of listing-text signals only) -- a bad rating alone
+   caps this one dimension; it does not, on its own, trigger the "several scam
+   patterns fired together" suppression of the whole composite.
 """
 
 from __future__ import annotations
@@ -92,6 +108,37 @@ MIN_COVERAGE = 0.5
 #: strength of completeness, time on market and a clean title. A deal score for
 #: a listing whose price could not be assessed is not a deal score.
 REQUIRED_COMPONENTS = ("price_residual",)
+
+#: `_vehicle_risk_score`'s baselines and penalty, 0-100 where higher is safer.
+#: UNCALIBRATED, same status as `WEIGHTS` above -- named here rather than left
+#: as inline literals so a future calibration pass (spec 9) finds them the
+#: same way it finds every other scoring constant in this codebase, instead
+#: of only the ones that happen to live in a `params.py` (docs/scoring-audit.md
+#: finding #7).
+VEHICLE_RISK_BRANDED_TITLE = 25.0
+#: Clean title stated, but no NHTSA recall/complaint data exists for this
+#: year/make/model at all.
+VEHICLE_RISK_CLEAN_TITLE_NO_NHTSA_DATA = 70.0
+#: NHTSA data exists; baseline before the recall penalty, by title.
+VEHICLE_RISK_CLEAN_TITLE_BASELINE = 85.0
+VEHICLE_RISK_NON_CLEAN_TITLE_BASELINE = 65.0
+#: Recall campaigns are model-level, not vehicle-specific (see
+#: `nhtsa/assessment.py`), so they move the number modestly rather than
+#: dominating it: capped total penalty, and a fixed cost per campaign.
+VEHICLE_RISK_RECALL_PENALTY_CAP = 20.0
+VEHICLE_RISK_RECALL_PENALTY_PER_CAMPAIGN = 2.0
+
+#: `_scam_score`'s flat cost per fired signal, on the 0-100 scale BELOW the
+#: warning threshold (`scam.warn` suppresses the composite entirely once
+#: `SCAM_SIGNALS_FOR_WARNING` signals fire -- see the module docstring).
+#: UNCALIBRATED.
+SCAM_SUBTHRESHOLD_PENALTY_PER_SIGNAL = 25.0
+
+#: Minimum reviews before a seller's star rating is trusted enough to cap
+#: `seller_and_scam_risk` at all. Below this, one or two outlier reviews could
+#: swing a rating that is not yet a reliable signal -- see
+#: `_seller_rating_ceiling`. UNCALIBRATED.
+SELLER_RATING_MIN_REVIEWS = 3
 
 
 @dataclass(frozen=True)
@@ -157,31 +204,85 @@ def _vehicle_risk_score(
     if title.risk is _TitleRisk.DISQUALIFYING:
         return 0.0, None
     if title.risk is TitleRisk.BRANDED:
-        return 25.0, None
+        return VEHICLE_RISK_BRANDED_TITLE, None
 
     if risk.recall_count is None and risk.complaint_count is None:
         if title.risk is TitleRisk.CLEAN:
             # A stated clean title is real information even with no NHTSA data.
-            return 70.0, None
+            return VEHICLE_RISK_CLEAN_TITLE_NO_NHTSA_DATA, None
         return None, "no title status stated and no NHTSA data for this vehicle"
 
-    score = 85.0 if title.risk is TitleRisk.CLEAN else 65.0
+    score = (
+        VEHICLE_RISK_CLEAN_TITLE_BASELINE
+        if title.risk is TitleRisk.CLEAN
+        else VEHICLE_RISK_NON_CLEAN_TITLE_BASELINE
+    )
 
     # Recall campaigns are model-level, so they move the number modestly. A
     # heavily recalled model is worth knowing about; it is not a verdict on the
     # car in front of you.
     if risk.recall_count:
-        score -= min(20.0, risk.recall_count * 2.0)
+        penalty = risk.recall_count * VEHICLE_RISK_RECALL_PENALTY_PER_CAMPAIGN
+        score -= min(VEHICLE_RISK_RECALL_PENALTY_CAP, penalty)
     return max(0.0, min(100.0, score)), None
 
 
-def _scam_score(scam: ScamAssessment) -> tuple[float | None, str | None]:
-    """0-100 where higher is cleaner, for signals BELOW the warning threshold."""
-    if not scam.evaluable:
-        return None, "none of the scam signals could be checked for this listing"
-    # Each firing signal costs a fixed share. Above the threshold the score is
-    # suppressed entirely rather than deducted from -- see the module docstring.
-    return max(0.0, 100.0 - len(scam.fired) * 25.0), None
+def _seller_rating_ceiling(
+    rating_average: float | None, rating_count: int | None
+) -> float | None:
+    """Cap on `seller_and_scam_risk` from the seller's own star rating.
+
+    A DIRECT MODIFIER, not another entry in `ScamAssessment`'s signal
+    combination -- see the module docstring's third departure. None when
+    there is no rating yet, or too few reviews to trust it.
+
+    UNCALIBRATED linear mapping: the ceiling is simply the rating expressed
+    out of 100 (2.4/5 stars -> a ceiling of 48). No data justifies a steeper
+    curve yet; a future calibration pass (spec 9) may find one is warranted,
+    the way the pricing curve's rise-plateau-decline shape was.
+    """
+    if (
+        rating_average is None
+        or rating_count is None
+        or rating_count < SELLER_RATING_MIN_REVIEWS
+    ):
+        return None
+    return max(0.0, min(100.0, (rating_average / 5.0) * 100.0))
+
+
+def _scam_score(
+    scam: ScamAssessment,
+    rating_average: float | None = None,
+    rating_count: int | None = None,
+) -> tuple[float | None, str | None]:
+    """0-100 where higher is cleaner, for signals BELOW the warning threshold.
+
+    Two independent sources feed this, and either is sufficient alone: the
+    scam-signal combination (`scam.fired`, capped by `scam.warn` suppressing
+    the whole composite above the threshold -- unaffected by anything here),
+    and the seller's star rating, applied as a ceiling via
+    `_seller_rating_ceiling`. When both are available the lower one wins,
+    since neither source is allowed to paper over a problem the other found.
+    """
+    signal_score: float | None = None
+    if scam.evaluable:
+        # Each firing signal costs a fixed share. Above the threshold the
+        # score is suppressed entirely rather than deducted from -- see the
+        # module docstring.
+        signal_score = max(0.0, 100.0 - len(scam.fired) * SCAM_SUBTHRESHOLD_PENALTY_PER_SIGNAL)
+
+    ceiling = _seller_rating_ceiling(rating_average, rating_count)
+
+    if signal_score is None and ceiling is None:
+        return None, (
+            "none of the scam signals could be checked, and no seller rating with "
+            "enough reviews was found, for this listing"
+        )
+    if ceiling is None:
+        return signal_score, None
+    if signal_score is None:
+        return ceiling, None
+    return min(signal_score, ceiling), None
 
 
 def compute_deal_score(
@@ -191,14 +292,20 @@ def compute_deal_score(
     title: TitleReading,
     vehicle_risk: VehicleRiskAssessment,
     scam: ScamAssessment,
+    seller_rating_average: float | None = None,
+    seller_rating_count: int | None = None,
 ) -> DealScore:
     """Summarise the separated dimensions into spec 5.2's headline number.
 
     Negotiation strength (spec 6.4) is deliberately not an input -- see the
     note on `WEIGHTS`. It is reported alongside this score, not folded into it.
+
+    `seller_rating_average`/`seller_rating_count` cap `seller_and_scam_risk`
+    directly rather than joining `scam`'s signal combination -- see the module
+    docstring's third departure and `_seller_rating_ceiling`.
     """
     vehicle_value, vehicle_reason = _vehicle_risk_score(title, vehicle_risk)
-    scam_value, scam_reason = _scam_score(scam)
+    scam_value, scam_reason = _scam_score(scam, seller_rating_average, seller_rating_count)
 
     components = (
         ScoreComponent(

@@ -37,14 +37,21 @@ class ClientInfo(BaseModel):
 
 
 class SellerIn(BaseModel):
-    """Spec 8.2: a hashed identifier and an integer. There is no third field,
-    and there is not meant to be one."""
+    """Spec 8.2: a hashed identifier plus reputation NUMBERS, never identity.
+
+    `rating_average`/`rating_count` are the star rating Marketplace already
+    renders on the listing page itself -- exempt from the "never collected"
+    list (display name, profile URL, photo, join date) the same way
+    `active_vehicle_listing_count` already was, because a number is not
+    identity."""
 
     model_config = ConfigDict(extra="forbid")
 
     seller_hash: str
     hash_version: Annotated[int, Field(ge=1, le=32767)]
     active_vehicle_listing_count: Annotated[int | None, Field(ge=0, le=10_000)] = None
+    rating_average: Annotated[float | None, Field(ge=0, le=5)] = None
+    rating_count: Annotated[int | None, Field(ge=0, le=1_000_000)] = None
 
     @field_validator("seller_hash")
     @classmethod
@@ -273,6 +280,8 @@ class SellerRiskOut(BaseModel):
     scam_signals_evaluable: int
     scam_signals_total: int
     scam_reduced_sensitivity: bool
+    seller_rating_average: float | None = None
+    seller_rating_count: int | None = None
     messages: list[str]
 
 

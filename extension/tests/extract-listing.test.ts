@@ -117,6 +117,21 @@ const scenarios: Scenario[] = [
     expected: { mileage: null, price_cents: 1_290_000 },
   },
   {
+    name: "07b mileage masked in the description, no structured field",
+    // Sellers write "120xxx miles" to mean "about 120,000" without stating
+    // an exact figure. No structured odometer field and no mileage in the
+    // title, so this only resolves if the description text-pattern tier
+    // (tier 5, the deepest fallback) reconstructs the masked value.
+    spec: {
+      ...BASE,
+      mileage: null,
+      mileageText: null,
+      description: "Clean title, one owner. Around 120xxx miles, mostly highway.",
+    },
+    mode: "dom",
+    expected: { mileage: 120_000, mileage_unit: "mi", price_cents: 1_290_000 },
+  },
+  {
     name: "08 empty description",
     spec: { ...BASE, description: "" },
     mode: "payload",
@@ -284,6 +299,34 @@ const scenarios: Scenario[] = [
     spec: { ...BASE, createdAtSeconds: 1_690_000_000 },
     mode: "payload",
     expected: { posted_at: new Date(1_690_000_000 * 1000).toISOString() },
+  },
+  {
+    name: "35 seller has a star rating",
+    spec: { ...BASE, sellerRating: { average: 2.4, count: 7 } },
+    mode: "dom",
+    expected: {
+      seller: {
+        seller_hash: expect.any(String),
+        hash_version: expect.any(Number),
+        active_vehicle_listing_count: null,
+        rating_average: 2.4,
+        rating_count: 7,
+      },
+    },
+  },
+  {
+    name: "36 seller has no rating widget at all",
+    spec: BASE,
+    mode: "dom",
+    expected: {
+      seller: {
+        seller_hash: expect.any(String),
+        hash_version: expect.any(Number),
+        active_vehicle_listing_count: null,
+        rating_average: null,
+        rating_count: null,
+      },
+    },
   },
 ];
 
@@ -522,5 +565,95 @@ describe("single-page-app navigation", () => {
     const doc = buildListingDocument(BASE, "meta");
     const result = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
     expect(result.payloadMatched).toBe(false);
+  });
+});
+
+describe("seller star rating", () => {
+  // The aria-label carries the precise average ("2.4 out of 5 stars"); the
+  // review COUNT in that same label was observed unreliable on a real
+  // captured page ("From one review'" on a seller with 7 reviews), so the
+  // real count is read from a separate "(N)" sibling span instead. These
+  // tests build custom documents directly rather than through ListingSpec so
+  // the exact nesting between the widget and that span can be varied.
+  function docWithRatingMarkup(innerHtml: string): Document {
+    const html = `<!DOCTYPE html><html><body>
+      <div id="header"><h1>2014 Toyota Camry SE</h1><span>$12,900</span></div>
+      <div role="main">${innerHtml}</div>
+    </body></html>`;
+    return new DOMParser().parseFromString(html, "text/html");
+  }
+
+  it("reads the precise average from the aria-label, not the rounded stars", async () => {
+    const doc = docWithRatingMarkup(
+      `<a href="/marketplace/profile/61550000000001/">Seller</a>` +
+        `<div><div role="img" aria-label="2.4 out of 5 stars, From one review'"></div><span>(7)</span></div>`,
+    );
+    const { observation } = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(observation.seller?.rating_average).toBe(2.4);
+    expect(observation.seller?.rating_count).toBe(7);
+  });
+
+  it("ignores the review count baked into the aria-label and trusts the sibling span", async () => {
+    // Same aria-label wording as the captured page ("From one review'"), but
+    // the real count sitting in "(N)" is different from what that text says.
+    // If this ever read "one" out of the label text, it would be wrong here.
+    const doc = docWithRatingMarkup(
+      `<a href="/marketplace/profile/61550000000001/">Seller</a>` +
+        `<div><div role="img" aria-label="4.9 out of 5 stars, From one review'"></div><span>(41)</span></div>`,
+    );
+    const { observation } = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(observation.seller?.rating_average).toBe(4.9);
+    expect(observation.seller?.rating_count).toBe(41);
+  });
+
+  it("finds the count through several layers of wrapper divs", async () => {
+    const wrapped =
+      `<div><div><div><div>` +
+      `<div role="img" aria-label="3 out of 5 stars, From one review'"></div>` +
+      `</div></div></div><div><div><span>(15)</span></div></div></div>`;
+    const doc = docWithRatingMarkup(
+      `<a href="/marketplace/profile/61550000000001/">Seller</a>${wrapped}`,
+    );
+    const { observation } = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(observation.seller?.rating_average).toBe(3);
+    expect(observation.seller?.rating_count).toBe(15);
+  });
+
+  it("still reports the average when no count span can be found nearby", async () => {
+    const doc = docWithRatingMarkup(
+      `<a href="/marketplace/profile/61550000000001/">Seller</a>` +
+        `<div><div role="img" aria-label="4.0 out of 5 stars, From one review'"></div></div>`,
+    );
+    const { observation } = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(observation.seller?.rating_average).toBe(4.0);
+    expect(observation.seller?.rating_count).toBeNull();
+  });
+
+  it("rejects a nonsensical out-of-range average rather than passing it through", async () => {
+    const doc = docWithRatingMarkup(
+      `<a href="/marketplace/profile/61550000000001/">Seller</a>` +
+        `<div><div role="img" aria-label="7 out of 5 stars, From one review'"></div><span>(3)</span></div>`,
+    );
+    const { observation } = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(observation.seller?.rating_average).toBeNull();
+    expect(observation.seller?.rating_count).toBeNull();
+  });
+
+  it("marks the field strategy as aria_dom when a rating is found", async () => {
+    const doc = docWithRatingMarkup(
+      `<a href="/marketplace/profile/61550000000001/">Seller</a>` +
+        `<div><div role="img" aria-label="2.4 out of 5 stars, From one review'"></div><span>(7)</span></div>`,
+    );
+    const { observation } = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(observation.field_strategies["seller_rating"]).toBe("aria_dom");
+  });
+
+  it("leaves the strategy unset when there is no rating widget at all", async () => {
+    const doc = docWithRatingMarkup(
+      `<a href="/marketplace/profile/61550000000001/">Seller</a>`,
+    );
+    const { observation } = await extractTargetListing(doc, itemUrl(BASE.id), NOW);
+    expect(observation.field_strategies["seller_rating"]).toBeUndefined();
+    expect(observation.seller?.rating_average).toBeNull();
   });
 });

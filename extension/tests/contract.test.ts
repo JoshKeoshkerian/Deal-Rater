@@ -91,7 +91,7 @@ describe("capture payload contract", () => {
     for (const comp of payload.comps) expect(keysOf(comp)).toEqual(expected);
   });
 
-  it("emits exactly the three permitted seller keys", async () => {
+  it("emits exactly the five permitted seller keys", async () => {
     const payload = await buildRealPayload();
     const expected = keysOf(
       (EXAMPLE["target"] as Record<string, unknown>)["seller"] as Record<string, unknown>,
@@ -100,6 +100,8 @@ describe("capture payload contract", () => {
     expect(expected).toEqual([
       "active_vehicle_listing_count",
       "hash_version",
+      "rating_average",
+      "rating_count",
       "seller_hash",
     ]);
   });

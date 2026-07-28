@@ -38,7 +38,9 @@
     "seller": {
       "seller_hash": "9f2c4b7a1e6d8035c4a9f2b7e1d6803549f2c4b7a1e6d803549f2c4b7a1e6d80",
       "hash_version": 1,
-      "active_vehicle_listing_count": 3
+      "active_vehicle_listing_count": 3,
+      "rating_average": 4.6,
+      "rating_count": 12
     },
     "field_strategies": {
       "source_listing_id": "url_path",

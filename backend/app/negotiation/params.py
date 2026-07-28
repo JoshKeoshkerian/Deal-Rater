@@ -8,6 +8,15 @@ Negotiation strength is a SEPARATE reading from deal quality. Spec 6.4:
 "Genuinely orthogonal to deal quality: a slightly overpriced car that has sat 58
 days is a weak deal and a strong negotiation." Nothing in this module modifies a
 price, a rating, or a confidence level.
+
+Also holds the base strength, the time-on-market bands, the leverage
+cutoffs, and the language-score cap/multiplier that used to live as inline
+literals in `strength.py` (docs/scoring-audit.md finding #7) -- moved here so
+`strength.py` imports from this module the same way `curve.py` imports from
+`pricing/params.py`. Per-phrase language weights stay inline in
+`language.py`'s `SIGNALS` tuple, where splitting weight from phrase/pattern
+would hurt readability more than centralizing helps; see that file's own
+UNCALIBRATED disclaimer.
 """
 
 from __future__ import annotations
@@ -57,3 +66,29 @@ STALE_AND_OVERPRICED_BONUS = 18.0
 # position justifies opening. Applied on top of the pricing anchor, never
 # instead of it. UNCALIBRATED.
 MAX_EXTRA_DISCOUNT_FROM_LEVERAGE = 0.06
+
+# ---------------------------------------------------------------------------
+# Strength scoring (spec 6.4, build step 4) -- moved from strength.py
+# ---------------------------------------------------------------------------
+
+# Starting point before any time-on-market or language signal is added.
+# UNCALIBRATED.
+BASE_STRENGTH = 30.0
+
+# `_time_component`'s bands, 0-100 (well, 0-45 before rescaling -- see
+# `NegotiationAssessment.time_on_market_score`). UNCALIBRATED throughout.
+TIME_COMPONENT_VERY_STALE = 45.0
+TIME_COMPONENT_STALE = 32.0
+TIME_COMPONENT_ESTABLISHED = 18.0  # 14+ days, "early interest has passed"
+TIME_COMPONENT_ORDINARY = 8.0
+TIME_COMPONENT_FRESH = 0.0  # under FRESH_LISTING_HOURS
+
+# `_language_component`'s cap and per-phrase-weight multiplier. Capped so a
+# description stuffed with motivated phrasing cannot swamp the time signal,
+# which is the more objective of the two. UNCALIBRATED.
+LANGUAGE_SCORE_CAP = 20.0
+LANGUAGE_SCORE_MULTIPLIER = 4.0
+
+# `strength` thresholds for STRONG / MODERATE / WEAK leverage. UNCALIBRATED.
+LEVERAGE_STRONG_AT = 70.0
+LEVERAGE_MODERATE_AT = 45.0

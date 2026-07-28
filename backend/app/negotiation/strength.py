@@ -94,22 +94,24 @@ def _time_component(days: int | None) -> tuple[float, list[str]]:
         return 0.0, []
 
     if days >= params.VERY_STALE_LISTING_DAYS:
-        return 45.0, [
+        return params.TIME_COMPONENT_VERY_STALE, [
             f"Listed {days} days without selling, which is most of a season at this price."
         ]
     if days >= params.STALE_LISTING_DAYS:
-        return 32.0, [
+        return params.TIME_COMPONENT_STALE, [
             f"Listed {days} days at an unchanged price, which usually means the ask is "
             f"above what this market will pay."
         ]
     if days * 24 < params.FRESH_LISTING_HOURS:
-        return 0.0, [
+        return params.TIME_COMPONENT_FRESH, [
             "Listed within the last day, so you are competing with everyone else who "
             "just saw it. Leverage is low regardless of price."
         ]
     if days >= 14:
-        return 18.0, [f"Listed {days} days, long enough that early interest has passed."]
-    return 8.0, [f"Listed {days} days."]
+        return params.TIME_COMPONENT_ESTABLISHED, [
+            f"Listed {days} days, long enough that early interest has passed."
+        ]
+    return params.TIME_COMPONENT_ORDINARY, [f"Listed {days} days."]
 
 
 def _interaction_bonus(days: int | None, price_residual: float | None) -> tuple[float, list[str]]:
@@ -154,7 +156,10 @@ def _language_component(
     points: list[str] = []
     # Capped so that a description stuffed with motivated phrasing cannot swamp
     # the time signal, which is the more objective of the two.
-    score = max(-20.0, min(20.0, reading.net_weight * 4.0))
+    score = max(
+        -params.LANGUAGE_SCORE_CAP,
+        min(params.LANGUAGE_SCORE_CAP, reading.net_weight * params.LANGUAGE_SCORE_MULTIPLIER),
+    )
 
     if reading.motivated:
         points.append("Seller language suggests motivation: " + ", ".join(reading.motivated) + ".")
@@ -189,13 +194,13 @@ def assess_negotiation(
     bonus, bonus_points = _interaction_bonus(days, price_residual)
     language_score, language_points = _language_component(reading, seller)
 
-    strength = max(0.0, min(100.0, 30.0 + time_score + bonus + language_score))
+    strength = max(0.0, min(100.0, params.BASE_STRENGTH + time_score + bonus + language_score))
 
     if days is None:
         leverage = Leverage.UNKNOWN
-    elif strength >= 70:
+    elif strength >= params.LEVERAGE_STRONG_AT:
         leverage = Leverage.STRONG
-    elif strength >= 45:
+    elif strength >= params.LEVERAGE_MODERATE_AT:
         leverage = Leverage.MODERATE
     else:
         leverage = Leverage.WEAK
@@ -208,9 +213,14 @@ def assess_negotiation(
     if days is not None:
         extra = params.MAX_EXTRA_DISCOUNT_FROM_LEVERAGE * (strength / 100.0)
 
-    # `_time_component` tops out at 45 for a very stale listing; rescale that
-    # to 0-100 so the composite can weight it against other dimensions.
-    time_only = None if days is None else min(100.0, (time_score / 45.0) * 100.0)
+    # `_time_component` tops out at TIME_COMPONENT_VERY_STALE for a very stale
+    # listing; rescale that to 0-100 so the composite can weight it against
+    # other dimensions.
+    time_only = (
+        None
+        if days is None
+        else min(100.0, (time_score / params.TIME_COMPONENT_VERY_STALE) * 100.0)
+    )
 
     return NegotiationAssessment(
         leverage=leverage,

@@ -35,6 +35,40 @@ def test_oversized_comp_set_is_rejected(client):
     assert response.status_code == 413
 
 
+def test_evaluation_surfaces_a_low_seller_rating(client):
+    # End-to-end for the seller-rating direct modifier (spec 6.3 build step
+    # 5): a listing with plenty of comps below, so a price residual and
+    # therefore a score exist to be capped.
+    comps = [
+        observation(
+            role="comp",
+            source_listing_id=f"81000{i}",
+            price_cents=1_290_000 - i * 5_000,
+            mileage=96_400 + i * 3_000,
+        )
+        for i in range(10)
+    ]
+    target = observation(
+        seller={
+            "seller_hash": "b" * 64,
+            "hash_version": 1,
+            "active_vehicle_listing_count": 1,
+            "rating_average": 2.4,
+            "rating_count": 7,
+        },
+    )
+    post = client.post("/v1/captures", json=capture_payload(target=target, comps=comps))
+    capture_id = post.json()["capture_id"]
+
+    response = client.get(f"/v1/evaluations/{capture_id}?offline=true")
+    assert response.status_code == 200
+    seller_risk = response.json()["seller_risk"]
+    assert seller_risk is not None
+    assert seller_risk["seller_rating_average"] == 2.4
+    assert seller_risk["seller_rating_count"] == 7
+    assert any("2.4/5 star rating from 7 reviews" in m for m in seller_risk["messages"])
+
+
 def test_api_has_no_client_specific_behaviour(client):
     """Spec 8.1.4: the backend stays independent of the extension. A different
     client name must be handled identically."""

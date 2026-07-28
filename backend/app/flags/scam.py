@@ -238,7 +238,7 @@ def assess_scam_patterns(
         SignalResult(
             Signal.MINIMAL_DESCRIPTION,
             evaluable=True,
-            fired=len(text.strip()) < params.MINIMAL_DESCRIPTION_CHARS,
+            fired=len(text.strip()) < params.SCAM_MINIMAL_DESCRIPTION_CHARS,
             detail=("no description at all" if not has_text else f"{len(text.strip())} characters"),
         )
     )

@@ -10,7 +10,12 @@ captured data as a $0-$34,399 expected range for a $14,000 listing.
 
 from __future__ import annotations
 
-from app.pricing.loader import _resolve_tesla_model
+import pytest
+
+from app.pricing.loader import _resolve_tesla_model, load_captures
+from app.schemas import CaptureIn
+from app.services.ingest import ingest_capture
+from tests.conftest import capture_payload, observation
 
 
 class TestTeslaModelResolution:
@@ -59,3 +64,36 @@ class TestTeslaModelResolution:
             "Model",
             "Plaid Long Range",
         )
+
+
+class TestLoadCapturesSellerRating:
+    """The seller's star rating (spec 6.3) reaches `StoredCapture` alongside
+    the target listing it was observed with."""
+
+    def _ingest(self, session, payload: dict):
+        result = ingest_capture(session, CaptureIn.model_validate(payload))
+        session.commit()
+        return result
+
+    def test_a_populated_rating_reaches_the_stored_capture(self, session):
+        target = observation(
+            seller={
+                "seller_hash": "a" * 64,
+                "hash_version": 1,
+                "active_vehicle_listing_count": 1,
+                "rating_average": 2.4,
+                "rating_count": 7,
+            },
+        )
+        self._ingest(session, capture_payload(target=target))
+
+        [stored] = load_captures(session)
+        assert stored.target_seller_rating_average == pytest.approx(2.4)
+        assert stored.target_seller_rating_count == 7
+
+    def test_no_rating_widget_leaves_both_fields_none(self, session):
+        self._ingest(session, capture_payload())
+
+        [stored] = load_captures(session)
+        assert stored.target_seller_rating_average is None
+        assert stored.target_seller_rating_count is None

@@ -72,6 +72,15 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
                 "sale this tool is built to evaluate. Dealer asking prices carry "
                 "reconditioning, warranty and overhead.",
             )
+        if (
+            evaluation.seller_rating_average is not None
+            and evaluation.seller_rating_count is not None
+        ):
+            messages.append(
+                f"Seller has a {evaluation.seller_rating_average:g}/5 star rating from "
+                f"{evaluation.seller_rating_count} review"
+                f"{'s' if evaluation.seller_rating_count != 1 else ''} on Marketplace."
+            )
         seller_risk = SellerRiskOut(
             seller_type=negotiation.seller.seller_type.value,
             dealer_markers=list(negotiation.seller.markers),
@@ -80,6 +89,8 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             scam_signals_evaluable=len(scam.evaluable),
             scam_signals_total=len(scam.results),
             scam_reduced_sensitivity=scam.reduced_sensitivity,
+            seller_rating_average=evaluation.seller_rating_average,
+            seller_rating_count=evaluation.seller_rating_count,
             messages=messages,
         )
 

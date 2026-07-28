@@ -109,6 +109,25 @@ def test_seller_is_reduced_to_a_hash_and_a_count(session):
 
     seller_obs = session.scalar(select(SellerObservation))
     assert seller_obs.active_vehicle_listing_count == 1
+    assert seller_obs.rating_average is None
+    assert seller_obs.rating_count is None
+
+
+def test_seller_rating_is_persisted_when_present(session):
+    target = observation(
+        seller={
+            "seller_hash": "a" * 64,
+            "hash_version": 1,
+            "active_vehicle_listing_count": 1,
+            "rating_average": 2.4,
+            "rating_count": 7,
+        },
+    )
+    _ingest(session, capture_payload(target=target))
+
+    seller_obs = session.scalar(select(SellerObservation))
+    assert float(seller_obs.rating_average) == pytest.approx(2.4)
+    assert seller_obs.rating_count == 7
 
 
 def test_seller_observation_written_once_per_capture_for_repeated_seller(session):

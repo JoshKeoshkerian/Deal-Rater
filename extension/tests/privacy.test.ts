@@ -31,7 +31,7 @@ const SPEC = {
 };
 
 describe("seller data leaving the browser", () => {
-  it("sends a hash and a count, and nothing else", async () => {
+  it("sends a hash, two counts, and a rating average -- and nothing else", async () => {
     const { observation } = await extractTargetListing(
       buildListingDocument(SPEC, "payload"),
       itemUrl(SPEC.id),
@@ -41,6 +41,8 @@ describe("seller data leaving the browser", () => {
     expect(Object.keys(observation.seller!).sort()).toEqual([
       "active_vehicle_listing_count",
       "hash_version",
+      "rating_average",
+      "rating_count",
       "seller_hash",
     ]);
   });

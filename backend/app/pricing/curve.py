@@ -139,11 +139,59 @@ def resolvable_residual(residual: float, uncertainty_margin: float) -> float:
     because it manufactures false confidence." A verdict the interval cannot
     support manufactures the same false confidence, in the number users
     actually read.
+
+    THE FLOOR HAS ITS OWN SIDE EFFECT: A SINGLE POINT, NOT A NARROW RANGE.
+    Flooring to exactly zero is correct in what it forbids (a confident
+    verdict past the noise floor) but ALSO merges every residual smaller than
+    its own margin into one identical output. On captured data this made 59
+    of 170 rated listings -- 35% -- share the exact same pricing sub-score,
+    regardless of whether the raw ask was 1.7% over expected or 10% under it.
+    That is not a discontinuity (the function is continuous); it is a flat
+    region, and a flat region is a real loss of resolution for over a third
+    of the listings this model ever prices.
+
+    THE FIX, AND WHY IT IS NARROWER THAN IT LOOKS. Only the exactly-zero case
+    is touched -- once `magnitude` is positive the function is untouched,
+    because that path already carries real, distinguishable information and
+    was never part of the problem. When `magnitude` is exactly zero (the raw
+    gap did not exceed the margin), a small sign-preserving perturbation is
+    added instead of returning literal zero:
+
+        ratio = |residual| / margin                      # in (0, 1)
+        bump  = NOISE_FLOOR_TIEBREAKER_SCALE * 4 * ratio * (1 - ratio)
+
+    `4*ratio*(1-ratio)` is zero at both ends of (0, 1) and peaks at 1 when
+    ratio=0.5 -- chosen so the perturbation vanishes continuously right at the
+    boundary where the "real signal" branch above also goes to zero (no cliff
+    at the transition), while still giving two different raw residuals with
+    the same margin two different, ordered-ish outputs instead of an identical
+    one. `NOISE_FLOOR_TIEBREAKER_SCALE` is chosen small enough
+    (`params.py`) that the bump can never push a rating out of the "fair"
+    band on its own, whatever the ratio -- see `rate_price_residual`'s
+    `absorbed` computation, which still reads the ORIGINAL magnitude-is-zero
+    condition directly rather than this perturbed value, so "was this
+    genuinely erased by the noise floor" is unaffected by the tie-breaker.
+
+    THE HONEST LIMIT OF THIS FIX. A function that is exactly zero at both
+    ratio=0 and ratio=1 and continuous between them cannot also be strictly
+    monotonic there (monotonic + equal boundary values forces it to be
+    constant) -- so this bump is a bounded hump, not a monotonic ramp, and two
+    raw residuals placed symmetrically around ratio=0.5 for the same margin
+    can still tie. That trade was made deliberately: the alternative (a
+    monotonic ramp) would have to give up either continuity at the boundary
+    or the "cannot render a confident verdict past the noise floor" property
+    the whole function exists for, and this audit's measured problem was mass
+    collision across the WHOLE erased zone, not rare, near-symmetric pairs
+    within it.
     """
     if uncertainty_margin <= 0:
         return residual
     magnitude = max(0.0, abs(residual) - uncertainty_margin)
-    return magnitude if residual >= 0 else -magnitude
+    if magnitude > 0.0 or residual == 0.0:
+        return magnitude if residual >= 0 else -magnitude
+    ratio = abs(residual) / uncertainty_margin
+    bump = params.NOISE_FLOOR_TIEBREAKER_SCALE * 4.0 * ratio * (1.0 - ratio)
+    return bump if residual > 0 else -bump
 
 
 def _lerp(x: float, x0: float, x1: float, y0: float, y1: float) -> float:
@@ -189,7 +237,16 @@ def rate_price_residual(residual: float, uncertainty_margin: float = 0.0) -> Pri
     # genuinely sitting at the middle of a well-established market. Only true
     # when the raw gap was big enough to have earned a non-fair verdict on its
     # own. See `PricingRating.within_noise`.
-    absorbed = residual == 0.0 and not (p.PLATEAU_START <= raw <= p.OVERPRICED_KNEE)
+    #
+    # Computed from `raw` and `uncertainty_margin` directly -- NOT from
+    # `residual == 0.0` -- because `resolvable_residual` no longer returns a
+    # literal zero for every fully-erased gap (see its docstring): a small
+    # tie-breaking bump now stands in for zero so two different raw residuals
+    # do not collapse to an identical rating. "Was this fully erased by the
+    # noise floor" is still exactly the original condition, independent of
+    # whatever nonzero bump the tie-breaker produced from it.
+    fully_absorbed = uncertainty_margin > 0 and abs(raw) <= uncertainty_margin
+    absorbed = fully_absorbed and not (p.PLATEAU_START <= raw <= p.OVERPRICED_KNEE)
 
     if residual <= p.IMPLAUSIBLE_DISCOUNT:
         # Past the far end the rating does not keep falling. Something is wrong

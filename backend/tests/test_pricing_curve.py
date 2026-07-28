@@ -288,9 +288,36 @@ class TestResolvableResidual:
     listings".
     """
 
-    def test_a_gap_smaller_than_the_margin_is_erased(self):
-        assert resolvable_residual(0.32, 0.42) == 0.0
-        assert resolvable_residual(-0.32, 0.42) == 0.0
+    def test_a_gap_smaller_than_the_margin_is_mostly_erased_but_not_flattened(self):
+        # No longer a literal zero (see the docstring): a bounded tie-breaker
+        # replaces the old flat floor so two different raw residuals under the
+        # same margin don't collapse to an identical output. Still small --
+        # under 7% of the raw gap survives here -- and still sign-preserving.
+        assert resolvable_residual(0.32, 0.42) == pytest.approx(0.021768707, abs=1e-9)
+        assert resolvable_residual(-0.32, 0.42) == pytest.approx(-0.021768707, abs=1e-9)
+
+    def test_different_raw_gaps_under_the_same_margin_no_longer_tie(self):
+        # THE regression test for the audit finding: 35% of rated listings on
+        # real data shared an identical pricing sub-score because this
+        # function flattened every fully-absorbed gap to the same 0.0.
+        a = resolvable_residual(0.017, 0.088)
+        b = resolvable_residual(-0.038, 0.098)
+        assert a != 0.0
+        assert b != 0.0
+        assert a != b
+        assert a > 0 > b
+
+    def test_the_tiebreaker_never_escapes_the_fair_band_on_its_own(self):
+        # Peaks at NOISE_FLOOR_TIEBREAKER_SCALE (ratio=0.5), which is chosen
+        # below min(OVERPRICED_KNEE, abs(PLATEAU_START)) precisely so this
+        # holds regardless of margin or raw residual, as long as the gap is
+        # fully absorbed.
+        for raw in (0.01, 0.05, 0.10, 0.30, 0.50, 0.90):
+            for margin in (0.02, 0.10, 0.50, 1.0):
+                if raw > margin:
+                    continue
+                scored = resolvable_residual(raw, margin)
+                assert abs(scored) < min(params.OVERPRICED_KNEE, abs(params.PLATEAU_START))
 
     def test_a_gap_larger_than_the_margin_survives_reduced(self):
         assert resolvable_residual(0.32, 0.05) == pytest.approx(0.27)
@@ -306,12 +333,15 @@ class TestResolvableResidual:
             assert resolvable_residual(r, 0.0) == r
 
     def test_it_degrades_continuously_rather_than_at_a_cliff(self):
-        # No single dollar of asking price may flip a verdict, so the function
-        # has to be continuous where it reaches zero.
+        # No single dollar of asking price may flip a verdict. The tie-breaker
+        # bump is designed to vanish at exactly this boundary (ratio -> 1), so
+        # both sides land near zero rather than jumping between 0 and a fixed
+        # value.
         just_under = resolvable_residual(0.1999, 0.20)
         just_over = resolvable_residual(0.2001, 0.20)
-        assert just_under == 0.0
+        assert just_under == pytest.approx(0.0, abs=1e-4)
         assert just_over == pytest.approx(0.0001, abs=1e-9)
+        assert abs(just_under) < abs(just_over) * 2
 
 
 class TestRatingRespectsUncertainty:
@@ -339,7 +369,7 @@ class TestRatingRespectsUncertainty:
         # expected; the adjustment governs the VERDICT, not the fact.
         rating = rate_price_residual(0.32, 0.42)
         assert rating.residual_fraction == pytest.approx(0.32)
-        assert rating.scored_residual_fraction == 0.0
+        assert rating.scored_residual_fraction == pytest.approx(0.021768707, abs=1e-9)
         assert rating.uncertainty_margin == pytest.approx(0.42)
 
     def test_within_noise_says_so_in_the_label(self):
@@ -358,6 +388,21 @@ class TestRatingRespectsUncertainty:
     def test_the_default_margin_preserves_the_bare_curve(self):
         for r in (-0.5, -0.3, -0.15, 0.0, 0.1, 0.4):
             assert rate_price_residual(r).band == rate_price_residual(r, 0.0).band
+
+    def test_two_different_small_residuals_no_longer_earn_an_identical_rating(self):
+        # The audit finding this whole change exists for: on real data, 35% of
+        # rated listings shared the exact same pricing sub-score because any
+        # raw residual smaller than its own margin flattened to 0.0. These two
+        # inputs are drawn directly from that measurement (a +1.7% and a -3.8%
+        # raw gap that both used to floor to identical zero).
+        over = rate_price_residual(0.017, 0.088)
+        under = rate_price_residual(-0.038, 0.098)
+        assert over.rating != under.rating
+        assert over.band == "fair"
+        assert under.band == "fair"
+        # Direction-appropriate: the one asking below expected should still
+        # read as at least as good a deal as the one asking above.
+        assert under.rating >= over.rating
 
 
 class TestUncertaintyMarginIsTheMeanNotThePredictionInterval:

@@ -11,7 +11,14 @@ from app.pricing.curve import rate_price_residual
 
 
 def score(
-    *, residual=0.0, description="x" * 400, photos=10, price_changed=None, title_status="clean"
+    *,
+    residual=0.0,
+    description="x" * 400,
+    photos=10,
+    price_changed=None,
+    title_status="clean",
+    seller_rating_average=None,
+    seller_rating_count=None,
 ):
     return compute_deal_score(
         rating=rate_price_residual(residual) if residual is not None else None,
@@ -25,6 +32,8 @@ def score(
             description=description, photo_count=photos, vin=None,
             price_residual=residual, price_changed=price_changed,
         ),
+        seller_rating_average=seller_rating_average,
+        seller_rating_count=seller_rating_count,
     )
 
 
@@ -117,3 +126,54 @@ class TestScoring:
         partial = score(title_status=None)
         assert partial.score is not None
         assert partial.coverage < full.coverage
+
+
+class TestSellerRatingCeiling:
+    """A seller's star rating caps seller_and_scam_risk directly (spec 6.3
+    build step 5, added after real data showed a clean-looking listing --
+    zero scam signals fired -- scoring 100/100 on a seller whose OTHER
+    reviews describe him lying about condition)."""
+
+    def _seller_and_scam_component(self, result):
+        return next(c for c in result.components if c.name == "seller_and_scam_risk")
+
+    def test_a_low_rating_caps_a_clean_listings_seller_score(self):
+        # The real case: a low seller rating pulls the score down even when
+        # the listing's own signal-based score is well above the ceiling.
+        clean = score()
+        assert self._seller_and_scam_component(clean).value > 48.0
+
+        rated = score(seller_rating_average=2.4, seller_rating_count=7)
+        component = self._seller_and_scam_component(rated)
+        assert component.value == 48.0  # 2.4 / 5 * 100
+
+    def test_too_few_reviews_do_not_move_the_score(self):
+        # One or two outlier reviews should not swing a seller's ceiling.
+        clean = score()
+        rated = score(seller_rating_average=1.0, seller_rating_count=1)
+        assert self._seller_and_scam_component(rated).value == (
+            self._seller_and_scam_component(clean).value
+        )
+
+    def test_a_good_rating_does_not_rescue_a_listing_with_real_signals(self):
+        # The lower of the two sources wins -- a good rating must not paper
+        # over signals the listing itself is showing.
+        flagged = score(
+            residual=-0.60, photos=1,
+            description="",  # minimal description also fires a signal
+        )
+        rescued = score(
+            residual=-0.60, photos=1, description="",
+            seller_rating_average=5.0, seller_rating_count=50,
+        )
+        assert self._seller_and_scam_component(rescued).value == (
+            self._seller_and_scam_component(flagged).value
+        )
+
+    def test_rating_alone_does_not_trigger_the_scam_warning(self):
+        # A direct modifier, not a signal in the four-fire combination --
+        # even a very low rating must not suppress the composite the way
+        # four listing-text signals firing together would.
+        rated = score(seller_rating_average=1.0, seller_rating_count=20)
+        assert rated.score is not None
+        assert rated.suppressed_reason is None

@@ -41,7 +41,7 @@ from ..known_issues.client import NOT_REQUESTED_CODE, NOT_REQUESTED_REASON
 from ..negotiation import NegotiationAssessment
 from ..nhtsa import VehicleRiskAssessment
 from ..pricing import PricingAssessment
-from .score import DealScore
+from .score import SELLER_RATING_MIN_REVIEWS, DealScore
 
 DISCLAIMER = (
     "Informational analysis of a listing, not a purchase recommendation. Never a "
@@ -79,6 +79,15 @@ class Evaluation:
     negotiation: NegotiationAssessment
     alternatives: AlternativesResult
 
+    # The seller's Marketplace star rating (spec 6.3), read straight off the
+    # listing page. A reputation number, not identity -- see
+    # `SellerObservation`'s docstring. Caps `seller_and_scam_risk` directly
+    # (`score.py`'s `_seller_rating_ceiling`); kept here too so the report can
+    # say WHY, rather than the cap acting silently on a number the user can't
+    # trace back to anything.
+    seller_rating_average: float | None = None
+    seller_rating_count: int | None = None
+
     # 7. Spec 6.6's cached, qualitative-only ownership context.
     known_issues: KnownIssuesReading = field(
         default_factory=lambda: KnownIssuesReading(
@@ -94,7 +103,12 @@ class Evaluation:
     def has_seller_section(self) -> bool:
         """Spec 7.4: seller and scam risk appear "only when there is something
         to say"."""
-        return bool(self.scam.fired) or self.negotiation.seller.is_dealer
+        rating_matters = (
+            self.seller_rating_average is not None
+            and self.seller_rating_count is not None
+            and self.seller_rating_count >= SELLER_RATING_MIN_REVIEWS
+        )
+        return bool(self.scam.fired) or self.negotiation.seller.is_dealer or rating_matters
 
     def headline(self) -> str:
         """Spec 7's first line: score, confidence, expected price comparison."""
@@ -133,6 +147,8 @@ def build_evaluation(
     alternatives: AlternativesResult,
     deal_score: DealScore,
     known_issues: KnownIssuesReading | None = None,
+    seller_rating_average: float | None = None,
+    seller_rating_count: int | None = None,
 ) -> Evaluation:
     """Assemble the finished evaluation. Pure composition; nothing is computed
     here that the dimension modules did not already decide."""
@@ -146,4 +162,6 @@ def build_evaluation(
         negotiation=negotiation,
         alternatives=alternatives,
         known_issues=known_issues or KnownIssuesReading(),
+        seller_rating_average=seller_rating_average,
+        seller_rating_count=seller_rating_count,
     )

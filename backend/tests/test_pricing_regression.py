@@ -169,11 +169,19 @@ class TestFallbackLadder:
         assert est.expected_asking_cents is not None
 
     def test_below_the_floor_publishes_no_estimate_at_all(self):
-        # Spec 4.3: "Never silently score off 3 comps."
-        est = build(target(), clean_line(2))
-        assert est.kind is EstimatorKind.INSUFFICIENT
-        assert est.expected_asking_cents is None
-        assert est.asking_interval_low_cents is None
+        # Spec 4.3: "Never silently score off 3 comps." The floor is 4
+        # (MIN_COMPS_FOR_ANY_ESTIMATE), so 3 -- the exact count the spec names
+        # as too few -- must land here too, not just counts further below it.
+        for n in (2, 3):
+            est = build(target(), clean_line(n))
+            assert est.kind is EstimatorKind.INSUFFICIENT, f"n={n}"
+            assert est.expected_asking_cents is None
+            assert est.asking_interval_low_cents is None
+
+    def test_the_floor_itself_is_enough_to_publish_something(self):
+        est = build(target(), clean_line(params.MIN_COMPS_FOR_ANY_ESTIMATE))
+        assert est.kind is not EstimatorKind.INSUFFICIENT
+        assert est.expected_asking_cents is not None
 
     def test_the_median_fallback_interval_is_wide(self):
         est = build(target(), clean_line(params.MIN_COMPS_FOR_SLOPE - 1))

@@ -17,6 +17,7 @@ than data in its own right.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     JSON,
@@ -192,7 +193,15 @@ class ListingObservation(Base):
 
 
 class SellerObservation(Base):
-    """Append-only count of a seller's concurrently active vehicle listings."""
+    """Append-only count of a seller's concurrently active vehicle listings,
+    and their Marketplace star rating.
+
+    The rating is the same kind of exception `SellerPayload` documents on the
+    extension side: a reputation NUMBER Marketplace already shows on the
+    listing page itself, not identity, so it is exempt from spec 8.2's
+    "never collected" list (display name, profile URL, photo, join date) the
+    same way `active_vehicle_listing_count` already was.
+    """
 
     __tablename__ = "seller_observations"
 
@@ -205,6 +214,10 @@ class SellerObservation(Base):
     )
     observed_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     active_vehicle_listing_count: Mapped[int | None] = mapped_column(Integer)
+    # Precise average as Marketplace's own aria-label states it (e.g. 2.4),
+    # not the value the star icons visually round to for display.
+    rating_average: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
+    rating_count: Mapped[int | None] = mapped_column(Integer)
 
     __table_args__ = (
         UniqueConstraint("seller_id", "capture_id", name="uq_seller_observation_capture"),

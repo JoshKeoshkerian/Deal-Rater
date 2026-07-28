@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Capture, Listing, ListingObservation
+from ..models import Capture, Listing, ListingObservation, SellerObservation
 from .comps import CompCandidate, normalize_key
 
 
@@ -43,6 +43,12 @@ class StoredCapture:
     target_title_status: str | None = None
     target_vin: str | None = None
     target_price_changed: bool | None = None
+    #: The seller's Marketplace star rating, as of this capture (spec 6.3).
+    #: A reputation number read straight off the listing page, not identity --
+    #: see `SellerObservation`'s docstring. None when the seller has no
+    #: rating widget yet, or no seller was identified at all.
+    target_seller_rating_average: float | None = None
+    target_seller_rating_count: int | None = None
 
 
 #: Tesla's Marketplace listings carry `model="Model"` for every one of the 3, S,
@@ -126,6 +132,24 @@ def load_captures(session: Session, capture_ids: list[int] | None = None) -> lis
             # rather than treated as an error.
             continue
 
+        rating_average: float | None = None
+        rating_count: int | None = None
+        target_seller_id = target_row[0].seller_id
+        if target_seller_id is not None:
+            seller_obs = session.scalar(
+                select(SellerObservation).where(
+                    SellerObservation.capture_id == capture.id,
+                    SellerObservation.seller_id == target_seller_id,
+                )
+            )
+            if seller_obs is not None:
+                rating_average = (
+                    float(seller_obs.rating_average)
+                    if seller_obs.rating_average is not None
+                    else None
+                )
+                rating_count = seller_obs.rating_count
+
         query = capture.comp_search_query or {}
         out.append(
             StoredCapture(
@@ -141,6 +165,8 @@ def load_captures(session: Session, capture_ids: list[int] | None = None) -> lis
                 target_title_status=target_row[0].title_status,
                 target_vin=target_row[1].vin,
                 target_price_changed=target_row[0].price_changed,
+                target_seller_rating_average=rating_average,
+                target_seller_rating_count=rating_count,
                 candidates=[_to_candidate(o, listing) for o, listing in rows if o.role == "comp"],
                 location_scoped=query.get("location_scoped"),
                 search_query=query.get("query"),

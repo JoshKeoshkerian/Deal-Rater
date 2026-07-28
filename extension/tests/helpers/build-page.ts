@@ -36,6 +36,8 @@ export interface ListingSpec {
   sellerId?: string | null;
   sellerOtherListingIds?: string[];
   sellerListingCount?: number | null;
+  /** The star-rating widget shown on the listing page itself, if any. */
+  sellerRating?: { average: number; count: number } | null;
   priceDropped?: boolean;
   trim?: string | null;
   titleStatus?: string | null;
@@ -165,7 +167,17 @@ function bodyMarkup(spec: ListingSpec, mode: RenderMode): string {
   }
 
   if (spec.sellerId) {
-    blocks.push(`<div><a href="/marketplace/profile/${spec.sellerId}/">Seller</a></div>`);
+    // Mirrors the real structure: a `role="img"` star widget carrying the
+    // precise average in its aria-label, with the true review count sitting
+    // in a plain sibling span reading "(N)" a few levels up -- not inside the
+    // widget's own aria-label, which on a real captured page read "From one
+    // review'" regardless of the actual count.
+    const ratingMarkup = spec.sellerRating
+      ? `<div class="ratingWrap"><div role="img" aria-label="${spec.sellerRating.average} out of 5 stars, From one review'"></div><span>(${spec.sellerRating.count})</span></div>`
+      : "";
+    blocks.push(
+      `<div><a href="/marketplace/profile/${spec.sellerId}/">Seller</a>${ratingMarkup}</div>`,
+    );
   }
 
   const others = spec.sellerOtherListingIds ?? [];

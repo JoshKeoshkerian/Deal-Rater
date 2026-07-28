@@ -9,10 +9,15 @@ order (§13), steps 1 through 8.
 **What's not done yet: §13 step 9, calibration.** The pricing curve's
 plateau/decline breakpoints are still the spec's illustrative guesses, never
 fitted to a ground truth set -- `is_calibrated()` is hardcoded `False` and the
-overlay's beta badge reflects that. See [spec §9](fb-deal-evaluator-spec.md) and
-the CLIs in `backend/app/cli/`: `label` and `agreement` build and score a hand-
-labelled set, `ablation` checks whether each dimension's weight is doing real
-work, `outcomes` tracks price movement on rechecked listings, `audit` catches
+overlay's beta badge reflects that. This is deliberate, not just outstanding:
+see [docs/calibration-pass-1.md](docs/calibration-pass-1.md) for why the price
+curve is validated against `backtest`/`outcomes` rather than the hand-labelled
+set. See [spec §9](fb-deal-evaluator-spec.md) and the CLIs in
+`backend/app/cli/`: `label` and `agreement` build and score a hand-labelled
+set, `ablation` checks whether each dimension's weight is doing real work,
+`backtest` is leave-one-out cross-validation of the expected-price regression,
+`confidence_report` tracks the confidence/anchor threshold distribution,
+`outcomes` tracks price movement on rechecked listings, `audit` catches
 identity-corrupted captures, `cost` reports the known-issues call's real
 cost-per-evaluation.
 
@@ -52,8 +57,8 @@ options page and set the backend URL.
 Open a Marketplace vehicle listing and click **Capture listing**.
 
 ```bash
-cd backend && .venv/bin/python -m pytest      # 405 tests
-cd extension && npm test && npm run typecheck # 254 tests
+cd backend && .venv/bin/python -m pytest      # 510 tests
+cd extension && npm test && npm run typecheck # 317 tests (1 skipped)
 ```
 
 ## How a capture works

@@ -117,6 +117,12 @@ def ingest_capture(session: Session, payload: CaptureIn) -> IngestResult:
                         if observation_in.seller
                         else None
                     ),
+                    rating_average=(
+                        observation_in.seller.rating_average if observation_in.seller else None
+                    ),
+                    rating_count=(
+                        observation_in.seller.rating_count if observation_in.seller else None
+                    ),
                 )
             )
 

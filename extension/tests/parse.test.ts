@@ -61,6 +61,24 @@ describe("parseMileage", () => {
   it("rejects implausible readings rather than passing them through", () => {
     expect(parseMileage("9,999,999 miles")).toBeNull();
   });
+
+  describe("masked low-order digits", () => {
+    it.each([
+      ["120xxx miles", 120_000, "mi"],
+      ["120xxx mi", 120_000, "mi"],
+      ["87xxx", 87_000, "mi"],
+      ["134,xxx miles", 134_000, "mi"],
+      ["45xx", 4_500, "mi"],
+      ["Driven 120xxx miles, still runs great", 120_000, "mi"],
+      ["193xxx km", 193_000, "km"],
+    ])("parses %s", (input, value, unit) => {
+      expect(parseMileage(input)).toEqual({ value, unit });
+    });
+
+    it("still returns null for text with no digits at all", () => {
+      expect(parseMileage("xxx miles")).toBeNull();
+    });
+  });
 });
 
 describe("parseVehicleTitle", () => {

@@ -272,6 +272,8 @@ describe("scam patterns (spec 6.3)", () => {
     scam_signals_evaluable: 6,
     scam_signals_total: 7,
     scam_reduced_sensitivity: false,
+    seller_rating_average: null,
+    seller_rating_count: null,
     messages: [],
   });
 
@@ -292,6 +294,15 @@ describe("scam patterns (spec 6.3)", () => {
 
   it("still shows the section for a dealer with no scam signals at all", () => {
     expect(sellerSectionVisible({ ...seller([]), seller_type: "dealer" })).toBe(true);
+  });
+
+  it("still shows the section for a star rating with no scam signals and no dealer markers", () => {
+    // The backend only ever populates a rating once there are enough reviews
+    // to trust it, so its presence alone is reason enough to show the
+    // section -- distinct from the dealer and scam-combination reasons above.
+    expect(
+      sellerSectionVisible({ ...seller([]), seller_rating_average: 2.4, seller_rating_count: 7 }),
+    ).toBe(true);
   });
 });
 
