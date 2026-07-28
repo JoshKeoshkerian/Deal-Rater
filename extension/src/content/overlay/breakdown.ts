@@ -27,7 +27,7 @@
 
 import type { EvaluationResponse } from "../../shared/types";
 import { el, list } from "./elements";
-import { breakdownIsFlat, contributions, scoreTone, FLAT_BREAKDOWN_SPREAD } from "./state";
+import { breakdownIsFlat, contributions, scoreTone } from "./state";
 
 function label(name: string): string {
   return name.replace(/_/g, " ");
@@ -86,13 +86,20 @@ function bar(
   return row;
 }
 
-/** The one-line summary shown on the collapsed row. */
+/**
+ * The one-line finding shown above the bars, when there is one to make.
+ *
+ * Empty when the sub-scores are too close together to say anything -- "all
+ * four dimensions scored within a few points of each other" is not a finding,
+ * it is a description of the chart sitting directly below it, so it is left
+ * unsaid rather than spelled out in a sentence nobody needed.
+ */
 export function breakdownSummary(data: EvaluationResponse): string {
   const rows = contributions(data.deal_score.components).filter((r) => r.points !== null);
   if (rows.length === 0) return "No dimension could be assessed.";
 
   if (breakdownIsFlat(data.deal_score.components)) {
-    return "All four dimensions scored within a few points of each other.";
+    return "";
   }
 
   // The dimension that gave away the most points, not the one that scored
@@ -111,40 +118,15 @@ export function buildBreakdown(data: EvaluationResponse): HTMLElement[] {
   const rows = contributions(data.deal_score.components);
   const nodes: HTMLElement[] = [];
 
-  const values = data.deal_score.components
-    .map((c) => c.value)
-    .filter((value): value is number => value !== null);
-
-  // Four near-identical bars answer "what dragged this down?" with "nothing",
-  // in the most expensive way available. One sentence answers it better, and
-  // the figures stay underneath for anyone who wants them.
-  const flat = breakdownIsFlat(data.deal_score.components);
-  if (flat) {
-    nodes.push(
-      el(
-        "p",
-        "flat-note",
-        `Nothing stands out: every assessed dimension scored between ` +
-          `${Math.round(Math.min(...values))} and ${Math.round(Math.max(...values))}, ` +
-          `a spread of under ${FLAT_BREAKDOWN_SPREAD} points. The headline is the average, ` +
-          `not a verdict driven by one weak reading.`,
-      ),
-    );
+  const summary = breakdownSummary(data);
+  if (summary) {
+    nodes.push(el("p", "breakdown-note", summary));
   }
 
+  // Always drawn, flat or not -- spec 5.2 wants the breakdown alongside the
+  // score every time, not only when one dimension is worth calling out.
   const widest = Math.max(...rows.map((r) => r.maxPoints), 1);
   for (const { component, points, maxPoints } of rows) {
-    if (flat && points !== null) {
-      const line = el("div", "component compact");
-      const top = el("div", "component-top");
-      top.append(
-        el("span", "component-name", label(component.name)),
-        el("span", "component-figures", figures(component.value ?? 0, maxPoints, points)),
-      );
-      line.append(top);
-      nodes.push(line);
-      continue;
-    }
     nodes.push(bar(component, points, maxPoints, widest));
   }
 
@@ -187,7 +169,7 @@ export const BREAKDOWN_STYLES = `
   .bar > i[data-tone="favorable"] { background: var(--tone-favorable-fill); }
   .bar > i[data-tone="caution"]   { background: var(--tone-caution-fill); }
   .bar > i[data-tone="adverse"]   { background: var(--tone-adverse-fill); }
-  .flat-note {
+  .breakdown-note {
     margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-muted);
   }
   .muted-list { color: var(--text-faint); font-size: 11.5px; margin-top: 10px; }

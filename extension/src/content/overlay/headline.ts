@@ -16,7 +16,7 @@
  */
 
 import type { EvaluationResponse } from "../../shared/types";
-import { confidenceTone, compProblems, headlineState, priceComparison } from "./state";
+import { confidenceTone, compProblems, headlineState, priceComparison, scoreGrade } from "./state";
 import { TONE_GLYPH } from "./tokens";
 
 function el(tag: string, className?: string, text?: string): HTMLElement {
@@ -52,12 +52,15 @@ function buildConfident(data: EvaluationResponse): HTMLElement[] {
   const { score, suppressed_reason: suppressed, beta } = data.deal_score;
 
   const row = el("div", "score-row");
-  row.append(
-    score === null
-      ? el("div", "score-withheld", "Score withheld")
-      : el("div", "score", `${Math.round(score)}`),
-  );
-  if (score !== null) row.append(el("span", "score-of", "/ 100"));
+  if (score === null) {
+    row.append(el("div", "score-withheld", "Score withheld"));
+  } else {
+    const scoreNode = el("div", "score", `${Math.round(score)}`);
+    // Colour AND size, not colour alone -- the digits are still the number,
+    // so a reader who cannot tell green from red is not left with nothing.
+    scoreNode.dataset["grade"] = scoreGrade(score);
+    row.append(scoreNode, el("span", "score-of", "/ 100"));
+  }
   row.append(confidenceChip(data.pricing.confidence));
   if (beta) row.append(betaBadge());
 
@@ -159,7 +162,18 @@ export const HEADER_STYLES = `
 
   /* confident */
   .score-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-  .score { font-size: 36px; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+  .score {
+    font-size: 36px; font-weight: 700; line-height: 1; letter-spacing: -.02em;
+    color: var(--text); transition: font-size .12s ease;
+  }
+  /* Grade is a five-way read of the same 0-100 the rest of the panel keeps to
+     three tones (Tone) -- justified here because this is the one number
+     shown once, in isolation, at the size that draws the eye first. */
+  .score[data-grade="poor"]      { color: var(--grade-poor-text);      font-size: var(--grade-poor-size); }
+  .score[data-grade="weak"]      { color: var(--grade-weak-text);      font-size: var(--grade-weak-size); }
+  .score[data-grade="fair"]      { color: var(--grade-fair-text);      font-size: var(--grade-fair-size); }
+  .score[data-grade="good"]      { color: var(--grade-good-text);      font-size: var(--grade-good-size); }
+  .score[data-grade="excellent"] { color: var(--grade-excellent-text); font-size: var(--grade-excellent-size); }
   .score-of { font-size: 13px; color: var(--text-faint); margin-left: -4px; }
   .score-withheld { font-size: 17px; font-weight: 600; color: var(--tone-caution-text); }
   .headline { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }

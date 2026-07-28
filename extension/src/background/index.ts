@@ -14,7 +14,7 @@ import type {
   SubmitCaptureResult,
 } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
-import { fetchEvaluation, postCapture } from "./api-client";
+import { fetchEvaluationWithRetry, postCapture } from "./api-client";
 
 const TAB_LOAD_TIMEOUT_MS = 30_000;
 
@@ -23,7 +23,7 @@ const pendingHarvests = new Map<number, (tabId: number) => void>();
 
 async function handleEvaluation(captureId: number): Promise<EvaluationResult> {
   const settings = await loadSettings();
-  const evaluation = await fetchEvaluation(settings.apiBaseUrl, captureId);
+  const evaluation = await fetchEvaluationWithRetry(settings.apiBaseUrl, captureId);
   return { ok: true, evaluation };
 }
 

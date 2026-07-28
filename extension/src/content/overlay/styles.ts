@@ -10,7 +10,7 @@ import { BREAKDOWN_STYLES } from "./breakdown";
 import { ELEMENT_STYLES } from "./elements";
 import { HEADER_STYLES } from "./headline";
 import { SECTION_STYLES } from "./sections";
-import { BASE, toneVariables } from "./tokens";
+import { BASE, gradeVariables, toneVariables } from "./tokens";
 
 const SHELL = `
   :host { all: initial; }
@@ -77,6 +77,7 @@ export function stylesheet(): string {
     --beta: ${BASE.beta};
     --focus: ${BASE.link};
 ${toneVariables()}
+${gradeVariables()}
   }
 ${SHELL}
 ${ELEMENT_STYLES}

@@ -308,13 +308,30 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     type: "FETCH_EVALUATION",
     captureId: response.capture_id,
   });
-  if (evaluation?.ok) {
-    renderEvaluation(evaluation.evaluation);
-  }
 
   const summary = response.duplicate
     ? "Already captured."
     : `Captured with ${comps.length} comparable listing${comps.length === 1 ? "" : "s"}.`;
+
+  // The capture itself is saved either way -- ingestion already succeeded
+  // above -- but if there is no evaluation there is no overlay to show, and
+  // returning `ok: true` with the summary alone used to say "Captured with N
+  // comparable listings" while silently showing nothing at all, indistinguishable
+  // from success. `ok: false` here means "the click didn't finish what it set
+  // out to do," not "nothing was saved" -- the message says which one happened.
+  if (!evaluation?.ok) {
+    return {
+      ok: false,
+      message:
+        `${summary} Could not load the evaluation ` +
+        `(${evaluation?.error ?? "no response from the extension background worker"}). ` +
+        "Reopen this listing and click again to retry.",
+      compCount: comps.length,
+      extractionOk: response.extraction_ok,
+    };
+  }
+
+  renderEvaluation(evaluation.evaluation);
 
   return {
     ok: true,

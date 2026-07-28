@@ -19,6 +19,7 @@ import {
   knownIssuesReasonIsShowable,
   priceComparison,
   scamDisplay,
+  scoreGrade,
   scoreTone,
   sellerSectionVisible,
   titleTone,
@@ -242,6 +243,26 @@ describe("score breakdown", () => {
     expect(breakdownIsFlat(flat)).toBe(true);
     expect(breakdownIsFlat(components)).toBe(false);
   });
+
+  it("has nothing to say when the breakdown is flat, rather than describing the chart under it", () => {
+    const summary = breakdownSummary(
+      evaluation({
+        deal_score: {
+          score: 66,
+          components: [
+            component("price_residual", 56, 64),
+            component("information_completeness", 9, 70),
+            component("vehicle_risk", 25, 68),
+            component("seller_and_scam_risk", 10, 62),
+          ],
+          coverage: 1,
+          suppressed_reason: null,
+          beta: true,
+        },
+      }),
+    );
+    expect(summary).toBe("");
+  });
 });
 
 describe("semantic tone", () => {
@@ -260,6 +281,19 @@ describe("semantic tone", () => {
     expect(scoreTone(50)).toBe("caution");
     expect(scoreTone(10)).toBe("adverse");
     expect(scoreTone(null)).toBe("neutral");
+  });
+
+  it("grades the headline score into five bands, boundaries inclusive on the upper end", () => {
+    expect(scoreGrade(0)).toBe("poor");
+    expect(scoreGrade(54.9)).toBe("poor");
+    expect(scoreGrade(55)).toBe("weak");
+    expect(scoreGrade(64.9)).toBe("weak");
+    expect(scoreGrade(65)).toBe("fair");
+    expect(scoreGrade(74.9)).toBe("fair");
+    expect(scoreGrade(75)).toBe("good");
+    expect(scoreGrade(84.9)).toBe("good");
+    expect(scoreGrade(85)).toBe("excellent");
+    expect(scoreGrade(100)).toBe("excellent");
   });
 });
 

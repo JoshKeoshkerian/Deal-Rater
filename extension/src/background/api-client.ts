@@ -60,3 +60,31 @@ export async function fetchEvaluation(
     clearTimeout(timer);
   }
 }
+
+const EVALUATION_RETRY_DELAY_MS = 1_500;
+
+/**
+ * `fetchEvaluation`, retried once after a short delay.
+ *
+ * `GET /v1/evaluations/{id}` recomputes the whole assessment on every call --
+ * VIN decode, NHTSA recalls/complaints, and the known-issues LLM call, none of
+ * which are free on a cold cache -- and the endpoint never checks for client
+ * disconnection, so a request the client gave up on keeps running server-side
+ * and finishes populating those caches anyway. A vehicle combination this
+ * backend hasn't priced before can take long enough to trip
+ * `REQUEST_TIMEOUT_MS`, which used to surface as the capture succeeding with
+ * no evaluation and no overlay at all. One retry, after a pause to let the
+ * first attempt actually finish server-side, turns that into an evaluation
+ * that appears a couple of seconds late instead of not appearing.
+ */
+export async function fetchEvaluationWithRetry(
+  apiBaseUrl: string,
+  captureId: number,
+): Promise<EvaluationResponse> {
+  try {
+    return await fetchEvaluation(apiBaseUrl, captureId);
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, EVALUATION_RETRY_DELAY_MS));
+    return fetchEvaluation(apiBaseUrl, captureId);
+  }
+}

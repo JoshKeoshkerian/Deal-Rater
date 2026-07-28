@@ -14,7 +14,7 @@
  */
 
 import type { EvaluationResponse, ScoreComponent } from "../../shared/types";
-import type { Tone } from "./tokens";
+import type { Grade, Tone } from "./tokens";
 
 /** Sub-score spread below which the four dimensions are "all much the same". */
 export const FLAT_BREAKDOWN_SPREAD = 15;
@@ -241,9 +241,10 @@ export function contributions(components: ScoreComponent[]): Contribution[] {
 }
 
 /**
- * True when the sub-scores are too close together for four bars to say
- * anything. The chart's job is to answer "what dragged this down?"; when
- * nothing did, one sentence answers it better than four near-identical bars.
+ * True when the sub-scores are too close together for "what dragged this
+ * down?" to have an answer. The bars still render either way; this only gates
+ * whether `breakdownSummary` has a sentence to add above them or nothing to
+ * say at all.
  */
 export function breakdownIsFlat(components: ScoreComponent[]): boolean {
   const values = components
@@ -259,6 +260,18 @@ export function scoreTone(value: number | null): Tone {
   if (value >= 70) return "favorable";
   if (value >= 45) return "caution";
   return "adverse";
+}
+
+/**
+ * The headline score's five-way grade. See `tokens.ts`'s `GRADES` for why the
+ * headline gets a finer scale than the three-state `Tone` everywhere else.
+ */
+export function scoreGrade(value: number): Grade {
+  if (value >= 85) return "excellent";
+  if (value >= 75) return "good";
+  if (value >= 65) return "fair";
+  if (value >= 55) return "weak";
+  return "poor";
 }
 
 /* -------------------------------------------------------------------------- */

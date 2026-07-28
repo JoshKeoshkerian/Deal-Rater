@@ -29,7 +29,7 @@
  */
 
 import type { EvaluationResponse } from "../../shared/types";
-import { breakdownSummary, buildBreakdown } from "./breakdown";
+import { buildBreakdown } from "./breakdown";
 import { disclosure, el, section } from "./elements";
 import { buildHeader } from "./headline";
 import {
@@ -109,9 +109,9 @@ export function renderEvaluation(data: EvaluationResponse): void {
 
   // The breakdown belongs with the headline (spec 5.2) and is the section
   // closest to it for that reason -- nothing else renders between them.
-  sheet.append(
-    disclosure("Score breakdown", breakdownSummary(data), buildBreakdown(data)),
-  );
+  // Always open, not a disclosure: spec 5.2 wants it shown "alongside" the
+  // score, not one click away from it.
+  sheet.append(section("Score breakdown", buildBreakdown(data))!);
 
   // 2. Pricing (spec 7.2, 5.1's four numbers). Always visible.
   sheet.append(section("Pricing", buildPricing(data))!);

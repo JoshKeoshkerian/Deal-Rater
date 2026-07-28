@@ -83,3 +83,45 @@ export function toneVariables(): string {
   }
   return lines.join("\n");
 }
+
+/**
+ * Five-way grade for the headline "x / 100" number specifically.
+ *
+ * `Tone` stays a three-state judgement everywhere else in the panel -- that is
+ * a deliberate constraint (see the module docstring) so a reader is never
+ * asked to distinguish more shades of red than a glance can tell apart. The
+ * headline score is the one place a finer scale earns its keep: it is the
+ * single most-looked-at number in the panel, shown once, in isolation, next
+ * to nothing else that could disambiguate a middling reading from a bad one.
+ */
+export type Grade = "poor" | "weak" | "fair" | "good" | "excellent";
+
+export interface GradeStyle {
+  text: string;
+  /** Headline font size, in px, at this grade. */
+  size: number;
+}
+
+/**
+ * Red-to-green, five stops. Deliberately not evenly spaced against 0-100:
+ * everything under 55 collapses into one "poor" band because the size of a
+ * bad score's shortfall matters less than the fact that it is bad, while the
+ * 55-100 range -- where a buyer actually has to decide how good "good" is --
+ * gets four times the resolution.
+ */
+export const GRADES: Record<Grade, GradeStyle> = {
+  poor: { text: "#e35c58", size: 32 },
+  weak: { text: "#e0904a", size: 34 },
+  fair: { text: "#dcc257", size: 36 },
+  good: { text: "#8ecb6b", size: 39 },
+  excellent: { text: "#3fab5e", size: 42 },
+};
+
+/** CSS custom properties for every grade, emitted alongside the tone ones. */
+export function gradeVariables(): string {
+  const lines: string[] = [];
+  for (const [name, style] of Object.entries(GRADES)) {
+    lines.push(`    --grade-${name}-text: ${style.text};`, `    --grade-${name}-size: ${style.size}px;`);
+  }
+  return lines.join("\n");
+}
