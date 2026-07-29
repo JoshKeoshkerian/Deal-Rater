@@ -24,6 +24,7 @@ import {
   listingLink,
   meterRow,
   money,
+  notePill,
   rows,
   statTile,
   type Row,
@@ -382,8 +383,20 @@ function buildComplaints(data: EvaluationResponse): HTMLElement[] {
     nodes.push(chart);
   }
 
-  for (const message of risk.complaint_messages) {
-    nodes.push(el("p", "muted", message));
+  // complaint_messages()[0] is the count/breakdown sentence, [1] the caveat
+  // that the count isn't adjusted for sales volume (see `nhtsa/assessment.py`).
+  // The caveat gets the pill treatment -- it's a property of the DATA, not a
+  // finding about this vehicle, and reading like one buried it in the past.
+  if (risk.complaint_messages[0]) {
+    nodes.push(el("p", "muted", risk.complaint_messages[0]));
+  }
+  if (risk.complaint_messages[1]) {
+    nodes.push(
+      notePill(
+        risk.complaint_messages[1],
+        "Source: NHTSA complaints database, by year/make/model.",
+      ),
+    );
   }
   return nodes;
 }

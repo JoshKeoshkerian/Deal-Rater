@@ -145,6 +145,22 @@ export function disclosure(
 }
 
 /**
+ * A caveat about the DATA, not a judgement about the vehicle -- so it gets
+ * neither a `Tone` nor a `TONE_GLYPH` entry, just a soft neutral capsule that
+ * reads as "context" rather than a finding sitting in the middle of a list of
+ * findings. Used where a number needs an asterisk it can't outrun, e.g. NHTSA
+ * complaint counts that are not adjusted for how many of the model sold.
+ */
+export function notePill(text: string, source?: string): HTMLElement {
+  const node = el("div", "note-pill");
+  const body = el("div", "note-pill-body");
+  body.append(el("span", undefined, text));
+  if (source) body.append(el("span", "note-pill-source", source));
+  node.append(el("span", "note-pill-glyph", "ⓘ"), body);
+  return node;
+}
+
+/**
  * A quality mark for the one section the model writes (spec 6.6), not a
  * disclaimer -- the disclaimers already live in the footer notices. This is
  * the panel taking credit for it.
@@ -539,6 +555,24 @@ export const ELEMENT_STYLES = `
     color: var(--tone-caution-text); border-color: var(--tone-caution-border);
     background: var(--tone-caution-surface);
   }
+
+  /* note pill ----------------------------------------------------------- */
+  .note-pill {
+    display: flex; align-items: flex-start; gap: var(--sp-3);
+    margin-top: var(--sp-4);
+    padding: var(--sp-4) var(--sp-5);
+    border-radius: var(--radius-lg);
+    background: var(--tone-neutral-surface);
+    border: 1px solid var(--tone-neutral-border);
+    color: var(--tone-neutral-on-surface);
+    font-size: var(--fs-xs);
+    line-height: 1.55;
+  }
+  .note-pill-glyph {
+    flex: none; font-size: var(--fs-sm); line-height: 1.55; color: var(--tone-neutral-text);
+  }
+  .note-pill-body { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .note-pill-source { color: var(--text-faint); font-size: var(--fs-2xs); }
 
   /* badges and links -------------------------------------------------- */
   .ai-badge {
