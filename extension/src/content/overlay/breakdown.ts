@@ -171,11 +171,6 @@ export function buildBreakdown(data: EvaluationResponse): HTMLElement[] {
   const rows = contributions(data.deal_score.components);
   const nodes: HTMLElement[] = [];
 
-  const summary = breakdownSummary(data);
-  if (summary) {
-    nodes.push(el("p", "breakdown-note", summary));
-  }
-
   // Always drawn, flat or not -- spec 5.2 wants the breakdown alongside the
   // score every time, not only when one dimension is worth calling out.
   const widest = Math.max(...rows.map((r) => r.maxPoints), 1);
