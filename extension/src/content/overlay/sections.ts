@@ -1,5 +1,5 @@
 /**
- * Spec 7's sections, in its order.
+ * The overlay's sections, in the panel's vertical order (see `index.ts`).
  *
  * Each one exports a builder and, where it needs one, the summary line shown
  * while it is collapsed. The summary always carries the finding rather than
@@ -18,22 +18,19 @@ import {
   rows,
   type Row,
 } from "./elements";
-import {
-  compProblems,
-  confidenceTone,
-  hasOnlyStructuralLimiters,
-  scamDisplay,
-  scoreTone,
-  titleTone,
-} from "./state";
+import { confidenceTone, knownIssuesReasonIsShowable } from "./state";
 
 /* -------------------------------------------------------------------------- */
-/* 2. pricing (spec 5.1) -- always visible                                    */
+/* pricing / details (spec 5.1's four numbers, plus the target's own facts)   */
 /* -------------------------------------------------------------------------- */
 
 export function buildPricing(data: EvaluationResponse): HTMLElement[] {
   const p = data.pricing;
+  const v = data.vehicle_details;
 
+  // Comp count used to repeat here. It is already the first thing the headline
+  // says (`priceComparison` in state.ts), an inch above this section, so
+  // printing it twice spent a row saying nothing new.
   const figures: Row[] = [["Current ask", money(p.ask_cents), { big: true }]];
   if (p.expected_asking_cents !== null) {
     figures.push([
@@ -41,113 +38,176 @@ export function buildPricing(data: EvaluationResponse): HTMLElement[] {
       `${money(p.asking_interval_low_cents)} – ${money(p.asking_interval_high_cents)}`,
     ]);
   }
-  figures.push(["Comps used", `${p.comps_included}`]);
   figures.push(["Confidence", p.confidence, { tone: confidenceTone(p.confidence) }]);
-  return [rows(figures)];
-}
 
-/** The collapsed comp-quality row that sits under the pricing block. */
-export function compQualitySummary(data: EvaluationResponse): string {
-  const p = data.pricing;
+  // The listing's own stated facts, not a judgement -- title STATUS here is
+  // the seller's word ("Clean", "Rebuilt"); the graded reading of it lives in
+  // the Risk section's red flags instead.
+  const details: Row[] = [];
+  if (v.year !== null) details.push(["Year", `${v.year}`]);
+  if (v.make) details.push(["Make", v.make]);
+  if (v.model) details.push(["Model", v.model]);
+  details.push([
+    "Mileage",
+    v.mileage !== null ? `${v.mileage.toLocaleString("en-US")} mi` : "not stated",
+  ]);
+  details.push(["Title status", v.title_status ?? "not stated"]);
 
-  // Nothing wrong with this comp set beyond what is wrong with every comp set.
-  // Leading with "dealer listings could not be filtered out" on a 31-comp fit
-  // would repeat the boilerplate this ranking exists to bury.
-  if (hasOnlyStructuralLimiters(p)) {
-    return `${p.comps_included} comparable listings, nothing unusual limiting them.`;
-  }
-
-  const problems = compProblems(p, 1);
-  if (problems.length === 0) return `Confidence: ${p.confidence}.`;
-
-  const others = p.confidence_limiters.length - 1;
-  return `${problems[0]}${others > 0 ? `, and ${others} more` : ""}.`;
-}
-
-export function buildCompQuality(data: EvaluationResponse): HTMLElement[] {
-  const p = data.pricing;
-  const nodes: HTMLElement[] = [];
-
-  const reasons = list(p.confidence_reasons);
-  if (reasons) nodes.push(reasons);
-
-  nodes.push(
-    rows([
-      ["Estimator", p.estimator.replace(/_/g, " ")],
-      ["Comps used", `${p.comps_included}`],
-      ["Comps with mileage", `${p.comps_with_mileage}`],
-      [
-        "Year window",
-        `${p.year_window} year${p.year_window === 1 ? "" : "s"}${
-          p.year_window_widened ? " (widened)" : ""
-        }`,
-      ],
-    ]),
-  );
-  return nodes;
+  const grid = el("div", "pricing-grid");
+  grid.append(rows(figures), rows(details));
+  return [grid];
 }
 
 /* -------------------------------------------------------------------------- */
-/* 3. vehicle risk (spec 6.2)                                                 */
+/* risk: red flags / recalls / known issues                                   */
 /* -------------------------------------------------------------------------- */
+
+//: The five scam signals this product can actually evaluate (`flags/scam.py`'s
+//: module docstring explains why only five of the spec's seven are checkable).
+//: Kept as its own small map, the same way `state.ts`'s `limiterText` restates
+//: backend prose for the panel rather than shipping the codes raw -- the
+//: backend sends codes (`scam_signals_fired`), not sentences, once the
+//: sentences are no longer bundled into one prose blob meant for a single
+//: disclosure (see `buildRedFlags`).
+const SCAM_SIGNAL_TEXT: Record<string, string> = {
+  unexplained_deep_discount:
+    "Priced far below comparable listings with no explanation in the description.",
+  few_or_stock_photos: "Very few photos for a vehicle at this price.",
+  minimal_description: "Description is minimal or looks templated.",
+  vin_omitted_from_detailed_listing:
+    "The listing is detailed in every other respect but omits the VIN.",
+  payment_or_meeting_red_flags:
+    "Payment or meeting terms that legitimate private sellers rarely ask for.",
+};
+
+function scamSignalText(code: string): string {
+  return SCAM_SIGNAL_TEXT[code] ?? code.replace(/_/g, " ");
+}
+
+//: Below this a star rating gets called out as a red flag. UNCALIBRATED, like
+//: every other threshold in this panel (spec 9) -- Marketplace ratings skew
+//: high, so a rating in this range is a genuine outlier rather than typical
+//: noise. A rating at or above it says nothing (most sellers clear it) and is
+//: left out rather than printed as reassurance nobody asked for.
+const LOW_RATING_THRESHOLD = 4.0;
 
 /**
- * The findings that must be on screen without expanding anything.
+ * Red flags about the LISTING itself: title branding, the scam-pattern
+ * combination (spec 6.3), a dealer posing as a private seller, and a
+ * star rating low enough to be a signal rather than noise.
  *
- * Spec 6.3: a scam combination is "a distinct, prominent warning rather than a
- * numerical deduction buried in a composite". Used to be a grey bullet.
- *
- * Recalls used to surface here too (spec 6.2 asks for it), but NHTSA has open
- * campaigns against nearly every VIN it's asked about, so the callout fired on
- * almost every listing and stopped reading as a finding -- it was noise, not
- * signal, and the same was true of the recall count folded into the collapsed
- * "Vehicle risk" summary and detail rows. Recall data has been dropped from
- * the panel entirely rather than kept in a form that would fire just as often.
+ * Deliberately built from the structured fields rather than the backend's
+ * prose `messages` list: that list always includes the seller's rating once
+ * there are enough reviews to trust, GOOD or bad, because it also caps the
+ * score (`evaluation/score.py`). A 4.9-star line has no business in a list
+ * titled "red flags", so this reconstructs only the parts that are actually
+ * flags.
  */
-export function buildAdverseFindings(data: EvaluationResponse): HTMLElement[] {
+function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
   const nodes: HTMLElement[] = [];
   const risk = data.vehicle_risk;
-
-  // Spec 6.3, and the strongest thing the panel can say. First.
   const seller = data.seller_risk;
-  if (seller && scamDisplay(seller) === "warning") {
+
+  if (risk.title_risk === "disqualifying" || risk.title_risk === "branded") {
+    nodes.push(callout("adverse", `Title: ${risk.title_risk}`, [risk.title_message]));
+  } else if (risk.title_risk === "unstated") {
+    nodes.push(callout("caution", "Title status not stated", [risk.title_message]));
+  }
+
+  const bullets: string[] = [];
+  if (seller?.seller_type === "dealer") {
+    bullets.push(
+      "Looks like a dealer listing rather than a private-party sale -- the asking price " +
+        "may include reconditioning, warranty and overhead.",
+    );
+  }
+  if (seller) bullets.push(...seller.scam_signals_fired.map(scamSignalText));
+  if (seller?.seller_rating_average != null && seller.seller_rating_average < LOW_RATING_THRESHOLD) {
+    const count = seller.seller_rating_count ?? 0;
+    bullets.push(
+      `Low seller rating: ${seller.seller_rating_average.toFixed(1)}/5 from ${count} ` +
+        `review${count === 1 ? "" : "s"} on Marketplace.`,
+    );
+  }
+
+  // Spec 6.3: "Flag the COMBINATION... Four together is a strong signal and
+  // should produce a distinct, prominent warning rather than a numerical
+  // deduction buried in a composite." `scam_warning` is the backend's own
+  // threshold (`SCAM_SIGNALS_FOR_WARNING`), read rather than recounted here.
+  if (seller?.scam_warning) {
     nodes.push(
       callout("adverse", "Several scam patterns fired together", [
         `${seller.scam_signals_fired.length} independent signals fired on this listing. ` +
           "Any one of them is weak. This many at once is not, and it is why no deal score " +
           "is shown.",
-        list(seller.messages) ?? el("span"),
+        list(bullets) ?? el("span"),
       ]),
     );
+  } else {
+    const ul = list(bullets);
+    if (ul) nodes.push(ul);
   }
 
-  if (risk.title_risk === "disqualifying" || risk.title_risk === "branded") {
-    nodes.push(callout("adverse", `Title: ${risk.title_risk}`, [risk.title_message]));
+  if (nodes.length === 0) {
+    nodes.push(el("p", "muted", "No red flags identified on this listing."));
   }
-
   return nodes;
 }
 
-export function vehicleRiskSummary(data: EvaluationResponse): string {
+/** Open recall campaigns (spec 6.2), on its own rather than mixed with
+ * complaint density -- the two are different questions with different
+ * caveats, and combining them was what made the old panel drop recalls
+ * entirely once they read as noise on almost every VIN. */
+function buildRecalls(data: EvaluationResponse): HTMLElement[] {
   const risk = data.vehicle_risk;
-  const parts: string[] = [`title ${risk.title_risk}`];
-  if (risk.complaint_count !== null) parts.push(`${risk.complaint_count} owner complaints`);
-  if (risk.complaint_count === null) {
-    parts.push("no NHTSA data for this vehicle");
+  if (risk.recall_count === null) {
+    return [el("p", "muted", "No recall data available for this vehicle.")];
   }
-  return parts.join(", ") + ".";
+  const nodes: HTMLElement[] = [
+    rows([
+      [
+        "Open recall campaigns",
+        `${risk.recall_count}`,
+        { tone: risk.recall_count > 0 ? "caution" : "favorable" },
+      ],
+    ]),
+  ];
+  // recall_messages()[1] is the caveat sentence (see `nhtsa/assessment.py`),
+  // kept as the single source of truth rather than restated here.
+  if (risk.recall_count > 0 && risk.recall_messages[1]) {
+    nodes.push(el("p", "muted", risk.recall_messages[1]));
+  }
+  return nodes;
 }
 
-export function buildVehicleRisk(data: EvaluationResponse): HTMLElement[] {
-  const risk = data.vehicle_risk;
+/**
+ * What's known to be wrong with THIS model at THIS mileage: NHTSA complaint
+ * density (gathered, not generated) plus the cached LLM read (spec 6.6),
+ * concise by construction -- the prompt already refuses to pad an empty list
+ * (`known_issues/prompt.py`), so this renders what it's given rather than
+ * imposing its own cap on top.
+ *
+ * "Ask" is deliberately absent: those bullets are spec 7's own section now
+ * (`buildQuestions`), not folded in here.
+ */
+function buildKnownIssuesSubsection(data: EvaluationResponse): HTMLElement[] {
   const nodes: HTMLElement[] = [];
+  const risk = data.vehicle_risk;
+  const known = data.known_issues;
 
-  const figures: Row[] = [["Title", risk.title_risk, { tone: titleTone(risk.title_risk) }]];
-  if (risk.complaint_count !== null) {
-    figures.push(["Owner complaints", `${risk.complaint_count}`]);
+  if (known) {
+    nodes.push(el("p", "known-summary", known.summary));
+  } else if (
+    data.known_issues_unavailable_reason &&
+    knownIssuesReasonIsShowable(data.known_issues_unavailable_code)
+  ) {
+    nodes.push(el("p", "muted", data.known_issues_unavailable_reason));
   }
+
+  const figures: Row[] = [];
+  if (risk.complaint_count !== null) figures.push(["Owner complaints", `${risk.complaint_count}`]);
   if (risk.decoded_spec) figures.push(["VIN decode", risk.decoded_spec]);
-  nodes.push(rows(figures));
+  if (figures.length) nodes.push(rows(figures));
 
   if (risk.top_complaint_components.length) {
     nodes.push(el("p", "muted", "Most complained-about systems"));
@@ -156,67 +216,82 @@ export function buildVehicleRisk(data: EvaluationResponse): HTMLElement[] {
     );
   }
 
-  const messages = list([risk.title_message, ...risk.messages]);
-  if (messages) nodes.push(messages);
-  return nodes;
-}
-
-/* -------------------------------------------------------------------------- */
-/* 4. seller and scam risk (spec 6.3, 7.4)                                    */
-/* -------------------------------------------------------------------------- */
-
-export function sellerRiskSummary(data: EvaluationResponse): string {
-  const seller = data.seller_risk;
-  if (!seller) return "";
-  const parts: string[] = [];
-  if (seller.seller_type === "dealer") parts.push("looks like a dealer listing");
-  const fired = seller.scam_signals_fired.length;
-  if (fired >= 2) parts.push(`${fired} scam-pattern signals fired`);
-  return parts.join("; ") + ".";
-}
-
-export function buildSellerRisk(data: EvaluationResponse): HTMLElement[] {
-  const seller = data.seller_risk;
-  if (!seller) return [];
-  const nodes: HTMLElement[] = [];
-
-  nodes.push(rows([["Seller", seller.seller_type]]));
-  if (seller.dealer_markers.length) {
-    nodes.push(el("p", "muted", "What suggests a dealer"));
-    nodes.push(list(seller.dealer_markers)!);
-  }
-
-  if (seller.seller_rating_average !== null) {
-    nodes.push(
-      rows([["Marketplace rating", `${seller.seller_rating_average.toFixed(1)} / 5`]]),
-    );
-  }
-
-  // Spec 6.3 flags combinations. Below two signals nothing is rendered here at
-  // all -- see `scamDisplay` -- and at four the warning is already at the top
-  // of the panel, so this stays the detail rather than repeating it. A star
-  // rating is a separate, independent reason to show `messages` (the backend
-  // appends the rating line to the same list), since it can be the ONLY
-  // reason this section is visible at all -- see `sellerSectionVisible`.
-  if (scamDisplay(seller) !== "hidden" || seller.seller_rating_average !== null) {
-    const messages = list(seller.messages);
-    if (messages) nodes.push(messages);
-    if (seller.scam_reduced_sensitivity) {
-      nodes.push(
-        el(
-          "p",
-          "muted",
-          `Only ${seller.scam_signals_evaluable} of ${seller.scam_signals_total} patterns ` +
-            "could be checked on this listing, so the combination is judged on less.",
-        ),
-      );
+  if (known) {
+    const groups: Array<[string, string[]]> = [
+      ["Known to go wrong", known.failure_modes],
+      ["Check on the viewing", known.inspect],
+      ["Living with it", known.ownership_notes],
+    ];
+    for (const [label, items] of groups) {
+      const ul = list(items);
+      if (!ul) continue;
+      nodes.push(el("p", "muted", label), ul);
     }
   }
+
+  if (nodes.length === 0) {
+    nodes.push(el("p", "muted", "No known-issue data available for this vehicle."));
+  }
   return nodes;
 }
 
+function subheading(text: string): HTMLElement {
+  return el("h3", "risk-subhead", text);
+}
+
+/**
+ * The combined Risk section: red flags about the LISTING, open recalls, and
+ * what's known to go wrong with the CAR. Three previously separate panels
+ * (vehicle risk, seller and scam risk, "what to check on this car") folded
+ * into one, because a buyer weighing risk does not think in the product's
+ * internal dimension boundaries -- they think "what's wrong with this deal".
+ */
+export function buildRisk(data: EvaluationResponse): HTMLElement[] {
+  return [
+    subheading("Red flags"),
+    ...buildRedFlags(data),
+    subheading("Recalls"),
+    ...buildRecalls(data),
+    subheading("Known issues"),
+    ...buildKnownIssuesSubsection(data),
+  ];
+}
+
 /* -------------------------------------------------------------------------- */
-/* 5. negotiation (spec 6.4)                                                  */
+/* questions to ask the seller (spec 6.6's "ask", promoted to its own section) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Empty ([]) only when there is nothing to show at all -- `index.ts` relies on
+ * that to hide the section via `section()`'s own empty-body guard, the same
+ * way every other always-visible section does.
+ */
+export function buildQuestions(data: EvaluationResponse): HTMLElement[] {
+  const known = data.known_issues;
+  if (known) {
+    const ul = list(known.ask);
+    return ul
+      ? [ul]
+      : [
+          el(
+            "p",
+            "muted",
+            "No vehicle-specific questions -- the standard checklist (title, service " +
+              "history, accident history) covers this one.",
+          ),
+        ];
+  }
+  if (
+    data.known_issues_unavailable_reason &&
+    knownIssuesReasonIsShowable(data.known_issues_unavailable_code)
+  ) {
+    return [el("p", "muted", data.known_issues_unavailable_reason)];
+  }
+  return [];
+}
+
+/* -------------------------------------------------------------------------- */
+/* negotiation (spec 6.4)                                                     */
 /* -------------------------------------------------------------------------- */
 
 function leverageTone(leverage: string) {
@@ -285,7 +360,7 @@ export function buildNegotiation(data: EvaluationResponse): HTMLElement[] {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 6. better alternatives (spec 6.5)                                          */
+/* better alternatives (spec 6.5)                                             */
 /* -------------------------------------------------------------------------- */
 
 export function alternativesSummary(data: EvaluationResponse): string {
@@ -319,63 +394,15 @@ export function buildAlternatives(data: EvaluationResponse): HTMLElement[] {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 7. what to check on this car (spec 6.6)                                    */
-/* -------------------------------------------------------------------------- */
-
-export function knownIssuesSummary(data: EvaluationResponse): string {
-  const known = data.known_issues;
-  if (!known) {
-    // Spec 10's verdict, cut to its first sentence. The whole paragraph is
-    // inside the row; a summary line is a line.
-    const reason = data.known_issues_unavailable_reason ?? "";
-    const stop = reason.indexOf(". ");
-    return stop === -1 ? reason : `${reason.slice(0, stop + 1)}`;
-  }
-  const count =
-    known.failure_modes.length + known.inspect.length + known.ask.length;
-  return count > 0 ? `${count} things to check before buying.` : known.summary;
-}
-
-export function buildKnownIssues(data: EvaluationResponse): HTMLElement[] {
-  const known = data.known_issues;
-  const nodes: HTMLElement[] = [];
-
-  if (!known) {
-    // Only reachable for a gate VERDICT; the deployment reasons never render
-    // this section at all. See `knownIssuesReasonIsShowable`.
-    if (data.known_issues_unavailable_reason) {
-      nodes.push(el("p", "muted", data.known_issues_unavailable_reason));
-    }
-    return nodes;
-  }
-
-  nodes.push(el("p", "known-summary", known.summary));
-
-  const groups: Array<[string, string[]]> = [
-    ["Known to go wrong", known.failure_modes],
-    ["Check on the viewing", known.inspect],
-    ["Ask the seller", known.ask],
-    ["Living with it", known.ownership_notes],
-  ];
-  let any = false;
-  for (const [label, items] of groups) {
-    const ul = list(items);
-    if (!ul) continue;
-    any = true;
-    nodes.push(el("p", "muted", label), ul);
-  }
-  if (!any) {
-    nodes.push(
-      el("p", "muted", "No widespread model-specific problems documented for this mileage."),
-    );
-  }
-  return nodes;
-}
-
-/* -------------------------------------------------------------------------- */
 
 export const SECTION_STYLES = `
   .summary-inline { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; align-items: start; }
+  .risk-subhead {
+    margin: 18px 0 8px; font-size: 11px; font-weight: 700;
+    letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim);
+  }
+  .risk-subhead:first-child { margin-top: 0; }
   .alt {
     padding: 9px 0; border-top: 1px solid var(--border-faint);
     font-size: 12.5px; line-height: 1.5;

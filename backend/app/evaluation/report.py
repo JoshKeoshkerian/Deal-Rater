@@ -149,9 +149,17 @@ def build_evaluation(
     known_issues: KnownIssuesReading | None = None,
     seller_rating_average: float | None = None,
     seller_rating_count: int | None = None,
+    extra_notices: tuple[str, ...] = (),
 ) -> Evaluation:
     """Assemble the finished evaluation. Pure composition; nothing is computed
-    here that the dimension modules did not already decide."""
+    here that the dimension modules did not already decide.
+
+    `extra_notices` is the one exception, and it stays composition rather than
+    computation: the caller (the only module that looks at all dimensions at
+    once) has already decided what, if anything, needs saying by cross-
+    referencing two dimensions' own outputs -- this just places the result
+    ahead of the standing disclaimers rather than computing it.
+    """
     return Evaluation(
         deal_score=deal_score,
         pricing=pricing,
@@ -164,4 +172,5 @@ def build_evaluation(
         known_issues=known_issues or KnownIssuesReading(),
         seller_rating_average=seller_rating_average,
         seller_rating_count=seller_rating_count,
+        notices=(*extra_notices, BETA_NOTICE, ASKING_PRICE_NOTICE, DISCLAIMER),
     )

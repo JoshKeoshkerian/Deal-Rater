@@ -1,16 +1,17 @@
 /**
- * The evaluation overlay (spec 7, build step 8).
+ * The evaluation overlay.
  *
- * HIERARCHY, NOT OMISSION
- * -----------------------
- * The panel used to be three screens of flat scroll in which a 34px score sat
- * above the caveats that invalidated it. Everything it surfaced then is still
- * reachable now; what changed is that the panel leads with what it is confident
- * about and folds the rest behind a summary line that carries the finding.
+ * VERTICAL ORDER
+ * ---------------
+ * Headline -> score breakdown -> Pricing/Details -> Risk (red flags, recalls,
+ * known issues -- combining what used to be three separate panels) ->
+ * Questions to ask the seller -> Negotiation -> Better alternatives.
  *
- *   always visible   the headline state, the four pricing numbers, and any
- *                    adverse finding (scam combination, branded title)
- *   one click away   everything else, in spec 7's order, each row summarised
+ * Score breakdown, Pricing/Details and Risk are always open: a buyer weighing
+ * risk should not have to click to see it. Negotiation and Better alternatives
+ * stay one click away, each with a summary line that carries the finding, so a
+ * user who never expands them has still been told the headline of what's
+ * inside.
  *
  * THREE THINGS THE MARKUP IS NOT ALLOWED TO DROP
  * ----------------------------------------------
@@ -34,21 +35,13 @@ import { aiBadge, disclosure, el, section } from "./elements";
 import { buildHeader } from "./headline";
 import {
   alternativesSummary,
-  buildAdverseFindings,
   buildAlternatives,
-  buildCompQuality,
-  buildKnownIssues,
   buildNegotiation,
   buildPricing,
-  buildSellerRisk,
-  buildVehicleRisk,
-  compQualitySummary,
-  knownIssuesSummary,
+  buildQuestions,
+  buildRisk,
   negotiationSummary,
-  sellerRiskSummary,
-  vehicleRiskSummary,
 } from "./sections";
-import { knownIssuesReasonIsShowable, sellerSectionVisible } from "./state";
 import { stylesheet } from "./styles";
 
 const HOST_ID = "deal-rater-overlay";
@@ -101,7 +94,7 @@ export function renderEvaluation(data: EvaluationResponse): void {
     if (event.target === backdrop) close();
   });
 
-  // 1. Headline (spec 7.1), in whichever state the evidence supports.
+  // 1. Headline, in whichever state the evidence supports.
   sheet.append(buildHeader(data, close));
 
   // The breakdown belongs with the headline (spec 5.2) and is the section
@@ -110,61 +103,32 @@ export function renderEvaluation(data: EvaluationResponse): void {
   // score, not one click away from it.
   sheet.append(section("Score breakdown", buildBreakdown(data))!);
 
-  // 2. Pricing (spec 7.2, 5.1's four numbers). Always visible.
-  sheet.append(section("Pricing", buildPricing(data))!);
+  // 2. Pricing/Details: spec 5.1's numbers plus the listing's own stated
+  // facts (year, make, model, mileage, title status). Always visible.
+  sheet.append(section("Pricing/Details", buildPricing(data))!);
 
-  // Adverse findings, before anything collapsed. Spec 6.3 requires prominence
-  // that does not depend on a score weight or on a click.
-  const adverse = buildAdverseFindings(data);
-  if (adverse.length) {
-    const holder = el("section", "findings");
-    holder.append(...adverse);
-    sheet.append(holder);
-  }
+  // 3. Risk: red flags about the listing, open recalls, and what's known to
+  // go wrong with the car -- one section where three used to be. The AI pill
+  // marks it because its "Known issues" subsection leans on the cached model
+  // read (spec 6.6); red flags and recalls are deterministic.
+  sheet.append(section("Risk", buildRisk(data), aiBadge())!);
 
-  // 3. Vehicle risk (spec 7.3).
-  sheet.append(
-    disclosure("Vehicle risk", vehicleRiskSummary(data), buildVehicleRisk(data)),
-  );
+  // 4. Questions to ask the seller: spec 6.6's "ask" bullets, promoted out of
+  // the risk read into their own section since they're about the
+  // conversation with the seller, not the car itself. Hidden entirely when
+  // there is nothing to show (`buildQuestions` returns `[]` only for a
+  // deployment-side absence -- see `knownIssuesReasonIsShowable`).
+  const questions = section("Questions to ask the seller", buildQuestions(data), aiBadge());
+  if (questions) sheet.append(questions);
 
-  // 4. Seller and scam risk (spec 7.4) -- only when there is something to say,
-  // which for scam patterns means a COMBINATION rather than one weak signal.
-  if (sellerSectionVisible(data.seller_risk)) {
-    sheet.append(
-      disclosure("Seller and scam risk", sellerRiskSummary(data), buildSellerRisk(data)),
-    );
-  }
-
-  // 5. Negotiation (spec 7.5).
+  // 5. Negotiation.
   sheet.append(
     disclosure("Negotiation", negotiationSummary(data), buildNegotiation(data)),
   );
 
-  // 6. Better alternatives (spec 7.6).
+  // 6. Better alternatives.
   sheet.append(
     disclosure("Better alternatives", alternativesSummary(data), buildAlternatives(data)),
-  );
-
-  // 7. What to check on this car (spec 7.7). Absent whenever the reason for its
-  // absence is a fact about the deployment rather than about the car.
-  if (data.known_issues || knownIssuesReasonIsShowable(data.known_issues_unavailable_code)) {
-    sheet.append(
-      disclosure(
-        "What to check on this car",
-        knownIssuesSummary(data),
-        buildKnownIssues(data),
-        // The badge is a brag, not a disclaimer -- only earned when there is an
-        // actual model-written report, not when this row is showing a gate
-        // verdict ("title is disqualifying...") in its place.
-        data.known_issues ? aiBadge() : undefined,
-      ),
-    );
-  }
-
-  // Comp quality, moved to the very bottom: it explains the pricing figures'
-  // ancestry rather than answering a question about the car, so it reads last.
-  sheet.append(
-    disclosure("Comp quality", compQualitySummary(data), buildCompQuality(data)),
   );
 
   sheet.append(buildNotices(data));

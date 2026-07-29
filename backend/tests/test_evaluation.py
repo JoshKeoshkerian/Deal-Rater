@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from app.evaluation import WEIGHTS, compute_deal_score
-from app.evaluation.report import BETA_NOTICE, DISCLAIMER
+from dataclasses import dataclass
+
+from app.evaluation import WEIGHTS, _title_explains_discount_notice, compute_deal_score
+from app.evaluation.report import ASKING_PRICE_NOTICE, BETA_NOTICE, DISCLAIMER, build_evaluation
 from app.evaluation.score import MIN_COVERAGE, REQUIRED_COMPONENTS
-from app.flags import assess_completeness, assess_scam_patterns, read_title_status
+from app.flags import TitleReading, TitleRisk, assess_completeness, assess_scam_patterns, read_title_status
 from app.nhtsa import build_assessment
+from app.pricing import Limiter
 from app.pricing.curve import rate_price_residual
 
 
@@ -177,3 +180,74 @@ class TestSellerRatingCeiling:
         rated = score(seller_rating_average=1.0, seller_rating_count=20)
         assert rated.score is not None
         assert rated.suppressed_reason is None
+
+
+@dataclass
+class _FakeConfidence:
+    limiters: tuple
+
+
+@dataclass
+class _FakePricing:
+    confidence: _FakeConfidence
+
+
+class TestTitleExplainsDiscountNotice:
+    """The pricing model has no title-status data (spec 4.3: comp cards don't
+    carry it), so a branded-title car's expected price is really a clean-title
+    benchmark. When the residual is deep enough to trip
+    Limiter.ADVERSE_SELECTION, pricing's own text says the discount has "no
+    stated reason" -- true of what pricing looked at, not true of the listing.
+    This connects the two, since pricing and vehicle-risk are forbidden from
+    reading each other's output directly (spec 6)."""
+
+    def test_fires_when_a_branded_title_meets_an_unexplained_discount(self):
+        pricing = _FakePricing(_FakeConfidence((Limiter.ADVERSE_SELECTION,)))
+        title = TitleReading(TitleRisk.BRANDED, "branded")
+        notices = _title_explains_discount_notice(pricing, title)
+        assert len(notices) == 1
+        assert "branded" in notices[0]
+
+    def test_fires_for_a_disqualifying_title_too(self):
+        pricing = _FakePricing(_FakeConfidence((Limiter.ADVERSE_SELECTION,)))
+        title = TitleReading(TitleRisk.DISQUALIFYING, "salvage")
+        assert len(_title_explains_discount_notice(pricing, title)) == 1
+
+    def test_silent_on_a_clean_title(self):
+        pricing = _FakePricing(_FakeConfidence((Limiter.ADVERSE_SELECTION,)))
+        title = TitleReading(TitleRisk.CLEAN, "clean")
+        assert _title_explains_discount_notice(pricing, title) == ()
+
+    def test_silent_when_the_discount_was_not_flagged_as_unexplained(self):
+        pricing = _FakePricing(_FakeConfidence((Limiter.COMP_COUNT,)))
+        title = TitleReading(TitleRisk.BRANDED, "branded")
+        assert _title_explains_discount_notice(pricing, title) == ()
+
+
+class TestBuildEvaluationExtraNotices:
+    def test_extra_notices_precede_the_standing_disclaimers(self):
+        ev = build_evaluation(
+            pricing=object(),
+            negotiation=object(),
+            title=object(),
+            completeness=object(),
+            vehicle_risk=object(),
+            scam=object(),
+            alternatives=object(),
+            deal_score=object(),
+            extra_notices=("custom notice",),
+        )
+        assert ev.notices == ("custom notice", BETA_NOTICE, ASKING_PRICE_NOTICE, DISCLAIMER)
+
+    def test_no_extra_notices_by_default(self):
+        ev = build_evaluation(
+            pricing=object(),
+            negotiation=object(),
+            title=object(),
+            completeness=object(),
+            vehicle_risk=object(),
+            scam=object(),
+            alternatives=object(),
+            deal_score=object(),
+        )
+        assert ev.notices == (BETA_NOTICE, ASKING_PRICE_NOTICE, DISCLAIMER)

@@ -109,21 +109,6 @@ const LIMITER_RANK: string[] = [
   "no_recency_weighting",
 ];
 
-/**
- * The two limiters that fire on every evaluation this tool will ever run.
- *
- * Marketplace comps carry no posted date, and dealer filtering is unavailable
- * until the seller signal is collected. Both are real, both are already in the
- * confidence explanation, and neither says anything about a particular comp
- * set -- so a summary line that leads with one is a summary line that says
- * nothing.
- */
-const STRUCTURAL_LIMITERS = new Set(["dealer_filtering_unavailable", "no_recency_weighting"]);
-
-export function hasOnlyStructuralLimiters(pricing: EvaluationResponse["pricing"]): boolean {
-  return pricing.confidence_limiters.every((limiter) => STRUCTURAL_LIMITERS.has(limiter));
-}
-
 function limiterText(limiter: string, pricing: EvaluationResponse["pricing"]): string {
   switch (limiter) {
     case "trim_disagreement":
@@ -275,63 +260,8 @@ export function scoreGrade(value: number): Grade {
 }
 
 /* -------------------------------------------------------------------------- */
-/* what has to be visible without expanding anything                          */
+/* questions to ask the seller                                                */
 /* -------------------------------------------------------------------------- */
-
-export function titleTone(titleRisk: string): Tone {
-  switch (titleRisk) {
-    case "clean":
-      return "favorable";
-    case "branded":
-    case "disqualifying":
-      return "adverse";
-    default:
-      // "unstated" is not "clean". Most listings simply do not say, and the
-      // difference between "the seller says it is clean" and "the seller did
-      // not mention it" is exactly the kind of thing a first-time buyer does
-      // not know to ask about.
-      return "caution";
-  }
-}
-
-/**
- * How the scam section should render, per spec 6.3.
- *
- * "Flag the COMBINATION, not individual elements... Any one of these is weak.
- * Four together is a strong signal and should produce a distinct, prominent
- * warning." So one signal renders nothing at all: a section header over a
- * single weak indicator manufactures a concern the evaluation does not have,
- * and does it to the buyer least equipped to discount it.
- *
- * The 4+ threshold belongs to the backend (`SCAM_SIGNALS_FOR_WARNING`), which
- * also withholds the composite score at that point, so `scam_warning` is read
- * rather than recounted here.
- */
-export type ScamDisplay = "hidden" | "listed" | "warning";
-
-export function scamDisplay(seller: EvaluationResponse["seller_risk"]): ScamDisplay {
-  if (!seller) return "hidden";
-  if (seller.scam_warning) return "warning";
-  return seller.scam_signals_fired.length >= 2 ? "listed" : "hidden";
-}
-
-/**
- * Whether the seller section renders at all (spec 7.4: "only when there is
- * something to say"). A dealer listing is worth saying on its own -- it means
- * the comparison is not like for like -- independently of scam signals. A
- * seller star rating is the same kind of independent reason: the backend
- * only ever populates it once there are enough reviews to trust
- * (`SELLER_RATING_MIN_REVIEWS`), so its mere presence here already means
- * there is something worth saying.
- */
-export function sellerSectionVisible(seller: EvaluationResponse["seller_risk"]): boolean {
-  if (!seller) return false;
-  return (
-    seller.seller_type === "dealer" ||
-    scamDisplay(seller) !== "hidden" ||
-    seller.seller_rating_average !== null
-  );
-}
 
 /**
  * Whether spec 6.6's section renders when there is no report.

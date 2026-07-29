@@ -28,6 +28,7 @@ from ..negotiation import NegotiationAssessment, assess_negotiation
 from ..nhtsa import assess_vehicle
 from ..pricing import assess_listing, is_calibrated
 from ..pricing.comps import CompDecision
+from ..pricing.curve import suggested_offer_cents
 from ..pricing.loader import StoredCapture, load_captures
 from ..pricing.model import PricingAssessment
 from ..pricing.regression import EstimatorKind
@@ -101,9 +102,11 @@ def print_negotiation(negotiation: NegotiationAssessment, assessment: PricingAss
     est = assessment.estimate
     if assessment.anchors and est.expected_asking_cents:
         base = assessment.anchors["strong_offer_cents"]
-        offer = int(base * (1.0 - n.extra_discount))
+        offer = suggested_offer_cents(base, assessment.ask_cents, n.extra_discount)
         print(f"    Suggested offer: {money(offer)}", end="")
-        if n.extra_discount > 0:
+        if assessment.ask_cents is not None and offer >= assessment.ask_cents:
+            print(f"  (at the current ask; the model's own anchor, {money(base)}, is above it)")
+        elif n.extra_discount > 0:
             print(f"  ({money(base)} on comps, less {n.extra_discount:.1%} for leverage)")
         else:
             print()

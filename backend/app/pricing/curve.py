@@ -378,6 +378,26 @@ def negotiation_anchors(
     }
 
 
+def suggested_offer_cents(
+    strong_offer_cents: int, ask_cents: int | None, extra_discount: float
+) -> int:
+    """The negotiation brief's actionable number: what to actually say to this seller.
+
+    `strong_offer_cents` anchors to the EXPECTED asking price (see
+    `negotiation_anchors` above), not to this listing's ask. That is fine for the
+    pricing dimension's own "Strong offer" figure, which is a market benchmark and
+    is allowed to sit above a deeply-underpriced listing's ask. It is not fine
+    here: a listing already asking below that benchmark would otherwise produce a
+    "suggested offer" higher than what the seller is asking for, which is not an
+    offer anyone would make. You can always simply pay the ask, so no negotiating
+    position ever justifies suggesting more than that.
+    """
+    offer = int(strong_offer_cents * (1.0 - extra_discount))
+    if ask_cents is not None:
+        offer = min(offer, ask_cents)
+    return offer
+
+
 def should_publish_anchors(
     expected_asking_cents: int | None,
     interval_low_cents: int | None,

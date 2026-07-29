@@ -101,11 +101,25 @@ export function aiBadge(): HTMLElement {
   return node;
 }
 
-/** A plain always-visible section with a heading. */
-export function section(title: string, body: Node[]): HTMLElement | null {
+/**
+ * A plain always-visible section with a heading.
+ *
+ * `badge` is the same mark `disclosure()` accepts -- currently only
+ * `aiBadge()`, next to a title such as "Risk" or "Questions to ask the
+ * seller" whose content leans on the model's read rather than the rules
+ * alone.
+ */
+export function section(title: string, body: Node[], badge?: Node): HTMLElement | null {
   if (body.length === 0) return null;
   const node = el("section");
-  node.append(el("h2", undefined, title), ...body);
+  const heading = el("h2", undefined, title);
+  if (badge) {
+    const row = el("div", "section-heading-row");
+    row.append(heading, badge);
+    node.append(row, ...body);
+  } else {
+    node.append(heading, ...body);
+  }
   return node;
 }
 
@@ -149,6 +163,8 @@ export const ELEMENT_STYLES = `
     margin: 0 0 10px; font-size: 11px; font-weight: 700;
     letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim);
   }
+  .section-heading-row { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .section-heading-row h2 { margin: 0; }
 
   .rows { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 13px; }
   .rows dt { color: var(--text-dim); }

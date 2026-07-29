@@ -345,7 +345,9 @@ def fetch_known_issues(
         )
 
     completion = _call_model(
-        api_key=settings.anthropic_api_key, llm_model=llm_model, user_prompt=_prompt(corrective=False)
+        api_key=settings.anthropic_api_key,
+        llm_model=llm_model,
+        user_prompt=_prompt(corrective=False),
     )
     if completion is None:
         return KnownIssuesReading(

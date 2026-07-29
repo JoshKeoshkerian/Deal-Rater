@@ -13,16 +13,12 @@ import {
   compProblems,
   confidenceTone,
   contributions,
-  hasOnlyStructuralLimiters,
   headlineState,
   intervalWidthRatio,
   knownIssuesReasonIsShowable,
   priceComparison,
-  scamDisplay,
   scoreGrade,
   scoreTone,
-  sellerSectionVisible,
-  titleTone,
 } from "../src/content/overlay/state";
 import { breakdownSummary } from "../src/content/overlay/breakdown";
 import type { EvaluationResponse, ScoreComponent } from "../src/shared/types";
@@ -60,6 +56,13 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
     vehicle: "2016 Mazda CX-5",
     deal_score: { score: 70, components: [], coverage: 1, suppressed_reason: null, beta: true },
     pricing: pricing(),
+    vehicle_details: {
+      year: 2016,
+      make: "Mazda",
+      model: "CX-5",
+      mileage: 45_000,
+      title_status: "Clean",
+    },
     vehicle_risk: {
       title_risk: "clean",
       title_message: "",
@@ -67,7 +70,8 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
       recall_count: null,
       complaint_count: null,
       top_complaint_components: [],
-      messages: [],
+      recall_messages: [],
+      complaint_messages: [],
     },
     seller_risk: null,
     negotiation: {
@@ -159,17 +163,6 @@ describe("comp problems", () => {
       1,
     );
     expect(problems[0]).toBe("only 1 comparable listing was usable");
-  });
-
-  it("knows when nothing but the structural limiters fired", () => {
-    expect(
-      hasOnlyStructuralLimiters(
-        pricing({ confidence_limiters: ["no_recency_weighting", "dealer_filtering_unavailable"] }),
-      ),
-    ).toBe(true);
-    expect(
-      hasOnlyStructuralLimiters(pricing({ confidence_limiters: ["comp_count"] })),
-    ).toBe(false);
   });
 });
 
@@ -266,13 +259,6 @@ describe("score breakdown", () => {
 });
 
 describe("semantic tone", () => {
-  it("does not treat an unstated title as a clean one", () => {
-    expect(titleTone("clean")).toBe("favorable");
-    expect(titleTone("unstated")).toBe("caution");
-    expect(titleTone("branded")).toBe("adverse");
-    expect(titleTone("disqualifying")).toBe("adverse");
-  });
-
   it("maps confidence and sub-scores onto the same three states", () => {
     expect(confidenceTone("high")).toBe("favorable");
     expect(confidenceTone("medium")).toBe("caution");
@@ -294,49 +280,6 @@ describe("semantic tone", () => {
     expect(scoreGrade(84.9)).toBe("good");
     expect(scoreGrade(85)).toBe("excellent");
     expect(scoreGrade(100)).toBe("excellent");
-  });
-});
-
-describe("scam patterns (spec 6.3)", () => {
-  const seller = (fired: string[], warn = false) => ({
-    seller_type: "private",
-    dealer_markers: [],
-    scam_warning: warn,
-    scam_signals_fired: fired,
-    scam_signals_evaluable: 6,
-    scam_signals_total: 7,
-    scam_reduced_sensitivity: false,
-    seller_rating_average: null,
-    seller_rating_count: null,
-    messages: [],
-  });
-
-  it("renders nothing for a single weak signal", () => {
-    // Spec 6.3: "Any one of these is weak." A section header over one of them
-    // manufactures a concern the evaluation does not have.
-    expect(scamDisplay(seller(["few_photos"]))).toBe("hidden");
-    expect(sellerSectionVisible(seller(["few_photos"]))).toBe(false);
-  });
-
-  it("lists the combination once two fire together", () => {
-    expect(scamDisplay(seller(["few_photos", "minimal_description"]))).toBe("listed");
-  });
-
-  it("escalates to a warning when the backend says the combination is strong", () => {
-    expect(scamDisplay(seller(["a", "b", "c", "d"], true))).toBe("warning");
-  });
-
-  it("still shows the section for a dealer with no scam signals at all", () => {
-    expect(sellerSectionVisible({ ...seller([]), seller_type: "dealer" })).toBe(true);
-  });
-
-  it("still shows the section for a star rating with no scam signals and no dealer markers", () => {
-    // The backend only ever populates a rating once there are enough reviews
-    // to trust it, so its presence alone is reason enough to show the
-    // section -- distinct from the dealer and scam-combination reasons above.
-    expect(
-      sellerSectionVisible({ ...seller([]), seller_rating_average: 2.4, seller_rating_count: 7 }),
-    ).toBe(true);
   });
 });
 

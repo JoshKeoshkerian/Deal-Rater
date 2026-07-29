@@ -65,7 +65,14 @@ Before writing each field, check it for a number attached to a currency word or 
 symbol and rephrase in words if you find one.
 
 Write in plain language, second person, addressing the buyer. One sentence per \
-list item. No preamble, no hedging boilerplate, no restating the question."""
+list item. No preamble, no hedging boilerplate, no restating the question.
+
+For the `ask` field specifically: write each question as this buyer would actually \
+say it to a seller's face, not as a technician would write it on a repair order. \
+Prefer "has the transmission been shuddering or slipping?" over "any reported DCT \
+mechatronic faults?". If a component needs naming, use the term a non-mechanic \
+already knows (transmission, brakes, timing chain) rather than its diagnostic \
+subsystem."""
 
 
 class KnownIssuesReport(BaseModel):
@@ -97,8 +104,12 @@ class KnownIssuesReport(BaseModel):
     ask: list[str] = Field(
         default_factory=list,
         description=(
-            "Specific questions to put to the seller, such as service records "
-            "for a known-weak component. No cost or dollar figure."
+            "Specific questions to put to the seller, phrased the way a buyer with no "
+            "mechanical background would actually say them out loud -- name the part or "
+            "symptom in plain terms ('has the transmission ever been serviced or "
+            "replaced') rather than diagnostic jargon ('any history of mechatronic unit "
+            "failure'). Still specific to this vehicle's known weak points, not generic. "
+            "No cost or dollar figure."
         ),
     )
     ownership_notes: list[str] = Field(

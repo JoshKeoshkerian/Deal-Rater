@@ -10,6 +10,7 @@ heading with nothing under it.
 from __future__ import annotations
 
 from ..evaluation import Evaluation
+from ..pricing.curve import suggested_offer_cents
 from ..pricing.loader import StoredCapture
 from ..schemas import (
     AlternativeOut,
@@ -21,6 +22,7 @@ from ..schemas import (
     PricingOut,
     ScoreComponentOut,
     SellerRiskOut,
+    VehicleDetailsOut,
     VehicleRiskOut,
     WithheldAlternativeOut,
 )
@@ -42,7 +44,7 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
     suggested_offer: int | None = None
     if pricing.anchors:
         base = pricing.anchors["strong_offer_cents"]
-        suggested_offer = int(base * (1.0 - negotiation.extra_discount))
+        suggested_offer = suggested_offer_cents(base, pricing.ask_cents, negotiation.extra_discount)
 
     # Spec 6.6. Absent far more often than present -- no key, spec 10's gate, or
     # a failed call -- so both halves are always emitted and exactly one of them
@@ -135,6 +137,13 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             confidence_limiters=[limiter.value for limiter in pricing.confidence.limiters],
             fallback_reasons=list(estimate.fallback_reasons),
         ),
+        vehicle_details=VehicleDetailsOut(
+            year=capture.target.year,
+            make=capture.target.make,
+            model=capture.target.model,
+            mileage=capture.target.mileage,
+            title_status=capture.target_title_status,
+        ),
         vehicle_risk=VehicleRiskOut(
             title_risk=evaluation.title.risk.value,
             title_message=evaluation.title.message,
@@ -142,7 +151,8 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             recall_count=risk.recall_count,
             complaint_count=risk.complaint_count,
             top_complaint_components=risk.top_complaint_components(),
-            messages=risk.messages(),
+            recall_messages=risk.recall_messages(),
+            complaint_messages=risk.complaint_messages(),
         ),
         seller_risk=seller_risk,
         negotiation=NegotiationOut(

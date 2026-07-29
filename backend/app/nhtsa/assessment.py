@@ -97,19 +97,25 @@ class VehicleRiskAssessment:
     def top_complaint_components(self, n: int = 4) -> list[tuple[str, int]]:
         return sorted(self.complaints_by_component.items(), key=lambda kv: -kv[1])[:n]
 
-    def messages(self) -> list[str]:
+    def recall_messages(self) -> list[str]:
         out: list[str] = []
         if self.recall_count:
             out.append(f"{self.recall_count} recall campaign(s) issued for this model.")
             out.append(RECALL_CAVEAT)
         elif self.recall_count == 0:
             out.append("No recall campaigns found for this year, make and model.")
+        return out
 
+    def complaint_messages(self) -> list[str]:
+        out: list[str] = []
         if self.complaint_count:
             top = ", ".join(f"{c.lower()} ({n})" for c, n in self.top_complaint_components())
             out.append(f"{self.complaint_count} owner complaints filed. Most common: {top}.")
             out.append(COMPLAINT_CAVEAT)
         return out
+
+    def messages(self) -> list[str]:
+        return [*self.recall_messages(), *self.complaint_messages()]
 
 
 def build_assessment(

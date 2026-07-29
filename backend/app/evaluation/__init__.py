@@ -18,6 +18,7 @@ from ..alternatives import find_alternatives
 from ..config import Settings, get_settings
 from ..flags import (
     TitleReading,
+    TitleRisk,
     assess_completeness,
     assess_scam_patterns,
     read_title_status,
@@ -25,7 +26,7 @@ from ..flags import (
 from ..known_issues import KnownIssuesReading, evaluate_gate, fetch_known_issues
 from ..negotiation import assess_negotiation
 from ..nhtsa import assess_vehicle, enrich_target
-from ..pricing import assess_listing
+from ..pricing import Limiter, PricingAssessment, assess_listing
 from ..pricing.loader import StoredCapture
 from .report import (
     ASKING_PRICE_NOTICE,
@@ -199,4 +200,33 @@ def evaluate_capture(
         known_issues=known_issues,
         seller_rating_average=capture.target_seller_rating_average,
         seller_rating_count=capture.target_seller_rating_count,
+        extra_notices=_title_explains_discount_notice(pricing, title),
+    )
+
+
+def _title_explains_discount_notice(
+    pricing: PricingAssessment, title: TitleReading
+) -> tuple[str, ...]:
+    """Connect two dimensions the pricing and vehicle-risk modules never see
+    each other's output to compute (spec 6 forbids it there).
+
+    The comp set carries no title status (spec 4.3), so the expected asking
+    price is, in effect, a clean-title benchmark. When the price residual is
+    deep enough to trip `Limiter.ADVERSE_SELECTION`, pricing's own confidence
+    text says the discount has "no stated reason" -- which is true of what
+    pricing looked at, but not true of the listing: a branded or disqualifying
+    title is exactly such a stated reason, it is just read by a different
+    dimension. Left alone, a buyer sees both statements separately and has to
+    notice the contradiction themselves.
+    """
+    if title.risk not in (TitleRisk.BRANDED, TitleRisk.DISQUALIFYING):
+        return ()
+    if Limiter.ADVERSE_SELECTION not in pricing.confidence.limiters:
+        return ()
+    return (
+        "This vehicle's title is "
+        f"{title.risk.value}, which is a stated reason the price may sit below "
+        "comparable listings. The expected asking price above is not adjusted "
+        "for title status -- comp listings rarely state theirs -- so treat it "
+        "as a clean-title benchmark, not a same-title one.",
     )

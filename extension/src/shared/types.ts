@@ -175,6 +175,14 @@ export interface EvaluationResponse {
     confidence_limiters: string[];
     fallback_reasons: string[];
   };
+  /** The target's stated facts (spec 4.1), shown next to the pricing figures. */
+  vehicle_details: {
+    year: number | null;
+    make: string | null;
+    model: string | null;
+    mileage: number | null;
+    title_status: string | null;
+  };
   vehicle_risk: {
     title_risk: string;
     title_message: string;
@@ -182,7 +190,8 @@ export interface EvaluationResponse {
     recall_count: number | null;
     complaint_count: number | null;
     top_complaint_components: Array<[string, number]>;
-    messages: string[];
+    recall_messages: string[];
+    complaint_messages: string[];
   };
   /** Null when there is nothing to say (spec 7.4). */
   seller_risk: {

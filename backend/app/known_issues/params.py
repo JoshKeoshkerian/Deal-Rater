@@ -46,7 +46,14 @@ MAX_TOKENS = 1200
 #: became its permanent cached answer. A corrective retry now runs before that
 #: happens (see `fetch_known_issues`); rows written under version 2 predate it
 #: and may carry a withheld summary that a retry would have avoided.
-PROMPT_VERSION = 3
+#:
+#: Bumped to 4: the overlay now gives `ask` its own "Questions to ask the
+#: seller" section rather than burying it in a disclosure, so its phrasing
+#: matters more. The prompt now asks for how a non-mechanic buyer would
+#: actually say the question out loud rather than diagnostic-report wording.
+#: Rows written under version 3 predate that instruction and may read more
+#: technical than the field is meant to now.
+PROMPT_VERSION = 4
 
 
 # --- Cost accounting (spec 10) ---------------------------------------------

@@ -52,10 +52,8 @@ const SHELL = `
   }
 `;
 
-/** Blocks with no section of their own: the findings holder and the footer. */
+/** The footer: liability and beta notices, with no section of its own. */
 const TRAILING = `
-  .findings { padding: 16px 20px 6px; border-bottom: 1px solid var(--border-faint); }
-  .findings .callout:last-child { margin-bottom: 10px; }
   .notices { padding: 16px 20px 28px; }
   .notices p { margin: 0 0 8px; font-size: 11px; line-height: 1.5; color: var(--text-faint); }
   .notices strong { color: var(--text-dim); font-weight: 700; }

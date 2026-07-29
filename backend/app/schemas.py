@@ -276,6 +276,22 @@ class PricingOut(BaseModel):
     fallback_reasons: list[str]
 
 
+class VehicleDetailsOut(BaseModel):
+    """The target listing's stated facts, read straight off the capture.
+
+    Separate from `VehicleRiskOut`: these are what the seller SAID (a fact,
+    shown next to the pricing figures), not a judgement about what those facts
+    mean -- `title_status` here is the seller's own word ("Clean", "Rebuilt"),
+    while `VehicleRiskOut.title_risk` is the graded reading of it.
+    """
+
+    year: int | None
+    make: str | None
+    model: str | None
+    mileage: int | None
+    title_status: str | None
+
+
 class VehicleRiskOut(BaseModel):
     title_risk: str
     title_message: str
@@ -283,7 +299,12 @@ class VehicleRiskOut(BaseModel):
     recall_count: int | None
     complaint_count: int | None
     top_complaint_components: list[tuple[str, int]]
-    messages: list[str]
+    #: Split so a UI can put open-recall prose and complaint-density prose in
+    #: separate places (spec 6.2 groups them together; the overlay's Risk
+    #: section gives them their own subsections) without parsing sentences
+    #: back apart from one combined list.
+    recall_messages: list[str]
+    complaint_messages: list[str]
 
 
 class SellerRiskOut(BaseModel):
@@ -381,6 +402,7 @@ class EvaluationOut(BaseModel):
     vehicle: str
     deal_score: DealScoreOut
     pricing: PricingOut
+    vehicle_details: VehicleDetailsOut
     vehicle_risk: VehicleRiskOut
     #: None when there is nothing to say (spec 7.4).
     seller_risk: SellerRiskOut | None
