@@ -501,8 +501,8 @@ const DIMENSION_ORDER = [
  * What each dimension actually contributed, in fixed reading order.
  *
  * The bars used to be drawn from the raw sub-score, so information
- * completeness -- 9% of the number -- drew the same length as price residual at
- * 56%. A reader comparing bar lengths was comparing nothing. Length is now
+ * completeness -- 10% of the number -- drew the same length as price residual at
+ * 50%. A reader comparing bar lengths was comparing nothing. Length is now
  * weight x sub-score, renormalised over the dimensions that could be assessed,
  * which is exactly how `compute_deal_score` arrives at the headline: the
  * contributions sum to the score. That renormalisation still varies by

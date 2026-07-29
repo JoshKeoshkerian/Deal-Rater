@@ -77,22 +77,24 @@ from ..pricing.curve import PricingRating
 #: negotiation section (`NegotiationAssessment`), which already computed it
 #: independently of this composite and needed no change.
 #:
-#: `vehicle_risk` raised from 12 to 20 (pre-rescale), taken from
+#: `vehicle_risk` previously raised from 12 to 20 (pre-rescale), taken from
 #: `information_completeness` (15 -> 7) rather than from `price_residual` (the
 #: required dimension, see `REQUIRED_COMPONENTS`) or `seller_and_scam_risk`
 #: (which already has its own suppression path for real severity via
 #: `scam.warn`, so its weight carries less of the load). Completeness was the
-#: thinnest signal of the four.
+#: thinnest signal of the four, and stayed thinnest through the rescales below.
 #:
-#: Rescaled from an 80-point total to a 100-point one (same ratios, so
-#: scoring behaviour is unchanged -- `compute_deal_score` renormalises by
-#: whatever weight is actually covered, not by a fixed total) so each number
-#: here can be shown verbatim as a percent next to its dimension in the UI.
+#: Reweighted 2026-07-29 (product decision): price_residual 56 -> 50,
+#: information_completeness 9 -> 10, vehicle_risk unchanged at 25,
+#: seller_and_scam_risk 10 -> 15. `information_completeness` also dropped its
+#: photo-count check around the same time (`flags/completeness.py`) since
+#: every listing has photos, so it was inflating every score for free rather
+#: than distinguishing anything.
 WEIGHTS: dict[str, float] = {
-    "price_residual": 56.0,
-    "information_completeness": 9.0,
+    "price_residual": 50.0,
+    "information_completeness": 10.0,
     "vehicle_risk": 25.0,
-    "seller_and_scam_risk": 10.0,
+    "seller_and_scam_risk": 15.0,
 }
 
 #: Below this share of total weight, a headline number is not worth printing:

@@ -3,10 +3,16 @@
 Two separate readings that share a module because both are cheap derivations
 from what the listing states about itself.
 
-COMPLETENESS (spec 5.2, weight 15 in the eventual composite) is a measure of how
+COMPLETENESS (spec 5.2, weight 10 in the eventual composite) is a measure of how
 much the seller disclosed, NOT of how good the car is. A sparse listing from an
 honest seller scores low here, and that is correct: the buyer genuinely knows
 less. It is reported on its own and combined with nothing at this build step.
+
+Photo count is deliberately not one of the checks below: nearly every listing
+has at least one photo, so it was raising every score by the same fixed amount
+without distinguishing anything. Photo count still matters elsewhere -- the
+scam-pattern check (`flags/scam.py`) reads it directly -- it just is not
+disclosure signal for this reading.
 
 TITLE STATUS (spec 6.2) is a vehicle-risk flag, not a pricing input. Spec 2: "A
 car with a known transmission failure mode priced low for exactly that reason is
@@ -115,7 +121,6 @@ class CompletenessReading:
 def assess_completeness(
     *,
     description: str | None,
-    photo_count: int | None,
     mileage: int | None,
     title_status: str | None,
     vin: str | None,
@@ -131,21 +136,20 @@ def assess_completeness(
     text = (description or "").strip()
 
     checks: list[tuple[str, bool, float]] = [
-        ("mileage", mileage is not None, 22.0),
-        ("title status", bool(title_status and title_status.strip()), 20.0),
-        ("model year", year is not None, 10.0),
-        ("trim", bool(trim_text and trim_text.strip()), 8.0),
-        ("VIN", bool(vin), 12.0),
+        ("mileage", mileage is not None, 25.0),
+        ("title status", bool(title_status and title_status.strip()), 22.0),
+        ("model year", year is not None, 11.0),
+        ("trim", bool(trim_text and trim_text.strip()), 9.0),
+        ("VIN", bool(vin), 13.0),
         (
             # A short-but-present description still fails this bar (it is a
             # length threshold, not a presence check), and "not stated" would
             # misreport a seller who wrote a couple of thin sentences as having
             # written nothing at all.
-            "a description" if not text else "more detail in the description",
+            "a description" if not text else "adequate description detail",
             len(text) >= params.MINIMAL_DESCRIPTION_CHARS,
-            18.0,
+            20.0,
         ),
-        ("photos", photo_count is not None and photo_count > 0, 10.0),
     ]
 
     score = 0.0
@@ -164,8 +168,6 @@ def assess_completeness(
     if len(text) >= params.MINIMAL_DESCRIPTION_CHARS:
         extra = min(1.0, len(text) / params.AMPLE_DESCRIPTION_CHARS)
         score += 0.0 if extra >= 1.0 else -(1.0 - extra) * 4.0
-    if photo_count:
-        score -= (1.0 - min(1.0, photo_count / params.AMPLE_PHOTOS)) * 6.0
 
     return CompletenessReading(
         score=max(0.0, min(100.0, score)),

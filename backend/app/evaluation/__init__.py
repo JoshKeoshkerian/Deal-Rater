@@ -153,7 +153,6 @@ def evaluate_capture(
     title = read_title_status(capture.target_title_status)
     completeness = assess_completeness(
         description=capture.target_description,
-        photo_count=capture.target_photo_count,
         mileage=capture.target.mileage,
         title_status=capture.target_title_status,
         vin=capture.target_vin,

@@ -11,8 +11,8 @@
  *
  * THE BAR LENGTH IS THE CONTRIBUTION, NOT THE SUB-SCORE
  * -----------------------------------------------------
- * It used to be the raw sub-score, which made information completeness -- 9% of
- * the number -- draw a bar as long as price residual at 56%. Comparing those
+ * It used to be the raw sub-score, which made information completeness -- 10% of
+ * the number -- draw a bar as long as price residual at 50%. Comparing those
  * bars compared nothing. Each row now draws a track proportional to the
  * dimension's weight and fills it by the sub-score, so the filled length is
  * weight x score: the points that dimension actually put into the headline.
@@ -20,13 +20,13 @@
  *
  * WHICH WEIGHTS ARE PRINTED
  * -------------------------
- * The normalised ones the backend sends (56 / 9 / 25 / 10), shown verbatim as
- * percentages. Spec 5.2 describes the same four weights in their raw form
- * (45 / 7 / 20 / 8, totalling 80) and then rescales them to 100 "so the UI can
- * show each one verbatim as a percent next to its dimension". Both are the same
- * ratios; this is the representation that can be printed with a % sign after it
- * without lying, so it is the one used. `evaluation/score.py` holds the
- * derivation.
+ * The normalised ones the backend sends (50 / 10 / 25 / 15), shown verbatim as
+ * percentages. `evaluation/score.py` holds the derivation and history --
+ * these have already been rescaled once (spec 5.2) and reweighted once since
+ * (2026-07-29) -- this file just prints whatever it is handed, so it is the
+ * one used. Both prior and current values are the same shape: a set of
+ * weights totalling 100, one per dimension, that can be printed with a %
+ * sign after each without lying.
  */
 
 import type { EvaluationResponse } from "../../shared/types";
@@ -71,10 +71,11 @@ function componentDetail(name: string, data: EvaluationResponse): HTMLElement[] 
  *
  * The percentage is the RENORMALISED weight, not the nominal one. When a
  * dimension cannot be assessed its weight is shared out over the rest, so a
- * listing with no vehicle-risk reading gives price residual 75% of the score
- * rather than its nominal 56 -- and printing "38/100 × 56% = 28.4 pts" would be
- * arithmetic that does not work, in front of a reader who is entitled to check
- * it. With full coverage the two are identical and this prints 56 either way.
+ * listing with no vehicle-risk reading gives price residual two thirds of the
+ * score rather than its nominal 50% -- and printing "38/100 × 50% = 19.0 pts"
+ * would be arithmetic that does not work, in front of a reader who is
+ * entitled to check it. With full coverage the two are identical and this
+ * prints 50 either way.
  */
 function figures(value: number, maxPoints: number, points: number): string {
   return `${Math.round(value)}/100 × ${Math.round(maxPoints)}% = ${points.toFixed(1)} pts`;
@@ -156,7 +157,7 @@ export function breakdownSummary(data: EvaluationResponse): string {
   }
 
   // The dimension that gave away the most points, not the one that scored
-  // lowest: a weak reading on 9% of the score is not what dragged anything down.
+  // lowest: a weak reading on 10% of the score is not what dragged anything down.
   const weakest = rows.reduce((worst, row) =>
     row.maxPoints - (row.points ?? 0) > worst.maxPoints - (worst.points ?? 0) ? row : worst,
   );

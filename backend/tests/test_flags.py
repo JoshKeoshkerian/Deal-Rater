@@ -206,7 +206,6 @@ class TestCompleteness:
     def _c(self, **kw):
         base = dict(
             description="A thorough description of the vehicle and its history. " * 6,
-            photo_count=12,
             mileage=120_000,
             title_status="clean",
             vin="4T1BF1FK5EU123456",
@@ -221,7 +220,7 @@ class TestCompleteness:
 
     def test_a_bare_listing_scores_low(self):
         bare = self._c(
-            description=None, photo_count=None, mileage=None, title_status=None,
+            description=None, mileage=None, title_status=None,
             vin=None, trim_text=None,
         )
         assert bare.score <= 20
@@ -235,9 +234,15 @@ class TestCompleteness:
         # correct: the buyer genuinely knows less.
         assert self._c(description=None).score < self._c().score
 
+    def test_photo_count_is_not_a_completeness_signal(self):
+        # Nearly every listing has photos, so it was inflating every score
+        # without distinguishing anything -- removed from the checks entirely.
+        import inspect
+
+        assert "photo_count" not in inspect.signature(assess_completeness).parameters
+
     def test_score_stays_in_range(self):
-        for photos in (0, 1, 5, 40):
-            assert 0.0 <= self._c(photo_count=photos).score <= 100.0
+        assert 0.0 <= self._c().score <= 100.0
 
 
 class TestSeparationFromPricing:

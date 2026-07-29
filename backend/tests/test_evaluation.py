@@ -26,7 +26,7 @@ def score(
     return compute_deal_score(
         rating=rate_price_residual(residual) if residual is not None else None,
         completeness=assess_completeness(
-            description=description, photo_count=photos, mileage=100_000,
+            description=description, mileage=100_000,
             title_status=title_status, vin=None, year=2016, trim_text="LX",
         ),
         title=read_title_status(title_status),
@@ -47,10 +47,10 @@ class TestWeights:
         # there and does not weigh into this composite. See the note on
         # `WEIGHTS` itself.
         assert WEIGHTS == {
-            "price_residual": 56.0,
-            "information_completeness": 9.0,
+            "price_residual": 50.0,
+            "information_completeness": 10.0,
             "vehicle_risk": 25.0,
-            "seller_and_scam_risk": 10.0,
+            "seller_and_scam_risk": 15.0,
         }
 
     def test_they_sum_to_one_hundred(self):

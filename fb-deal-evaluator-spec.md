@@ -169,19 +169,26 @@ KBB is deliberately excluded: no public API, values skewed to a different market
 A single 0 to 100 score is still worth producing as a headline, because users want one number and it drives engagement. But it is a **summary of the separated dimensions in section 6, not a replacement for them**, and the UI should always show the breakdown alongside it.
 
 Starting weights, to be calibrated per section 9:
-- Price residual: 56
-- Information completeness: 9
+- Price residual: 50
+- Information completeness: 10
 - Vehicle risk: 25
-- Seller and scam risk: 10
+- Seller and scam risk: 15
 
-Vehicle risk raised from 12 to 20, taken from information completeness, the
-thinnest of the four signals, to give safety-relevant findings -- open
-recalls, complaint density, title branding -- more influence on the headline
-number. Price residual is left untouched: section 5.1 leads with expected
-value, and section 5.2 already treats it as the required dimension a score
-cannot be published without. The four weights are then rescaled from an
-80-point total to a 100-point one, preserving the same ratios, so the UI can
-show each one verbatim as a percent next to its dimension.
+Vehicle risk raised from 12 to 20 (pre-rescale), taken from information
+completeness, the thinnest of the four signals, to give safety-relevant
+findings -- open recalls, complaint density, title branding -- more influence
+on the headline number. The four weights were then rescaled from an 80-point
+total to a 100-point one, preserving the same ratios, so the UI can show each
+one verbatim as a percent next to its dimension.
+
+**Reweighted, 2026-07-29.** Seller and scam risk raised from 10 to 15 and
+price residual lowered from 56 to 50, with information completeness up from
+9 to 10 and vehicle risk unchanged. Information completeness also dropped
+photo count as one of its checks around the same time (section 4.1 lists
+photo count as a collected field, but it no longer feeds this dimension):
+nearly every listing has at least one photo, so the check was raising every
+listing's completeness score by the same fixed amount rather than
+distinguishing disclosed listings from sparse ones.
 
 These are hypotheses. Section 9 exists to correct them.
 

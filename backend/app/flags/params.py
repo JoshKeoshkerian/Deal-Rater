@@ -57,16 +57,15 @@ SCAM_PRICE_RESIDUAL = -0.35
 # Information completeness (spec 5.2)
 # ---------------------------------------------------------------------------
 #
-# Spec 5.2 gives completeness a weight of 15 in the composite score (build step
+# Spec 5.2 gives completeness a weight of 10 in the composite score (build step
 # 8). It is computed here as its own reading and is NOT combined with anything.
+# Photo count is not one of its checks -- nearly every listing has one, so it
+# inflated every score without distinguishing anything (`completeness.py`).
 
 # A description shorter than this counts as absent for completeness credit.
 # UNCALIBRATED. See `SCAM_MINIMAL_DESCRIPTION_CHARS` above for why this is a
 # distinct constant from that one despite sharing a value today.
 MINIMAL_DESCRIPTION_CHARS = 120
-
-# Photo count at or above which photos stop adding to completeness.
-AMPLE_PHOTOS = 8
 
 # Description length at or above which prose stops adding to completeness.
 AMPLE_DESCRIPTION_CHARS = 300

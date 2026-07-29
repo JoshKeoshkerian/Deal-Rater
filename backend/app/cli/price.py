@@ -182,7 +182,6 @@ def print_flags(capture: StoredCapture, assessment: PricingAssessment) -> None:
     title = read_title_status(capture.target_title_status)
     completeness = assess_completeness(
         description=capture.target_description,
-        photo_count=capture.target_photo_count,
         mileage=assessment.target.mileage,
         title_status=capture.target_title_status,
         vin=capture.target_vin,
@@ -372,7 +371,6 @@ def to_dict(capture: StoredCapture, a: PricingAssessment) -> dict:
     title = read_title_status(capture.target_title_status)
     completeness = assess_completeness(
         description=capture.target_description,
-        photo_count=capture.target_photo_count,
         mileage=a.target.mileage,
         title_status=capture.target_title_status,
         vin=capture.target_vin,
