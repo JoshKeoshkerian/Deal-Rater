@@ -56,6 +56,7 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
     vehicle: "2016 Mazda CX-5",
     deal_score: { score: 70, components: [], coverage: 1, suppressed_reason: null, beta: true },
     pricing: pricing(),
+    completeness: { present: [], missing: [] },
     vehicle_details: {
       year: 2016,
       make: "Mazda",

@@ -7,7 +7,7 @@
     "make": "Honda",
     "model": "Civic",
     "mileage": 161624,
-    "photo_count": null,
+    "photo_count": 20,
     "location_text": "St Louis, MO"
   },
   "requirePresent": [

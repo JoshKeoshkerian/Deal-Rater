@@ -72,6 +72,34 @@ export function findTargetListingNode(
 }
 
 /**
+ * The photo array for the page's listing, when Facebook has split the listing's
+ * identity across two objects.
+ *
+ * `findTargetListingNode` requires a title key so an id collision can never
+ * attribute one listing's data to another (see its docstring). But the detail
+ * page's photo carousel is rendered from a *different* object -- a
+ * `GroupCommerceProductItem` under `marketplace_product_details_page.target`
+ * that carries `listing_photos` but no title field at all, so it fails
+ * `isListingNode` and `findTargetListingNode` never returns it.
+ *
+ * That object's `id` is not even the listing id -- confirmed against captured
+ * pages, it is some other internal identifier, so it cannot be matched the same
+ * way `findTargetListingNode` matches. Instead this is called ONLY after the
+ * caller has confirmed `findTargetListingNode` succeeded (`payloadMatched`):
+ * once that has matched the current URL's listing id against a title-bearing
+ * node, the payload set is known fresh for this page, and search-result and
+ * feed cards for other listings carry only `primary_listing_photo`, never a
+ * full `listing_photos` array -- so on a fresh page this key is unique to the
+ * listing being viewed. Without that precondition a stale page (see
+ * `findTargetListingNode`'s docstring) could attribute a previous listing's
+ * photos to the current one, since there would be nothing left to check this
+ * object's identity against.
+ */
+export function findListingPhotosNode(payloads: unknown[]): JsonObject | null {
+  return findObject(payloads, (node) => hasAny(node, FB_KEYS.photos));
+}
+
+/**
  * Every distinct listing object in a search result payload.
  *
  * Deduplicated by id: Facebook's feed structure repeats the same listing across

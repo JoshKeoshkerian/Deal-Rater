@@ -7,7 +7,7 @@
     "make": "Porsche",
     "model": "911",
     "mileage": 96000,
-    "photo_count": null,
+    "photo_count": 7,
     "location_text": "St Louis, MO"
   },
   "requirePresent": [

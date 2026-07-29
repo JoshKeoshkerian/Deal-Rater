@@ -11,7 +11,7 @@ import type { ExtractionIssue, ObservationPayload } from "../shared/types";
 import { ExtractionContext } from "./context";
 import { FB_KEYS } from "./fb-keys";
 import { descriptionBlock, listingHeaderBlock } from "./fields/dom-blocks";
-import { findTargetListingNode } from "./fields/listing-node";
+import { findListingPhotosNode, findTargetListingNode } from "./fields/listing-node";
 import { resolveMileage } from "./fields/odometer";
 import { resolvePhotoCount } from "./fields/media";
 import { readSearchRadiusKm, resolvePlace } from "./fields/place";
@@ -104,7 +104,11 @@ export async function extractTargetListing(
   // resort for sellers who type the odometer into the title instead.
   const mileage = resolveMileage(recorder, node, headerBlock, descBlock, vehicle.title);
   const vin = resolveVin(recorder, description, vehicle.title);
-  const photoCount = resolvePhotoCount(recorder, node, headerBlock);
+  // Only trust the id-less photos lookup once `node` has confirmed the payload
+  // set is fresh for THIS listing (see `findListingPhotosNode`'s docstring) --
+  // otherwise a stale page could attribute a previous listing's photos here.
+  const photosNode = node ? findListingPhotosNode(ctx.payloads) : null;
+  const photoCount = resolvePhotoCount(recorder, node, headerBlock, photosNode);
   const place = resolvePlace(recorder, node, headerBlock);
   const posting = resolvePosting(recorder, node, headerBlock, now);
   const seller = await resolveSeller(recorder, node, main, sourceListingId);

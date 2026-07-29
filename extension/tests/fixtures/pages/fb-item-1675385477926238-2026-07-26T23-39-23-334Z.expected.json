@@ -7,7 +7,7 @@
     "make": "Porsche",
     "model": "Panamera",
     "mileage": 7444,
-    "photo_count": null,
+    "photo_count": 16,
     "location_text": "Lake St Louis, MO"
   },
   "requirePresent": [

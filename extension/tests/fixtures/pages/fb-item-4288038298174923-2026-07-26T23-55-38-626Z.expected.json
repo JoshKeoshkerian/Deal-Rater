@@ -7,7 +7,7 @@
     "make": "Audi",
     "model": "Q5",
     "mileage": 129894,
-    "photo_count": null,
+    "photo_count": 18,
     "location_text": "Lake St Louis, MO"
   },
   "requirePresent": [

@@ -7,7 +7,7 @@
     "make": "Audi",
     "model": "Q3",
     "mileage": 95385,
-    "photo_count": null,
+    "photo_count": 4,
     "location_text": "St Louis, MO"
   },
   "requirePresent": [

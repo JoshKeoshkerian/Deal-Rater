@@ -20,19 +20,14 @@ export function resolvePhotoCount(
   recorder: ExtractionRecorder,
   node: JsonObject | null,
   block: Element | null,
+  photosNode: JsonObject | null = null,
 ): number | null {
   return recorder.resolve<number>("photo_count", [
     [
-      "json_payload",
-      () => {
-        const photos = pickArray(node, FB_KEYS.photos);
-        return photos ? photos.length : null;
-      },
-    ],
-    [
       "aria_dom",
       () => {
-        // The carousel's accessible name states the total: "Photo 1 of 12".
+        // Checked first because it is the only source that states a definitive
+        // total rather than counting what happens to be visible: "Photo 1 of 12".
         if (!block) return null;
         for (const label of ariaLabels(block)) {
           const match = label.match(PHOTO_COUNT_RE);
@@ -47,14 +42,27 @@ export function resolvePhotoCount(
       },
     ],
     [
-      "aria_dom",
+      "json_payload",
       () => {
-        // Last resort: count the distinct CDN images in the header block. This
-        // is a floor rather than a count — a carousel lazy-loads, so images the
-        // user has not scrolled to are not in the DOM yet.
-        if (!block) return null;
-        const count = contentImageUrls(block).length;
-        return count > 0 ? count : null;
+        // Neither remaining source is reliably complete, so take the higher of
+        // the two rather than picking one and discarding the other.
+        //
+        // `photosNode` (found by id, not title -- see `findListingPhotosNode`)
+        // carries the full array; the title-matched `node` only ever has
+        // `primary_listing_photo`, a single photo, so it is checked second. But
+        // even `photosNode`'s array can itself be a truncated preview page for
+        // a large gallery: one capture had a 6-item array against a carousel of
+        // 36, confirmed by the DOM count below landing on the true total.
+        const photos = pickArray(photosNode, FB_KEYS.photos) ?? pickArray(node, FB_KEYS.photos);
+        // A floor, not a count — a carousel lazy-loads, so images the user has
+        // not scrolled to are not in the DOM yet.
+        const domCount = block ? contentImageUrls(block).length : 0;
+        // `photos` distinguishes "confirmed zero" (an empty array was actually
+        // found) from "no signal" (neither source found anything) -- a listing
+        // with zero photos is itself a scam-pattern input (spec 6.3) and must
+        // not collapse into the same null as "photo count not captured".
+        if (photos === null && domCount === 0) return null;
+        return Math.max(photos?.length ?? 0, domCount);
       },
     ],
   ]);

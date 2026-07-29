@@ -7,7 +7,7 @@
     "make": "Honda",
     "model": "Civic",
     "mileage": 165839,
-    "photo_count": null,
+    "photo_count": 5,
     "location_text": "Lake St Louis, MO"
   },
   "requirePresent": [

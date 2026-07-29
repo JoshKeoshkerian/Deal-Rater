@@ -175,7 +175,13 @@ export interface EvaluationResponse {
     confidence_limiters: string[];
     fallback_reasons: string[];
   };
-  /** The target's stated facts (spec 4.1), shown next to the pricing figures. */
+  /** Spec 5.2's information-completeness dimension: which fields the seller
+   * stated vs. left out, the same order `flags/completeness.py` checks them. */
+  completeness: {
+    present: string[];
+    missing: string[];
+  };
+  /** The target's stated facts (spec 4.1). */
   vehicle_details: {
     year: number | null;
     make: string | null;

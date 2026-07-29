@@ -1,16 +1,22 @@
 /**
- * The overlay's sections, in the panel's vertical order (see `index.ts`).
+ * The overlay's sections (see `index.ts` for how they're assembled).
  *
- * Each one exports a builder and, where it needs one, the summary line shown
- * while it is collapsed. The summary always carries the finding rather than
- * naming the section: a user who never expands "Negotiation" should still have
- * been told the listing has sat 38 days.
+ * Score breakdown (`breakdown.ts`) is the panel's centerpiece in this layout:
+ * each of its four dimension bars is itself a dropdown, and this module
+ * supplies what goes inside each one -- `buildPricing` for price residual,
+ * `buildCompleteness` for information completeness, `buildVehicleRiskDetail`
+ * for vehicle risk, `buildSellerScamRiskDetail` for seller and scam risk.
+ * Negotiation and Better alternatives stay their own disclosures further
+ * down, each with a summary line that carries the finding, so a user who
+ * never expands one has still been told the listing has sat 38 days.
  */
 
 import type { EvaluationResponse } from "../../shared/types";
 import {
+  aiBadge,
   callout,
   chip,
+  disclosure,
   el,
   list,
   listingLink,
@@ -21,12 +27,11 @@ import {
 import { confidenceTone, knownIssuesReasonIsShowable } from "./state";
 
 /* -------------------------------------------------------------------------- */
-/* pricing / details (spec 5.1's four numbers, plus the target's own facts)   */
+/* pricing (spec 5.1's numbers)                                               */
 /* -------------------------------------------------------------------------- */
 
 export function buildPricing(data: EvaluationResponse): HTMLElement[] {
   const p = data.pricing;
-  const v = data.vehicle_details;
 
   // Comp count used to repeat here. It is already the first thing the headline
   // says (`priceComparison` in state.ts), an inch above this section, so
@@ -39,23 +44,31 @@ export function buildPricing(data: EvaluationResponse): HTMLElement[] {
     ]);
   }
   figures.push(["Confidence", p.confidence, { tone: confidenceTone(p.confidence) }]);
+  return [rows(figures)];
+}
 
-  // The listing's own stated facts, not a judgement -- title STATUS here is
-  // the seller's word ("Clean", "Rebuilt"); the graded reading of it lives in
-  // the Risk section's red flags instead.
-  const details: Row[] = [];
-  if (v.year !== null) details.push(["Year", `${v.year}`]);
-  if (v.make) details.push(["Make", v.make]);
-  if (v.model) details.push(["Model", v.model]);
-  details.push([
-    "Mileage",
-    v.mileage !== null ? `${v.mileage.toLocaleString("en-US")} mi` : "not stated",
-  ]);
-  details.push(["Title status", v.title_status ?? "not stated"]);
+/* -------------------------------------------------------------------------- */
+/* information completeness (spec 5.2)                                        */
+/* -------------------------------------------------------------------------- */
 
-  const grid = el("div", "pricing-grid");
-  grid.append(rows(figures), rows(details));
-  return [grid];
+/**
+ * What the score actually rewarded and penalised -- concise by construction:
+ * one line for what's missing (the thing that cost points), one for what's
+ * stated, nothing else, since the fields themselves are the whole story.
+ */
+export function buildCompleteness(data: EvaluationResponse): HTMLElement[] {
+  const { present, missing } = data.completeness;
+  const nodes: HTMLElement[] = [
+    el(
+      "p",
+      "muted",
+      missing.length === 0
+        ? "The seller disclosed everything this tool looks for."
+        : `Not stated: ${missing.join(", ")}.`,
+    ),
+  ];
+  if (present.length) nodes.push(el("p", "muted", `Stated: ${present.join(", ")}.`));
+  return nodes;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -92,26 +105,31 @@ function scamSignalText(code: string): string {
 const LOW_RATING_THRESHOLD = 4.0;
 
 /**
- * Red flags about the LISTING itself: title branding, the scam-pattern
- * combination (spec 6.3), a dealer posing as a private seller, and a
- * star rating low enough to be a signal rather than noise.
+ * Red flags about the LISTING itself: the seller's stated title status (no
+ * longer shown in Pricing now that section is back to just its three
+ * numbers), title branding, the scam-pattern combination (spec 6.3), a
+ * dealer posing as a private seller, and a star rating low enough to be a
+ * signal rather than noise.
  *
- * Deliberately built from the structured fields rather than the backend's
- * prose `messages` list: that list always includes the seller's rating once
- * there are enough reviews to trust, GOOD or bad, because it also caps the
- * score (`evaluation/score.py`). A 4.9-star line has no business in a list
- * titled "red flags", so this reconstructs only the parts that are actually
- * flags.
+ * The bullets are deliberately built from the structured fields rather than
+ * the backend's prose `messages` list: that list always includes the
+ * seller's rating once there are enough reviews to trust, GOOD or bad,
+ * because it also caps the score (`evaluation/score.py`). A 4.9-star line has
+ * no business in a list titled "red flags", so this reconstructs only the
+ * parts that are actually flags.
  */
 function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
   const nodes: HTMLElement[] = [];
   const risk = data.vehicle_risk;
   const seller = data.seller_risk;
 
+  nodes.push(rows([["Title status", data.vehicle_details.title_status ?? "not stated"]]));
+
+  const flagNodes: HTMLElement[] = [];
   if (risk.title_risk === "disqualifying" || risk.title_risk === "branded") {
-    nodes.push(callout("adverse", `Title: ${risk.title_risk}`, [risk.title_message]));
+    flagNodes.push(callout("adverse", `Title: ${risk.title_risk}`, [risk.title_message]));
   } else if (risk.title_risk === "unstated") {
-    nodes.push(callout("caution", "Title status not stated", [risk.title_message]));
+    flagNodes.push(callout("caution", "Title status not stated", [risk.title_message]));
   }
 
   const bullets: string[] = [];
@@ -135,7 +153,7 @@ function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
   // deduction buried in a composite." `scam_warning` is the backend's own
   // threshold (`SCAM_SIGNALS_FOR_WARNING`), read rather than recounted here.
   if (seller?.scam_warning) {
-    nodes.push(
+    flagNodes.push(
       callout("adverse", "Several scam patterns fired together", [
         `${seller.scam_signals_fired.length} independent signals fired on this listing. ` +
           "Any one of them is weak. This many at once is not, and it is why no deal score " +
@@ -145,12 +163,13 @@ function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
     );
   } else {
     const ul = list(bullets);
-    if (ul) nodes.push(ul);
+    if (ul) flagNodes.push(ul);
   }
 
-  if (nodes.length === 0) {
-    nodes.push(el("p", "muted", "No red flags identified on this listing."));
+  if (flagNodes.length === 0) {
+    flagNodes.push(el("p", "muted", "No red flags identified on this listing."));
   }
+  nodes.push(...flagNodes);
   return nodes;
 }
 
@@ -235,38 +254,45 @@ function buildKnownIssuesSubsection(data: EvaluationResponse): HTMLElement[] {
   return nodes;
 }
 
-function subheading(text: string): HTMLElement {
-  return el("h3", "risk-subhead", text);
-}
-
 /**
- * The combined Risk section: red flags about the LISTING, open recalls, and
- * what's known to go wrong with the CAR. Three previously separate panels
- * (vehicle risk, seller and scam risk, "what to check on this car") folded
- * into one, because a buyer weighing risk does not think in the product's
- * internal dimension boundaries -- they think "what's wrong with this deal".
+ * What goes inside the score breakdown's "vehicle risk" dropdown: open
+ * recalls, plus what's known to go wrong with the CAR (NHTSA complaint
+ * density and the cached LLM read, spec 6.6) -- each its own nested dropdown
+ * rather than a plain heading, so a reader who only cares about recalls
+ * never has to scroll past the known-issues prose to find them. Title
+ * branding lives in `buildSellerScamRiskDetail` instead, alongside the rest
+ * of what a buyer would call a "red flag" about the listing.
+ *
+ * The AI pill sits on "Known issues" specifically, not on the outer "vehicle
+ * risk" bar -- recalls are deterministic NHTSA data, and the pill should mark
+ * exactly the content that leans on the model, not everything near it.
  */
-export function buildRisk(data: EvaluationResponse): HTMLElement[] {
+export function buildVehicleRiskDetail(data: EvaluationResponse): HTMLElement[] {
   return [
-    subheading("Red flags"),
-    ...buildRedFlags(data),
-    subheading("Recalls"),
-    ...buildRecalls(data),
-    subheading("Known issues"),
-    ...buildKnownIssuesSubsection(data),
+    disclosure("Recalls", "", buildRecalls(data)),
+    disclosure("Known issues", "", buildKnownIssuesSubsection(data), aiBadge()),
   ];
 }
 
-/* -------------------------------------------------------------------------- */
-/* questions to ask the seller (spec 6.6's "ask", promoted to its own section) */
-/* -------------------------------------------------------------------------- */
-
 /**
- * Empty ([]) only when there is nothing to show at all -- `index.ts` relies on
- * that to hide the section via `section()`'s own empty-body guard, the same
- * way every other always-visible section does.
+ * What goes inside the score breakdown's "seller and scam risk" dropdown:
+ * red flags about the LISTING (title status, the scam-pattern combination,
+ * a dealer posing as private, a low star rating) plus the questions spec
+ * 6.6's cached LLM call generated for the seller conversation, each its own
+ * nested dropdown. "Questions" is only added when there is something under
+ * it -- an empty dropdown over nothing is worse than no dropdown at all --
+ * and carries the AI pill on its own, since red flags are deterministic.
  */
-export function buildQuestions(data: EvaluationResponse): HTMLElement[] {
+export function buildSellerScamRiskDetail(data: EvaluationResponse): HTMLElement[] {
+  const nodes: HTMLElement[] = [disclosure("Red flags", "", buildRedFlags(data))];
+  const questions = buildQuestions(data);
+  if (questions.length) {
+    nodes.push(disclosure("Questions to ask the seller", "", questions, aiBadge()));
+  }
+  return nodes;
+}
+
+function buildQuestions(data: EvaluationResponse): HTMLElement[] {
   const known = data.known_issues;
   if (known) {
     const ul = list(known.ask);
@@ -397,12 +423,6 @@ export function buildAlternatives(data: EvaluationResponse): HTMLElement[] {
 
 export const SECTION_STYLES = `
   .summary-inline { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-  .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; align-items: start; }
-  .risk-subhead {
-    margin: 18px 0 8px; font-size: 11px; font-weight: 700;
-    letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim);
-  }
-  .risk-subhead:first-child { margin-top: 0; }
   .alt {
     padding: 9px 0; border-top: 1px solid var(--border-faint);
     font-size: 12.5px; line-height: 1.5;

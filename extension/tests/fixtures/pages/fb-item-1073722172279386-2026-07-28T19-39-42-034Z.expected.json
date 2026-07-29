@@ -7,7 +7,7 @@
     "make": "Honda",
     "model": "HR-V",
     "mileage": 56000,
-    "photo_count": null,
+    "photo_count": 11,
     "location_text": "Fenton, MO"
   },
   "requirePresent": [
@@ -23,6 +23,7 @@
     "description",
     "posted_at",
     "location_text",
-    "vin"
+    "vin",
+    "photo_count"
   ]
 }

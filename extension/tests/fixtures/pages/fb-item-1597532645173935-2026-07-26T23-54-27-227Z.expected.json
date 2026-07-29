@@ -7,7 +7,7 @@
     "make": "Mazda",
     "model": "CX-5",
     "mileage": 172582,
-    "photo_count": null,
+    "photo_count": 16,
     "location_text": "Nashville, TN"
   },
   "requirePresent": [

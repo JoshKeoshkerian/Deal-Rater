@@ -15,6 +15,7 @@ from ..pricing.loader import StoredCapture
 from ..schemas import (
     AlternativeOut,
     AlternativesOut,
+    CompletenessOut,
     DealScoreOut,
     EvaluationOut,
     KnownIssuesOut,
@@ -136,6 +137,10 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             confidence_reasons=pricing.confidence.explain(),
             confidence_limiters=[limiter.value for limiter in pricing.confidence.limiters],
             fallback_reasons=list(estimate.fallback_reasons),
+        ),
+        completeness=CompletenessOut(
+            present=list(evaluation.completeness.present),
+            missing=list(evaluation.completeness.missing),
         ),
         vehicle_details=VehicleDetailsOut(
             year=capture.target.year,

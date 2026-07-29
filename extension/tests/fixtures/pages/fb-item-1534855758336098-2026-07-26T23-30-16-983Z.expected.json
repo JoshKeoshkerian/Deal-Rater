@@ -7,7 +7,7 @@
     "make": "Mazda",
     "model": "Mazda3",
     "mileage": 155000,
-    "photo_count": null,
+    "photo_count": 11,
     "location_text": "St Charles, MO"
   },
   "requirePresent": [

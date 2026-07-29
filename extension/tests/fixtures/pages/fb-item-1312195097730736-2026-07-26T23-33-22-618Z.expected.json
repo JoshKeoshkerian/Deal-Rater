@@ -7,7 +7,7 @@
     "make": "Mazda",
     "model": "Cx5",
     "mileage": null,
-    "photo_count": null,
+    "photo_count": 5,
     "location_text": "Ste Genevieve, MO"
   },
   "requirePresent": [

@@ -279,10 +279,10 @@ class PricingOut(BaseModel):
 class VehicleDetailsOut(BaseModel):
     """The target listing's stated facts, read straight off the capture.
 
-    Separate from `VehicleRiskOut`: these are what the seller SAID (a fact,
-    shown next to the pricing figures), not a judgement about what those facts
-    mean -- `title_status` here is the seller's own word ("Clean", "Rebuilt"),
-    while `VehicleRiskOut.title_risk` is the graded reading of it.
+    Separate from `VehicleRiskOut`: these are what the seller SAID (a fact),
+    not a judgement about what those facts mean -- `title_status` here is the
+    seller's own word ("Clean", "Rebuilt"), while `VehicleRiskOut.title_risk`
+    is the graded reading of it.
     """
 
     year: int | None
@@ -290,6 +290,18 @@ class VehicleDetailsOut(BaseModel):
     model: str | None
     mileage: int | None
     title_status: str | None
+
+
+class CompletenessOut(BaseModel):
+    """Spec 5.2's information-completeness dimension, made legible.
+
+    `present`/`missing` are the exact fields `flags/completeness.py` checks,
+    in the same order it checks them -- not a quality judgement, a disclosure
+    one. A sparse listing from an honest seller scores low here on purpose.
+    """
+
+    present: list[str]
+    missing: list[str]
 
 
 class VehicleRiskOut(BaseModel):
@@ -402,6 +414,7 @@ class EvaluationOut(BaseModel):
     vehicle: str
     deal_score: DealScoreOut
     pricing: PricingOut
+    completeness: CompletenessOut
     vehicle_details: VehicleDetailsOut
     vehicle_risk: VehicleRiskOut
     #: None when there is nothing to say (spec 7.4).

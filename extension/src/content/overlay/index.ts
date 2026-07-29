@@ -1,17 +1,24 @@
 /**
  * The evaluation overlay.
  *
+ * EXPERIMENT: SCORE BREAKDOWN AS THE STAR OF THE SHOW
+ * -----------------------------------------------------
+ * Pricing, Risk and Questions to ask the seller no longer have their own
+ * top-level sections. Each of the score breakdown's four dimension bars is
+ * now its own dropdown, and expanding one reveals everything that dimension
+ * is made of -- see `breakdown.ts`'s `componentDetail`:
+ *
+ *   price residual          -> Pricing (spec 5.1's numbers)
+ *   information completeness -> which fields the seller stated vs. left out
+ *   vehicle risk             -> recalls + the model's known-issues read
+ *   seller and scam risk     -> red flags (incl. title status) + questions
+ *
  * VERTICAL ORDER
  * ---------------
- * Headline -> score breakdown -> Pricing/Details -> Risk (red flags, recalls,
- * known issues -- combining what used to be three separate panels) ->
- * Questions to ask the seller -> Negotiation -> Better alternatives.
- *
- * Score breakdown, Pricing/Details and Risk are always open: a buyer weighing
- * risk should not have to click to see it. Negotiation and Better alternatives
- * stay one click away, each with a summary line that carries the finding, so a
- * user who never expands them has still been told the headline of what's
- * inside.
+ * Headline -> score breakdown -> Negotiation -> Better alternatives. The
+ * latter two are not deal-score dimensions (spec 6.4 keeps negotiation
+ * strength out of the composite on purpose), so they stay their own
+ * disclosures rather than living under a bar that doesn't exist for them.
  *
  * THREE THINGS THE MARKUP IS NOT ALLOWED TO DROP
  * ----------------------------------------------
@@ -31,17 +38,9 @@
 
 import type { EvaluationResponse } from "../../shared/types";
 import { buildBreakdown } from "./breakdown";
-import { aiBadge, disclosure, el, section } from "./elements";
+import { disclosure, el, section } from "./elements";
 import { buildHeader } from "./headline";
-import {
-  alternativesSummary,
-  buildAlternatives,
-  buildNegotiation,
-  buildPricing,
-  buildQuestions,
-  buildRisk,
-  negotiationSummary,
-} from "./sections";
+import { alternativesSummary, buildAlternatives, buildNegotiation, negotiationSummary } from "./sections";
 import { stylesheet } from "./styles";
 
 const HOST_ID = "deal-rater-overlay";
@@ -100,33 +99,16 @@ export function renderEvaluation(data: EvaluationResponse): void {
   // The breakdown belongs with the headline (spec 5.2) and is the section
   // closest to it for that reason -- nothing else renders between them.
   // Always open, not a disclosure: spec 5.2 wants it shown "alongside" the
-  // score, not one click away from it.
+  // score, not one click away from it. Pricing, Risk and Questions to ask the
+  // seller now live inside its four bars -- see the module docstring.
   sheet.append(section("Score breakdown", buildBreakdown(data))!);
 
-  // 2. Pricing/Details: spec 5.1's numbers plus the listing's own stated
-  // facts (year, make, model, mileage, title status). Always visible.
-  sheet.append(section("Pricing/Details", buildPricing(data))!);
-
-  // 3. Risk: red flags about the listing, open recalls, and what's known to
-  // go wrong with the car -- one section where three used to be. The AI pill
-  // marks it because its "Known issues" subsection leans on the cached model
-  // read (spec 6.6); red flags and recalls are deterministic.
-  sheet.append(section("Risk", buildRisk(data), aiBadge())!);
-
-  // 4. Questions to ask the seller: spec 6.6's "ask" bullets, promoted out of
-  // the risk read into their own section since they're about the
-  // conversation with the seller, not the car itself. Hidden entirely when
-  // there is nothing to show (`buildQuestions` returns `[]` only for a
-  // deployment-side absence -- see `knownIssuesReasonIsShowable`).
-  const questions = section("Questions to ask the seller", buildQuestions(data), aiBadge());
-  if (questions) sheet.append(questions);
-
-  // 5. Negotiation.
+  // 2. Negotiation.
   sheet.append(
     disclosure("Negotiation", negotiationSummary(data), buildNegotiation(data)),
   );
 
-  // 6. Better alternatives.
+  // 3. Better alternatives.
   sheet.append(
     disclosure("Better alternatives", alternativesSummary(data), buildAlternatives(data)),
   );

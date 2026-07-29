@@ -7,7 +7,7 @@
     "make": "Mazda",
     "model": "Mazda3",
     "mileage": 154000,
-    "photo_count": null,
+    "photo_count": 20,
     "location_text": "St Louis, MO"
   },
   "requirePresent": [

@@ -58,15 +58,18 @@ export function callout(tone: Tone, title: string, body: (string | Node)[]): HTM
 }
 
 /**
- * A collapsed section with a one-line summary of what is inside it.
+ * A collapsed section with, optionally, a one-line summary of what is inside
+ * it.
  *
  * `<details>` rather than a scripted accordion: it is keyboard-operable and
  * screen-reader-announced without any of that being written here, and the
- * browser's find-in-page can open it. The summary line is not a label -- it
- * carries the finding, so a user who never expands the row has still been told.
+ * browser's find-in-page can open it. Where there is a summary, it is not a
+ * label -- it carries the finding, so a user who never expands the row has
+ * still been told. An empty string summary renders no summary at all, for a
+ * title that is not worth annotating (Risk, Questions to ask the seller).
  *
  * `badge` is an optional mark next to the title -- currently only `aiBadge()`,
- * for the one section (spec 6.6) written by the model rather than the rules.
+ * for sections that lean on the model's read rather than the rules alone.
  */
 export function disclosure(
   title: string,
@@ -78,10 +81,11 @@ export function disclosure(
   const line = el("summary");
 
   const heading = el("span", "disclosure-title", title);
-  const detail = typeof summary === "string" ? el("span", "disclosure-summary", summary) : summary;
   line.append(heading);
   if (badge) line.append(badge);
-  line.append(detail);
+  if (summary !== "") {
+    line.append(typeof summary === "string" ? el("span", "disclosure-summary", summary) : summary);
+  }
 
   const inner = el("div", "disclosure-body");
   inner.append(...body);

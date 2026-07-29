@@ -7,7 +7,7 @@
     "make": "Hyundai",
     "model": "Elantra",
     "mileage": 204000,
-    "photo_count": null,
+    "photo_count": 8,
     "location_text": "Florissant, MO"
   },
   "requirePresent": [

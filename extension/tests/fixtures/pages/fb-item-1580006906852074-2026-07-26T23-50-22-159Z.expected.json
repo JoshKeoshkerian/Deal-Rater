@@ -7,7 +7,7 @@
     "make": "Toyota",
     "model": "Corolla",
     "mileage": 61651,
-    "photo_count": null,
+    "photo_count": 13,
     "location_text": "St Louis, MO"
   },
   "requirePresent": [
