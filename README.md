@@ -58,8 +58,20 @@ Open a Marketplace vehicle listing and click **Capture listing**.
 
 ```bash
 cd backend && .venv/bin/python -m pytest      # 510 tests
-cd extension && npm test && npm run typecheck # 317 tests (1 skipped)
+cd extension && npm test && npm run typecheck # 400 tests (1 skipped)
 ```
+
+### Reviewing the UI without loading the extension
+
+```bash
+cd extension && node scripts/panel-preview.mjs && open panel-preview.html
+```
+
+Renders the evaluation panel and the capture button in every state they can be
+in, in both themes, side by side. It calls the real `renderEvaluation` and lifts
+the markup out of the shadow root, so the page cannot drift from the code. This
+is the design loop; the contrast rules the palette claims for itself are checked
+separately in `tests/overlay-contrast.test.ts` rather than by eye.
 
 ## How a capture works
 
@@ -73,11 +85,14 @@ cd extension && npm test && npm run typecheck # 317 tests (1 skipped)
 
 ## Constraints this build holds to
 
-**Everything is user-initiated** (spec §8.1). There are no timers, no alarms, no
-scheduled jobs, and no background crawling anywhere in the extension. The
-service worker acts only on a message from a content script, and a content
-script sends one only on a click. One click is one listing plus one search, with
-no pagination and no auto-scroll. There is no "monitor this search" feature and
+**Everything is user-initiated** (spec §8.1). There are no alarms, no scheduled
+jobs, and no background crawling anywhere in the extension. The service worker
+acts only on a message from a content script, and a content script sends one
+only on a click. One click is one listing plus one search, with
+no pagination and no auto-scroll. The one `setInterval` in the extension is the
+elapsed-seconds clock on the capture progress card: it runs only between the
+click and the result, reads nothing from the page, and is cleared either way.
+There is no "monitor this search" feature and
 adding one would undo the rationale for store distribution.
 
 **Permissions are narrow** (spec §8.1.2). `storage`, plus host permissions for

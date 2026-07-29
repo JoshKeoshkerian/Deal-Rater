@@ -10,9 +10,11 @@
  * convenience of HMR.
  */
 import { context, build } from "esbuild";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { loadTs } from "./lib/load-ts.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outdir = resolve(root, "dist");
@@ -37,6 +39,13 @@ const bundles = [
 async function copyStatic() {
   await cp(resolve(root, "manifest.json"), resolve(outdir, "manifest.json"));
   await cp(resolve(root, "src/options/options.html"), resolve(outdir, "options.html"));
+
+  // The options page's stylesheet is generated from the same tokens as the two
+  // shadow roots (src/options/styles.ts). Emitted as a file the page links,
+  // not injected by options.js: a settings page that paints unstyled and then
+  // restyles itself looks broken for the frame it takes.
+  const { optionsStylesheet } = await loadTs(resolve(root, "src/options/styles.ts"));
+  await writeFile(resolve(outdir, "options.css"), optionsStylesheet(), "utf8");
 }
 
 async function run() {

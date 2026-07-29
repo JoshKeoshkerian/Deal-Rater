@@ -1,6 +1,6 @@
 /**
- * The shell stylesheet: custom properties, the sheet itself, and the two
- * accessibility rules that apply to everything in it.
+ * The shell stylesheet: the variable layer, the sheet itself, and the rules
+ * that apply to everything in it.
  *
  * Section styles live next to the code that renders them and are composed here,
  * so a section cannot be added without its styles arriving with it.
@@ -10,25 +10,46 @@ import { BREAKDOWN_STYLES } from "./breakdown";
 import { ELEMENT_STYLES } from "./elements";
 import { HEADER_STYLES } from "./headline";
 import { SECTION_STYLES } from "./sections";
-import { BASE, gradeVariables, toneVariables } from "./tokens";
+import { themeVariables } from "./tokens";
 
 const SHELL = `
   :host { all: initial; }
 
   .backdrop {
     position: fixed; inset: 0; z-index: 2147483646;
-    background: rgba(6, 12, 18, 0.55);
+    background: var(--scrim);
     display: flex; justify-content: flex-end;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    opacity: 0;
+    transition: opacity var(--dur-base) var(--ease-out);
   }
   .sheet {
-    width: min(440px, 100vw);
+    width: min(444px, 100vw);
     height: 100%;
     overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--sheet);
     color: var(--text);
-    box-shadow: -4px 0 24px rgba(0,0,0,.4);
+    box-shadow: var(--elev-3);
+    transform: translateX(20px);
+    transition: transform var(--dur-slow) var(--ease-out);
   }
+
+  /* Entry and exit are the same two properties in opposite directions. The
+     class is added a frame after mount and removed on close (see index.ts),
+     which is what lets the panel animate OUT as well -- an overlay that snaps
+     out of existence reads as a crash rather than a dismissal. */
+  .backdrop[data-open="true"] { opacity: 1; }
+  .backdrop[data-open="true"] .sheet { transform: translateX(0); }
+
+  .sheet::-webkit-scrollbar { width: 10px; }
+  .sheet::-webkit-scrollbar-track { background: transparent; }
+  .sheet::-webkit-scrollbar-thumb {
+    background: var(--border); border-radius: var(--radius-pill);
+    border: 3px solid var(--sheet);
+  }
+  .sheet::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
 
   /* One visible focus ring for every interactive element in the panel. The
      panel is an overlay on somebody else's page; a keyboard user who cannot
@@ -36,12 +57,13 @@ const SHELL = `
   :where(button, summary, a, [tabindex]):focus-visible {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
 
-  /* Nothing in this panel animates for effect, but disclosure rows and hover
-     transitions are still motion. Honour the system preference rather than
-     assuming a 120ms fade is beneath notice. */
+  /* Nothing in this panel animates for effect, but the entry transition,
+     the growing bars and the disclosure rows are all motion. Honour the system
+     preference rather than assuming a 200ms fade is beneath notice. The JS
+     animations check the same query and jump to their final value. */
   @media (prefers-reduced-motion: reduce) {
     * {
       animation-duration: 0.01ms !important;
@@ -54,29 +76,27 @@ const SHELL = `
 
 /** The footer: liability and beta notices, with no section of its own. */
 const TRAILING = `
-  .notices { padding: 16px 20px 28px; }
-  .notices p { margin: 0 0 8px; font-size: 11px; line-height: 1.5; color: var(--text-faint); }
+  .notices {
+    padding: var(--sp-5) var(--sp-6) var(--sp-7);
+    background: var(--raised);
+    border-top: 1px solid var(--border-faint);
+  }
+  .notices p {
+    margin: 0 0 var(--sp-3); font-size: var(--fs-xs); line-height: 1.55;
+    color: var(--text-faint);
+  }
+  .notices p:last-child { margin-bottom: 0; }
   .notices strong { color: var(--text-dim); font-weight: 700; }
 `;
 
-export function stylesheet(): string {
+/**
+ * `selector` is where the custom properties hang. The panel passes nothing and
+ * gets `:host`; the preview harness passes `.panel`, because it renders several
+ * panels on one page and each has to be able to carry its own theme.
+ */
+export function stylesheet(selector = ":host"): string {
   return `
-  :host {
-    --sheet: ${BASE.sheet};
-    --raised: ${BASE.raised};
-    --text: ${BASE.text};
-    --text-muted: ${BASE.textMuted};
-    --text-dim: ${BASE.textDim};
-    --text-faint: ${BASE.textFaint};
-    --border: ${BASE.border};
-    --border-faint: ${BASE.borderFaint};
-    --track: ${BASE.track};
-    --link: ${BASE.link};
-    --beta: ${BASE.beta};
-    --focus: ${BASE.link};
-${toneVariables()}
-${gradeVariables()}
-  }
+${themeVariables(selector)}
 ${SHELL}
 ${ELEMENT_STYLES}
 ${HEADER_STYLES}

@@ -30,7 +30,8 @@
  */
 
 import type { EvaluationResponse } from "../../shared/types";
-import { el, list } from "./elements";
+import { el, fillsTo, list } from "./elements";
+import { TONE_GLYPH } from "./tokens";
 import {
   buildCompleteness,
   buildPricing,
@@ -86,13 +87,21 @@ function bar(
   maxPoints: number,
   widest: number,
 ): HTMLElement {
+  const tone = scoreTone(component.value);
   const node = el("details", `component${points === null ? " missing" : ""}`);
-  const summary = el("summary", "component-summary");
+  if (points !== null) node.dataset["tone"] = tone;
 
+  const summary = el("summary", "component-summary");
   const body = componentDetail(component.name, data);
 
   const top = el("div", "component-top");
-  top.append(el("span", "component-name", label(component.name)));
+  const name = el("span", "component-name");
+  // The glyph is the tone's second carrier (tokens.ts, rule 1). The bar below
+  // is coloured, and a bar is exactly the kind of element a reader with a
+  // red-green deficiency gets nothing from.
+  if (points !== null) name.append(el("span", "component-glyph", TONE_GLYPH[tone]));
+  name.append(el("span", undefined, label(component.name)));
+  top.append(name);
   top.append(
     el(
       "span",
@@ -110,9 +119,11 @@ function bar(
     const track = el("div", "bar");
     track.style.width = `${(maxPoints / widest) * 100}%`;
     const fill = el("i");
-    fill.dataset["tone"] = scoreTone(component.value);
-    fill.style.width = `${Math.max(0, Math.min(100, component.value ?? 0))}%`;
-    track.append(fill);
+    fill.dataset["tone"] = tone;
+    // Grown from zero once the panel is on screen, in the same pass as every
+    // other fill -- see `animateFills`. The four rows are staggered in CSS so
+    // they read as one chart arriving rather than four bars racing.
+    track.append(fillsTo(fill, (component.value ?? 0) / 100));
     summary.append(track);
   }
 
@@ -191,53 +202,117 @@ export function buildBreakdown(data: EvaluationResponse): HTMLElement[] {
 }
 
 export const BREAKDOWN_STYLES = `
-  .component { border-bottom: 1px solid var(--border-faint); font-size: 12px; }
+  .component {
+    position: relative; border-bottom: 1px solid var(--border-faint);
+    font-size: var(--fs-sm);
+  }
   .component:last-child { border-bottom: 0; }
+  /* A tone rail on the left edge, drawn only while the row is open. Closed,
+     the bar is already the colour carrier; open, the row's content runs for
+     half a screen and the rail is what still connects it to its dimension. */
+  .component::before {
+    content: ""; position: absolute; left: calc(var(--sp-4) * -1); top: 0; bottom: 0;
+    width: 2px; border-radius: var(--radius-pill); background: transparent;
+    transition: background var(--dur-base) var(--ease-out);
+  }
+  .component[open][data-tone="favorable"]::before { background: var(--tone-favorable-fill); }
+  .component[open][data-tone="caution"]::before   { background: var(--tone-caution-fill); }
+  .component[open][data-tone="adverse"]::before   { background: var(--tone-adverse-fill); }
+  .component[open][data-tone="neutral"]::before   { background: var(--border); }
+
   .component-summary {
     display: block; cursor: pointer; list-style: none; position: relative;
-    padding: 9px 18px 11px 0;
+    padding: var(--sp-3) var(--sp-5) var(--sp-3) 0;
+    border-radius: var(--radius-sm);
+    transition: background var(--dur-fast) var(--ease-out);
   }
   .component-summary::-webkit-details-marker { display: none; }
   .component-summary::after {
-    content: "+"; position: absolute; right: 0; top: 9px;
-    color: var(--text-faint); font-size: 14px; line-height: 1;
+    content: ""; position: absolute; right: 2px; top: 14px;
+    width: 6px; height: 6px;
+    border-right: 1.5px solid var(--text-faint);
+    border-bottom: 1.5px solid var(--text-faint);
+    transform: rotate(45deg);
+    transition: transform var(--dur-base) var(--ease-out), border-color var(--dur-fast);
   }
-  .component[open] > .component-summary::after { content: "−"; }
+  .component[open] > .component-summary::after { transform: translateY(3px) rotate(-135deg); }
   .component-summary:hover .component-name { color: var(--text); }
+  .component-summary:hover::after { border-color: var(--text-dim); }
+
   .component-top {
-    display: flex; justify-content: space-between; gap: 12px;
+    display: flex; justify-content: space-between; gap: var(--sp-4);
     color: var(--text-muted); align-items: baseline;
   }
-  .component-name { text-transform: capitalize; }
-  .component-figures { font-variant-numeric: tabular-nums; color: var(--text-dim); flex: none; }
+  .component-name {
+    display: inline-flex; align-items: baseline; gap: var(--sp-2);
+    text-transform: capitalize; font-weight: 600;
+    transition: color var(--dur-fast) var(--ease-out);
+  }
+  .component-glyph { font-size: var(--fs-xs); }
+  .component[data-tone="favorable"] .component-glyph { color: var(--tone-favorable-text); }
+  .component[data-tone="caution"] .component-glyph   { color: var(--tone-caution-text); }
+  .component[data-tone="adverse"] .component-glyph   { color: var(--tone-adverse-text); }
+  .component[data-tone="neutral"] .component-glyph   { color: var(--text-faint); }
+
+  .component-figures {
+    font-family: var(--font-num); font-variant-numeric: tabular-nums;
+    color: var(--text-dim); flex: none; font-size: var(--fs-xs);
+  }
   .component.missing .component-top { color: var(--text-faint); font-style: italic; }
   .component-reason {
-    margin: 3px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text-faint);
+    margin: 3px 0 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--text-faint);
   }
+
   .bar {
-    height: 6px; border-radius: 3px; background: var(--track);
-    margin-top: 5px; overflow: hidden; min-width: 8%;
+    height: 7px; border-radius: var(--radius-pill); background: var(--track);
+    margin-top: var(--sp-2); overflow: hidden; min-width: 8%;
   }
-  .bar > i { display: block; height: 100%; background: var(--tone-neutral-fill); }
+  .bar > i {
+    display: block; height: 100%; width: 0; border-radius: inherit;
+    background: var(--tone-neutral-fill);
+    transition: width var(--dur-slow) var(--ease-out);
+  }
   .bar > i[data-tone="favorable"] { background: var(--tone-favorable-fill); }
   .bar > i[data-tone="caution"]   { background: var(--tone-caution-fill); }
   .bar > i[data-tone="adverse"]   { background: var(--tone-adverse-fill); }
-  .component-body { padding: 0 0 14px; }
+  /* Staggered so the four dimensions read as one chart arriving rather than
+     four independent bars. Nth-of-type, not a class, because the row order is
+     fixed by DIMENSION_ORDER in state.ts and cannot drift. */
+  .component:nth-of-type(2) .bar > i { transition-delay: 60ms; }
+  .component:nth-of-type(3) .bar > i { transition-delay: 120ms; }
+  .component:nth-of-type(4) .bar > i { transition-delay: 180ms; }
+
+  .component-body { padding: 0 0 var(--sp-4); }
 
   /* Vehicle risk / seller and scam risk's own nested dropdowns (Recalls,
-     Known issues, Red flags, Questions). Indented from "Vehicle risk" /
-     "Seller and scam risk" itself, with their own content indented a second
-     step further from THEIR header -- two levels, not one, per the request
-     that started this. Overrides the shared .disclosure spacing, which is
-     sized for a full-width top-level row rather than a nested one. */
+     Complaints, Known issues, Red flags, Questions). Indented from "Vehicle
+     risk" / "Seller and scam risk" itself, with their own content indented a
+     second step further from THEIR header -- two levels, not one. Overrides
+     the shared .disclosure spacing, which is sized for a full-width top-level
+     row rather than a nested one. */
   .component-body > .disclosure { border-bottom: 1px solid var(--border-faint); }
   .component-body > .disclosure:last-child { border-bottom: 0; }
-  .component-body > .disclosure:first-of-type { margin-top: 4px; }
-  .component-body > .disclosure > summary { padding: 8px 0 8px 14px; }
-  .component-body > .disclosure > .disclosure-body { padding: 2px 0 10px 28px; }
+  .component-body > .disclosure:first-of-type { margin-top: var(--sp-1); }
+  .component-body > .disclosure > summary {
+    padding: var(--sp-3) 0 var(--sp-3) var(--sp-4); border-radius: var(--radius-sm);
+  }
+  .component-body > .disclosure > .disclosure-body {
+    padding: var(--sp-1) 0 var(--sp-4) var(--sp-7);
+  }
 
   .breakdown-note {
-    margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-muted);
+    margin: 0 0 var(--sp-4); font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted);
   }
-  .muted-list { color: var(--text-faint); font-size: 11.5px; margin-top: 10px; }
+  .muted-list { color: var(--text-faint); font-size: var(--fs-xs); margin-top: var(--sp-4); }
+
+  /* expand-all, pinned to the Score breakdown heading */
+  .toggle-all {
+    margin-left: auto; flex: none;
+    font: 650 var(--fs-xs)/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase;
+    background: none; border: 1px solid var(--border); border-radius: var(--radius-pill);
+    color: var(--text-dim); padding: var(--sp-1) var(--sp-3); cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out);
+  }
+  .toggle-all:hover { color: var(--text); border-color: var(--text-faint); }
 `;

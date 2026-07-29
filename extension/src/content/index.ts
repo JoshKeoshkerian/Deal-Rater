@@ -41,7 +41,7 @@ async function handleClick(): Promise<void> {
   button.setBusy(true);
 
   try {
-    const outcome = await runCapture((message) => button?.setStatus(message));
+    const outcome = await runCapture((message, stage) => button?.setProgress(message, stage));
     button.setStatus(outcome.message, outcome.ok ? "info" : "error");
   } catch (error) {
     button.setStatus(error instanceof Error ? error.message : String(error), "error");

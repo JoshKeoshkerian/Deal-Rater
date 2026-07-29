@@ -1,16 +1,29 @@
 /**
- * The trigger. Deliberately the entire user interface for this step.
+ * The trigger, and the only thing on screen until an evaluation exists.
  *
  * Rendered inside a shadow root so that neither Facebook's stylesheet nor this
  * one can reach the other, and so the button is not affected by the class-name
  * churn that everything else in this project has to work around.
+ *
+ * IT SHARES THE PANEL'S TOKENS. It used to carry its own hexes and its own font
+ * stack, which meant the first thing a user saw and the thing it opened were
+ * two different products, and a theme change had to be made twice. Both shadow
+ * roots now emit `themeVariables()`.
+ *
+ * PROGRESS IS A RAIL, NOT A SENTENCE. `runCapture` walks up to five steps and
+ * some of them are slow -- the widening pass is several sequential searches.
+ * One line of replaced text gives no sense of how far in the run is, so a
+ * fifteen-second step reads as a hang. See `capture-stages.ts`.
  */
+
+import { themeVariables } from "./overlay/tokens";
+import { CAPTURE_STEPS, stageIndex, type CaptureStage } from "./capture-stages";
 
 const HOST_ID = "deal-rater-trigger";
 
-const STYLES = `
-  :host { all: initial; }
-  .panel {
+const RULES = `
+
+  .dock {
     position: fixed;
     right: 16px;
     bottom: 16px;
@@ -24,47 +37,157 @@ const STYLES = `
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 8px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    gap: var(--sp-3);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
   }
-  button {
-    font: 600 14px/1 inherit;
-    padding: 12px 18px;
+
+  button.capture {
+    font: 650 14px/1 var(--font-sans);
+    padding: var(--sp-4) var(--sp-6);
     border: 0;
-    border-radius: 999px;
-    background: #1c2b3a;
-    color: #fff;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    color: var(--accent-on);
     cursor: pointer;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+    box-shadow: var(--elev-2);
+    transition: transform var(--dur-fast) var(--ease-out),
+                filter var(--dur-fast) var(--ease-out);
   }
-  button:hover:not(:disabled) { background: #26394d; }
-  button:disabled { opacity: 0.65; cursor: default; }
-  button:focus-visible { outline: 2px solid #7fb8e8; outline-offset: 2px; }
+  button.capture:hover:not(:disabled) { filter: brightness(1.12); }
+  button.capture:active:not(:disabled) { transform: scale(.97); }
+  button.capture:disabled { opacity: .7; cursor: default; }
+  :where(button, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
   /* The fixture control is secondary to the one action this button exists for,
      and is only ever mounted in a dev build. */
   button.extra {
-    font-size: 12.5px; padding: 8px 14px;
-    background: #16212b; color: #a9bccb;
+    font: 600 12px/1 var(--font-sans);
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px solid var(--border); border-radius: var(--radius-pill);
+    background: var(--raised); color: var(--text-dim); cursor: pointer;
   }
-  button.extra:hover:not(:disabled) { background: #1c2b3a; color: #e8eef4; }
-  @media (prefers-reduced-motion: reduce) {
-    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
-  }
-  .status {
-    max-width: 280px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    background: #1c2b3a;
-    color: #e8eef4;
+  button.extra:hover:not(:disabled) { color: var(--text); border-color: var(--text-faint); }
+
+  /* card ------------------------------------------------------------- */
+  .card {
+    width: 268px;
+    padding: var(--sp-4);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    background: var(--sheet);
+    color: var(--text);
+    box-shadow: var(--elev-2);
     font-size: 12.5px;
     line-height: 1.45;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
   }
-  .status[data-tone="error"] { background: #5b1f1f; }
-  .status[hidden] { display: none; }
+  .card[hidden] { display: none; }
+  .card[data-tone="error"] {
+    border-color: var(--tone-adverse-border);
+    background: var(--tone-adverse-surface);
+    color: var(--tone-adverse-on-surface);
+  }
+
+  .card-message { margin: 0; }
+  .card[data-tone="error"] .card-title {
+    display: flex; align-items: baseline; gap: var(--sp-2);
+    margin: 0 0 var(--sp-2); font-weight: 700; color: var(--tone-adverse-text);
+  }
+
+  /* progress rail ---------------------------------------------------- */
+  .rail { display: flex; gap: 3px; margin-bottom: var(--sp-3); }
+  /* display:flex beats the hidden attribute, so a terminal message kept
+     showing a rail of five pending steps under it -- a finished run that looks
+     like it never started. */
+  .rail[hidden] { display: none; }
+  .rail-step { flex: 1; min-width: 0; }
+  .rail-bar {
+    height: 3px; border-radius: var(--radius-pill); background: var(--track);
+    overflow: hidden; position: relative;
+  }
+  .rail-step[data-state="done"] .rail-bar { background: var(--tone-favorable-fill); }
+  /* An indeterminate sweep rather than a percentage: the step's duration is
+     genuinely unknown -- the widening pass is however many metros it takes --
+     and a fake progress bar that stalls at 80% is worse than an honest one
+     that only says "still working". */
+  .rail-step[data-state="active"] .rail-bar::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: sweep 1.15s var(--ease-out) infinite;
+  }
+  @keyframes sweep {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+  }
+  .rail-label {
+    display: block; margin-top: 5px;
+    font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--text-faint);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .rail-step[data-state="active"] .rail-label { color: var(--text); font-weight: 700; }
+  .rail-step[data-state="done"] .rail-label { color: var(--text-dim); }
+
+  .progress-line {
+    display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3);
+  }
+  .elapsed {
+    flex: none; font-variant-numeric: tabular-nums; color: var(--text-faint); font-size: 11px;
+  }
+
+  .retry {
+    margin-top: var(--sp-3);
+    font: 700 11px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase;
+    padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-pill);
+    border: 1px solid var(--tone-adverse-border); background: transparent;
+    color: var(--tone-adverse-text); cursor: pointer;
+  }
+  .retry:hover { background: var(--tone-adverse-border); color: var(--text); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+    /* The sweep is the only thing saying the run is still alive, so it is
+       slowed rather than removed -- a static card and a hung card would
+       otherwise look identical. */
+    .rail-step[data-state="active"] .rail-bar::after { animation-duration: 3s !important; }
+  }
 `;
 
+/**
+ * The one saturated colour in the extension, and the text that sits on it.
+ *
+ * Local to the trigger rather than a token: the panel has no primary action to
+ * put it on, and a colour with one use is not a system.
+ */
+function accent(selector: string): string {
+  const scoped = (attr: string) =>
+    selector.startsWith(":host")
+      ? `${selector}([data-theme="${attr}"])`
+      : `${selector}[data-theme="${attr}"]`;
+  const light = "--accent: #2f6f9f; --accent-on: #ffffff;";
+  const dark = "--accent: #3d86bd; --accent-on: #06101a;";
+  return `
+  ${selector} { ${light} }
+  @media (prefers-color-scheme: dark) { ${selector} { ${dark} } }
+  ${scoped("light")} { ${light} }
+  ${scoped("dark")} { ${dark} }
+`;
+}
+
+/**
+ * `selector` is where the custom properties hang: `:host` in the product, a
+ * class in the preview harness, which renders the button's states side by side
+ * outside any shadow root.
+ */
+export function triggerStylesheet(selector = ":host"): string {
+  const reset = selector === ":host" ? ":host { all: initial; }" : "";
+  return `${reset}\n${themeVariables(selector)}\n${accent(selector)}\n${RULES}`;
+}
+
 export interface TriggerButton {
+  /** A step of a running capture. Draws the rail. */
+  setProgress(message: string, stage?: CaptureStage): void;
+  /** A terminal message. Clears the rail. */
   setStatus(message: string, tone?: "info" | "error"): void;
   setBusy(busy: boolean): void;
   remove(): void;
@@ -79,46 +202,149 @@ export function mountTriggerButton(onClick: () => void): TriggerButton | null {
   const shadow = host.attachShadow({ mode: "open" });
 
   const style = document.createElement("style");
-  style.textContent = STYLES;
+  style.textContent = triggerStylesheet();
 
   const panel = document.createElement("div");
-  panel.className = "panel";
+  panel.className = "dock";
 
-  const status = document.createElement("div");
-  status.className = "status";
-  status.hidden = true;
+  const card = document.createElement("div");
+  card.className = "card";
+  card.hidden = true;
+  // Progress and outcome both land here, so a screen reader is told without
+  // the card having to steal focus from whatever the user was doing.
+  card.setAttribute("role", "status");
+  card.setAttribute("aria-live", "polite");
+
+  const rail = document.createElement("div");
+  rail.className = "rail";
+  const railSteps = CAPTURE_STEPS.map((step) => {
+    const node = document.createElement("div");
+    node.className = "rail-step";
+    const bar = document.createElement("div");
+    bar.className = "rail-bar";
+    const label = document.createElement("span");
+    label.className = "rail-label";
+    label.textContent = step.label;
+    node.append(bar, label);
+    rail.append(node);
+    return node;
+  });
+
+  const progressLine = document.createElement("div");
+  progressLine.className = "progress-line";
+  const message = document.createElement("p");
+  message.className = "card-message";
+  const elapsed = document.createElement("span");
+  elapsed.className = "elapsed";
+  progressLine.append(message, elapsed);
+
+  card.append(rail, progressLine);
 
   const button = document.createElement("button");
   button.type = "button";
+  button.className = "capture";
   button.textContent = "Capture listing";
   button.addEventListener("click", onClick);
 
-  panel.append(status, button);
+  panel.append(card, button);
   shadow.append(style, panel);
   document.body.appendChild(host);
 
   let hideTimer: number | undefined;
+  // A clock, not a poller. It runs only between setBusy(true) and
+  // setBusy(false) -- i.e. only inside a capture the user started -- and reads
+  // nothing from the page. Spec 8.1's constraint is on collection, and this
+  // collects nothing.
+  let tick: number | undefined;
+  let startedAt = 0;
+
+  const clearRetry = () => card.querySelector(".retry")?.remove();
+  const clearTitle = () => card.querySelector(".card-title")?.remove();
+
+  const drawRail = (stage?: CaptureStage) => {
+    const current = stage ? stageIndex(stage) : -1;
+    rail.hidden = current < 0;
+    railSteps.forEach((node, index) => {
+      // Everything before the current step is done whether or not it ran:
+      // two of the five are conditional, and a rail that leaves a skipped
+      // step looking pending implies the run went backwards.
+      node.dataset["state"] =
+        current < 0 ? "pending" : index < current ? "done" : index === current ? "active" : "pending";
+    });
+  };
+
+  const stopClock = () => {
+    if (tick) clearInterval(tick);
+    tick = undefined;
+  };
 
   return {
-    setStatus(message, tone = "info") {
-      status.textContent = message;
-      status.dataset["tone"] = tone;
-      status.hidden = false;
+    setProgress(text, stage) {
       if (hideTimer) clearTimeout(hideTimer);
-      if (tone === "info") {
+      clearRetry();
+      clearTitle();
+      delete card.dataset["tone"];
+      message.textContent = text;
+      drawRail(stage);
+      card.hidden = false;
+
+      if (!tick) {
+        startedAt = Date.now();
+        elapsed.textContent = "";
+        tick = window.setInterval(() => {
+          const seconds = Math.round((Date.now() - startedAt) / 1000);
+          // Silent for the first few seconds. A timer that starts at 1s makes a
+          // fast capture feel slow by drawing attention to its duration.
+          elapsed.textContent = seconds >= 4 ? `${seconds}s` : "";
+        }, 1000);
+      }
+    },
+
+    setStatus(text, tone = "info") {
+      if (hideTimer) clearTimeout(hideTimer);
+      stopClock();
+      clearRetry();
+      clearTitle();
+      elapsed.textContent = "";
+      drawRail(undefined);
+      message.textContent = text;
+      card.hidden = false;
+
+      if (tone === "error") {
+        card.dataset["tone"] = "error";
+        const title = document.createElement("div");
+        title.className = "card-title";
+        title.append("⚠", " That didn't finish");
+        card.insertBefore(title, message.parentElement);
+
+        // The old bubble left a red message on screen and no way forward.
+        // Retrying is one click and the same click the user already made.
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "retry";
+        retry.textContent = "Try again";
+        retry.addEventListener("click", onClick);
+        card.append(retry);
+      } else {
+        delete card.dataset["tone"];
         hideTimer = window.setTimeout(() => {
-          status.hidden = true;
+          card.hidden = true;
         }, 8000);
       }
     },
+
     setBusy(busy) {
       button.disabled = busy;
       button.textContent = busy ? "Capturing…" : "Capture listing";
+      if (!busy) stopClock();
     },
+
     remove() {
       if (hideTimer) clearTimeout(hideTimer);
+      stopClock();
       host.remove();
     },
+
     addExtraAction(label, handler) {
       const extra = document.createElement("button");
       extra.type = "button";

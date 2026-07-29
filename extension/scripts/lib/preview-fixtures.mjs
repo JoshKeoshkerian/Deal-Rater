@@ -69,7 +69,18 @@ function base() {
       recall_count: null,
       complaint_count: null,
       top_complaint_components: [],
-      messages: [],
+      recall_messages: [],
+      complaint_messages: [],
+    },
+    completeness: { present: [], missing: [] },
+    vehicle_details: {
+      year: 2016,
+      make: "Mazda",
+      model: "CX-5",
+      mileage: 92_000,
+      title_status: null,
+      seller_type: null,
+      owner_count: null,
     },
     seller_risk: null,
     negotiation: {
@@ -106,6 +117,17 @@ const STRUCTURAL_TEXT = [
 
 export const CONFIDENT = {
   ...base(),
+  completeness: {
+    present: ["price", "mileage", "year", "make", "model", "photos", "description", "title status"],
+    missing: ["VIN"],
+  },
+  vehicle_details: {
+    ...base().vehicle_details,
+    mileage: 92_000,
+    title_status: "clean",
+    seller_type: "private_party",
+    owner_count: "one",
+  },
   headline:
     "74 / 100, high confidence. Comparable listings suggest an expected asking range of " +
     "$13,800 to $14,300. This asks $14,900.",
@@ -146,13 +168,13 @@ export const CONFIDENT = {
       ["POWER TRAIN", 58],
       ["STRUCTURE", 24],
     ],
-    messages: [
+    recall_messages: [
       "3 recall campaign(s) issued for this model.",
       "These are recall campaigns issued for this year, make and model. Whether this " +
         "particular vehicle had them performed is not public data -- ask the seller for " +
         "service records, or check the VIN with a franchised dealer.",
-      "412 owner complaints filed. Most common: electrical system (96), engine (71), " +
-        "power train (58), structure (24).",
+    ],
+    complaint_messages: [
       "Complaint counts are not adjusted for how many of these were sold, so they cannot be " +
         "compared across models. Treat the breakdown as a list of what to inspect rather " +
         "than as a quality score.",
@@ -240,6 +262,15 @@ export const CONFIDENT = {
 
 export const UNRELIABLE = {
   ...base(),
+  completeness: {
+    present: ["price", "year", "make", "model", "photos"],
+    missing: ["mileage", "VIN", "title status", "description"],
+  },
+  vehicle_details: {
+    ...base().vehicle_details,
+    mileage: null,
+    seller_type: "private_party",
+  },
   headline:
     "41 / 100, low confidence. Comparable listings suggest an expected asking range of " +
     "$9,100 to $15,400. This asks $12,600.",
@@ -290,6 +321,8 @@ export const UNRELIABLE = {
     scam_signals_evaluable: 5,
     scam_signals_total: 7,
     scam_reduced_sensitivity: true,
+    seller_rating_average: null,
+    seller_rating_count: null,
     messages: [
       "Two photos, both of the same side of the car.",
       "The description is under 20 words and says nothing specific about the vehicle.",
@@ -322,6 +355,16 @@ export const UNRELIABLE = {
 
 export const SCAM = {
   ...base(),
+  completeness: {
+    present: ["price", "year", "make", "model"],
+    missing: ["mileage", "VIN", "title status", "description", "photos"],
+  },
+  vehicle_details: {
+    ...base().vehicle_details,
+    title_status: null,
+    seller_type: null,
+    owner_count: "three_plus",
+  },
   vehicle: "2018 Honda Civic EX",
   headline:
     "score withheld, medium confidence. Comparable listings suggest an expected asking " +
@@ -360,9 +403,13 @@ export const SCAM = {
     recall_count: 1,
     complaint_count: 88,
     top_complaint_components: [["ELECTRICAL SYSTEM", 31]],
-    messages: [
+    recall_messages: [
       "1 recall campaign(s) issued for this model.",
-      "88 owner complaints filed. Most common: electrical system (31).",
+      "Whether this particular vehicle had the work done is not public data.",
+    ],
+    complaint_messages: [
+      "Complaint counts are not adjusted for how many of these were sold, so they cannot " +
+        "be compared across models.",
     ],
   },
   seller_risk: {
@@ -406,6 +453,16 @@ export const SCAM = {
 
 export const FLAT = {
   ...base(),
+  completeness: {
+    present: ["price", "mileage", "year", "make", "model", "photos", "description"],
+    missing: ["VIN", "title status"],
+  },
+  vehicle_details: {
+    ...base().vehicle_details,
+    title_status: "clean",
+    seller_type: "dealer",
+    owner_count: "two",
+  },
   vehicle: "2014 Toyota RAV4 LE",
   headline:
     "66 / 100, medium confidence. Comparable listings suggest an expected asking range of " +
@@ -441,9 +498,10 @@ export const FLAT = {
     recall_count: 0,
     complaint_count: 140,
     top_complaint_components: [["POWER TRAIN", 40]],
-    messages: [
-      "No recall campaigns found for this year, make and model.",
-      "140 owner complaints filed. Most common: power train (40).",
+    recall_messages: ["No recall campaigns found for this year, make and model."],
+    complaint_messages: [
+      "Complaint counts are not adjusted for how many of these were sold, so they cannot " +
+        "be compared across models.",
     ],
   },
   negotiation: {

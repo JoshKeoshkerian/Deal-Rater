@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  alternativeVehicle,
   breakdownIsFlat,
   compProblems,
   confidenceTone,
@@ -17,6 +18,8 @@ import {
   intervalWidthRatio,
   knownIssuesReasonIsShowable,
   priceComparison,
+  priceDelta,
+  priceGauge,
   scoreGrade,
   scoreTone,
 } from "../src/content/overlay/state";
@@ -350,5 +353,116 @@ describe("price comparison", () => {
         pricing({ asking_interval_low_cents: null, asking_interval_high_cents: null }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("price gauge (spec 5.1)", () => {
+  // Spec 5.1's own example, so the arithmetic below can be checked against the
+  // spec rather than against this test.
+  const spec = pricing({
+    ask_cents: 1_490_000,
+    asking_interval_low_cents: 1_380_000,
+    asking_interval_high_cents: 1_430_000,
+    strong_offer_cents: 1_320_000,
+    walk_away_above_cents: 1_460_000,
+  });
+
+  it("puts all four figures on one scale, in spec order", () => {
+    const gauge = priceGauge(spec)!;
+    expect(gauge).not.toBeNull();
+    // strong offer < interval < walk away < ask, which is the reading the
+    // graphic exists to make obvious.
+    expect(gauge.strongOffer!).toBeLessThan(gauge.band!.start);
+    expect(gauge.band!.start).toBeLessThan(gauge.band!.end);
+    expect(gauge.band!.end).toBeLessThan(gauge.walkAway!);
+    expect(gauge.walkAway!).toBeLessThan(gauge.ask!);
+  });
+
+  it("keeps every mark inside the track", () => {
+    const gauge = priceGauge(spec)!;
+    for (const position of [gauge.ask, gauge.strongOffer, gauge.walkAway, gauge.band!.start, gauge.band!.end]) {
+      expect(position!).toBeGreaterThan(0);
+      expect(position!).toBeLessThan(1);
+    }
+  });
+
+  it("reads an ask above the walk-away threshold as adverse", () => {
+    expect(priceGauge(spec)!.askTone).toBe("adverse");
+  });
+
+  it("reads an ask over the interval but under walk-away as caution", () => {
+    expect(priceGauge(pricing({ ...spec, ask_cents: 1_445_000 }))!.askTone).toBe("caution");
+  });
+
+  it("reads an ask inside the interval as no judgement at all", () => {
+    expect(priceGauge(pricing({ ...spec, ask_cents: 1_400_000 }))!.askTone).toBe("neutral");
+  });
+
+  it("reads an ask below the interval as favorable", () => {
+    expect(priceGauge(pricing({ ...spec, ask_cents: 1_300_000 }))!.askTone).toBe("favorable");
+  });
+
+  it("draws nothing without an interval to anchor it", () => {
+    // A number line with one point on it is a decoration, not a reading.
+    expect(
+      priceGauge(pricing({ asking_interval_low_cents: null, asking_interval_high_cents: null })),
+    ).toBeNull();
+  });
+
+  it("survives a degenerate span rather than dividing by zero", () => {
+    const flat = priceGauge(
+      pricing({
+        ask_cents: 1_000_000,
+        asking_interval_low_cents: 1_000_000,
+        asking_interval_high_cents: 1_000_000,
+        strong_offer_cents: null,
+        walk_away_above_cents: null,
+      }),
+    )!;
+    expect(Number.isFinite(flat.ask!)).toBe(true);
+    expect(Number.isFinite(flat.band!.start)).toBe(true);
+  });
+
+  it("omits the figures the backend did not publish", () => {
+    const gauge = priceGauge(
+      pricing({ strong_offer_cents: null, walk_away_above_cents: null }),
+    )!;
+    expect(gauge.strongOffer).toBeNull();
+    expect(gauge.walkAway).toBeNull();
+    expect(gauge.band).not.toBeNull();
+  });
+});
+
+describe("price delta on an alternative", () => {
+  it("names the saving and reads it as favorable", () => {
+    expect(priceDelta(1_320_000, 1_490_000)).toEqual({ text: "$1,700 less", tone: "favorable" });
+  });
+
+  it("names the premium and reads it as caution", () => {
+    expect(priceDelta(1_520_000, 1_490_000)).toEqual({ text: "$300 more", tone: "caution" });
+  });
+
+  it("says so rather than printing $0", () => {
+    expect(priceDelta(1_490_000, 1_490_000)).toEqual({ text: "same price", tone: "neutral" });
+  });
+
+  it("declines to compare against a missing price", () => {
+    expect(priceDelta(1_320_000, null)).toBeNull();
+    expect(priceDelta(null, 1_490_000)).toBeNull();
+  });
+});
+
+describe("alternative vehicle name", () => {
+  it("takes the vehicle and leaves the fields the card renders itself", () => {
+    expect(
+      alternativeVehicle(
+        "2016 Mazda CX-5 - $13,200, 71,400 mi, Kirkwood, MO  [better value by 12% of expected price]",
+      ),
+    ).toBe("2016 Mazda CX-5");
+  });
+
+  it("keeps the whole line when there is no separator to split on", () => {
+    // A slightly long heading still says what the car is; an empty one does not.
+    expect(alternativeVehicle("2016 Mazda CX5")).toBe("2016 Mazda CX5");
   });
 });

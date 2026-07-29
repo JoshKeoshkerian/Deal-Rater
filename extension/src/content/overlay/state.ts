@@ -183,6 +183,136 @@ export function priceComparison(pricing: EvaluationResponse["pricing"]): string 
 }
 
 /* -------------------------------------------------------------------------- */
+/* the price gauge (spec 5.1's four numbers, drawn)                           */
+/* -------------------------------------------------------------------------- */
+
+/** Padding at each end, as a share of the span, so no marker sits on the edge. */
+const GAUGE_PAD = 0.08;
+
+export interface PriceGauge {
+  /** The domain the scale covers, in cents. */
+  min: number;
+  max: number;
+  /** The expected asking interval, as 0-1 positions. Null when there is none. */
+  band: { start: number; end: number } | null;
+  /** 0-1 positions for each of spec 5.1's figures. Null when not published. */
+  ask: number | null;
+  strongOffer: number | null;
+  walkAway: number | null;
+  /** Where the ask falls relative to the interval, as a judgement. */
+  askTone: Tone;
+}
+
+/**
+ * Spec 5.1's four numbers on one scale.
+ *
+ * The point of drawing them is that the four are only meaningful in relation to
+ * each other: "$14,900" answers nothing, and "$14,900 against an expected
+ * $13,800-$14,300, walk away above $14,600" is four figures a reader has to
+ * hold in their head at once to see that the ask is over the line. The scale
+ * holds them instead.
+ *
+ * Null when there is no interval to anchor it: without the band this is a
+ * number line with one point on it, which is a decoration.
+ */
+export function priceGauge(pricing: EvaluationResponse["pricing"]): PriceGauge | null {
+  const low = pricing.asking_interval_low_cents;
+  const high = pricing.asking_interval_high_cents;
+  if (low === null || high === null || high < low) return null;
+
+  const ask = pricing.ask_cents;
+  const strong = pricing.strong_offer_cents;
+  const walk = pricing.walk_away_above_cents;
+
+  const values = [low, high, ask, strong, walk].filter(
+    (value): value is number => value !== null && Number.isFinite(value),
+  );
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  // A degenerate span (every figure identical) would divide by zero. Give it an
+  // arbitrary but stable width so the marks stack in the middle rather than
+  // producing NaN positions.
+  const span = rawMax - rawMin || Math.max(rawMax * 0.1, 1);
+  const min = rawMin - span * GAUGE_PAD;
+  const max = rawMax + span * GAUGE_PAD;
+
+  const at = (value: number | null): number | null =>
+    value === null ? null : (value - min) / (max - min);
+
+  return {
+    min,
+    max,
+    band: { start: at(low)!, end: at(high)! },
+    ask: at(ask),
+    strongOffer: at(strong),
+    walkAway: at(walk),
+    askTone: askTone(ask, low, high, walk),
+  };
+}
+
+/**
+ * How the ask reads against the interval.
+ *
+ * Deliberately NOT the pricing sub-score restated: this is the crude
+ * over/under/inside reading, and it exists so the marker on the scale is
+ * coloured by the same rule a reader would apply looking at where it sits.
+ * Spec 2's point -- that far under the range is a warning rather than a
+ * bargain -- is the scoring model's job and is already in `price_residual`.
+ */
+function askTone(
+  ask: number | null,
+  low: number,
+  high: number,
+  walkAway: number | null,
+): Tone {
+  if (ask === null) return "neutral";
+  if (walkAway !== null && ask > walkAway) return "adverse";
+  if (ask > high) return "caution";
+  if (ask < low) return "favorable";
+  return "neutral";
+}
+
+/**
+ * A comp's price against the target's, as a signed figure and a judgement.
+ *
+ * Used by the alternatives cards, where the whole question a reader has is
+ * "cheaper than the one I am looking at, and by how much". `null` when either
+ * price is missing, in which case the card prints the price alone.
+ */
+export function priceDelta(
+  candidateCents: number | null,
+  askCents: number | null,
+): { text: string; tone: Tone } | null {
+  if (candidateCents === null || askCents === null) return null;
+  const difference = Math.round((candidateCents - askCents) / 100);
+  if (difference === 0) return { text: "same price", tone: "neutral" };
+  const amount = `$${Math.abs(difference).toLocaleString("en-US")}`;
+  return difference < 0
+    ? { text: `${amount} less`, tone: "favorable" }
+    : { text: `${amount} more`, tone: "caution" };
+}
+
+/**
+ * The vehicle out of an alternative's description line.
+ *
+ * `alternatives/finder.py` builds one string with everything in it --
+ * "2016 Mazda CX-5 - $12,400, 86,000 mi, Tulsa, OK  [better value by 12%...]"
+ * -- while ALSO sending price, mileage, location and advantage as their own
+ * fields. The card renders the fields, so printing the line as well would say
+ * each of them twice. The vehicle is the one part with no field of its own,
+ * hence this: take the segment before the first " - " and leave the rest.
+ *
+ * Falls back to the whole line if the separator is not there, which is the
+ * right failure -- a card headed by a slightly long string still tells a buyer
+ * what the car is, and one headed by nothing does not.
+ */
+export function alternativeVehicle(description: string): string {
+  const [head] = description.split(" - ");
+  const trimmed = head?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : description;
+}
+
+/* -------------------------------------------------------------------------- */
 /* score breakdown                                                            */
 /* -------------------------------------------------------------------------- */
 

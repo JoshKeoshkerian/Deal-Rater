@@ -1,6 +1,13 @@
+import type { ThemePreference } from "../content/overlay/theme";
+
 export interface Settings {
   /** Where captures are posted. No default production host is baked in. */
   apiBaseUrl: string;
+  /**
+   * Panel appearance. "auto" follows the operating system and is the default;
+   * the two explicit values override it in both directions.
+   */
+  theme: ThemePreference;
   /** Master off switch. When false the trigger button is not mounted at all. */
   enabled: boolean;
   /** Adds the fixture-snapshot control used to build the regression corpus. */
@@ -28,6 +35,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   apiBaseUrl: "http://localhost:8000",
+  theme: "auto",
   enabled: true,
   devMode: false,
   disclosureAcceptedAt: null,

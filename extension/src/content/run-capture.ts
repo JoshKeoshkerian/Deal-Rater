@@ -6,6 +6,7 @@
  * runs — when this function returns, the extension is idle again.
  */
 
+import type { CaptureStage } from "./capture-stages";
 import { buildCompSearch, buildMetroSearch } from "../comps/build-query";
 import { nearestMetro, peersFor, verifyMetroResults } from "../comps/metros";
 import { countUsable, pendingPeers, shouldWiden } from "../comps/widen";
@@ -53,7 +54,12 @@ export function buildCapturePayload(parts: CapturePayloadParts): CapturePayload 
   };
 }
 
-export type StatusListener = (message: string) => void;
+/**
+ * `stage` is optional so that a caller which only wants the sentence -- a test,
+ * a script -- can still pass a one-argument function. The trigger button uses
+ * it to draw a rail (`capture-stages.ts`).
+ */
+export type StatusListener = (message: string, stage?: CaptureStage) => void;
 
 export interface CaptureOutcome {
   ok: boolean;
@@ -65,7 +71,7 @@ export interface CaptureOutcome {
 export async function runCapture(onStatus: StatusListener = () => {}): Promise<CaptureOutcome> {
   const capturedAt = new Date();
 
-  onStatus("Reading listing…");
+  onStatus("Reading listing…", "reading");
   let target = await extractTargetListing(document, location.href, capturedAt);
 
   // Marketplace is a single-page app: the JSON payloads in the DOM are written
@@ -78,7 +84,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   // is what removes the manual refresh that capturing used to require --
   // refreshing was only ever a way of forcing this fetch by hand.
   if (target.usable && !target.payloadMatched) {
-    onStatus("Loading listing data…");
+    onStatus("Loading listing data…", "reading");
     const canonical = target.observation.listing_url ?? location.href;
     const fresh = await fetchDocument(canonical);
     if (fresh) {
@@ -160,7 +166,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
       page_signature: target.pageSignature,
     });
   } else {
-    onStatus("Searching comparable listings…");
+    onStatus("Searching comparable listings…", "comps");
     let result = await runCompSearch(search.url, capturedAt);
 
     // An unrecognised location parameter yields zero results rather than an
@@ -219,7 +225,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
       const metroSearch = buildMetroSearch(target.observation, slug);
       if (!metroSearch) continue;
 
-      onStatus("Searching nearby markets…");
+      onStatus("Searching nearby markets…", "widening");
       const extra = await runCompSearch(metroSearch.url, capturedAt);
 
       // An unresolvable slug silently returns the account's own metro rather
@@ -283,7 +289,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
       : null,
   });
 
-  onStatus("Saving…");
+  onStatus("Saving…", "saving");
   const result = await sendToBackground<SubmitCaptureResult>({
     type: "SUBMIT_CAPTURE",
     payload,
@@ -303,7 +309,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   // Spec 7's overlay. Fetched separately from the ingest so that a scoring
   // failure surfaces as a message rather than discarding a capture the user
   // would have to click again to recreate.
-  onStatus("Evaluating\u2026");
+  onStatus("Evaluating\u2026", "evaluating");
   const evaluation = await sendToBackground<EvaluationResult>({
     type: "FETCH_EVALUATION",
     captureId: response.capture_id,
