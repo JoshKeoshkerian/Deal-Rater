@@ -586,17 +586,6 @@ export function buildNegotiation(data: EvaluationResponse): HTMLElement[] {
     nodes.push(rows(phrases));
   }
 
-  // Spec 6.4 opens by insisting this is "genuinely orthogonal to deal quality",
-  // and it is the one place in the panel where a good reading and a bad deal
-  // routinely coincide. Say so where they are read together.
-  nodes.push(
-    el(
-      "p",
-      "muted",
-      "Negotiating room is not deal quality: a slightly overpriced car that has sat two " +
-        "months is a weak deal and a strong negotiation.",
-    ),
-  );
   return nodes;
 }
 
