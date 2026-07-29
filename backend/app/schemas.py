@@ -86,6 +86,11 @@ class ObservationIn(BaseModel):
     seller_type: Annotated[str | None, Field(max_length=32)] = None
     transmission: Annotated[str | None, Field(max_length=32)] = None
     title_status: Annotated[str | None, Field(max_length=32)] = None
+    #: Marketplace's "About this vehicle" owner-count field: ONE / TWO /
+    #: THREE_PLUS. Free text rather than an enum for the same reason as
+    #: `trim_source` -- an unrecognised value from a newer client should not
+    #: 422 a whole capture.
+    owner_count: Annotated[str | None, Field(max_length=16)] = None
     description: Annotated[str | None, Field(max_length=20_000)] = None
     photo_count: Annotated[int | None, Field(ge=0, le=1000)] = None
     posted_at: datetime | None = None
@@ -120,6 +125,7 @@ class ObservationIn(BaseModel):
         "trim_source",
         "seller_type",
         "transmission",
+        "owner_count",
     )
     @classmethod
     def _blank_to_none(cls, v: str | None) -> str | None:
@@ -295,6 +301,10 @@ class VehicleDetailsOut(BaseModel):
     #: `serialize.py`'s `_seller_type_label`. None when Facebook did not state
     #: it, which is common enough that this must not be read as "private".
     seller_type: str | None
+    #: "one" / "two" / "three_plus", normalised from Facebook's own
+    #: `vehicle_number_of_owners` field -- see `serialize.py`'s
+    #: `_owner_count_label`. None when Facebook did not state it.
+    owner_count: str | None
 
 
 class CompletenessOut(BaseModel):

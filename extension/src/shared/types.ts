@@ -74,6 +74,8 @@ export interface ObservationPayload {
   /** "AUTOMATIC" / "MANUAL", straight from the payload. */
   transmission: string | null;
   title_status: string | null;
+  /** "ONE" / "TWO" / "THREE_PLUS", from Facebook's "About this vehicle" panel. */
+  owner_count: string | null;
   description: string | null;
   photo_count: number | null;
   posted_at: string | null;
@@ -190,6 +192,8 @@ export interface EvaluationResponse {
     title_status: string | null;
     /** "private_party" / "dealer", from Facebook's own field. Null when unstated. */
     seller_type: string | null;
+    /** "one" / "two" / "three_plus", from Facebook's own field. Null when unstated. */
+    owner_count: string | null;
   };
   vehicle_risk: {
     title_risk: string;

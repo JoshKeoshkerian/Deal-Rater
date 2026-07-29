@@ -119,6 +119,12 @@ export const FB_KEYS = {
   // which matters more here than most fields since title status is a risk
   // signal the product is built around.
   vehicleCondition: ["vehicle_title_status", "title_status"],
+  /**
+   * "ONE" / "TWO" / "THREE_PLUS". Facebook's "About this vehicle" panel shows
+   * this as one of its headline vehicle facts, alongside title status and
+   * mileage -- a plain payload field, like `vehicleSellerType`.
+   */
+  vehicleNumberOfOwners: ["vehicle_number_of_owners"],
 } as const;
 
 /** Search-result feed containers, used to scope comp card discovery. */

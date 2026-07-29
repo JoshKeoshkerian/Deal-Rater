@@ -136,6 +136,18 @@ backfill deliberately does not invent them: nothing was ever stored to recover
 them from. `DealerSignal.UNAVAILABLE` carries that distinction, so a pre-fix
 comp set never reads as "checked, no dealers found".
 
+### `owner_count`
+
+Facebook's "About this vehicle" panel states this directly, the same way it
+states `seller_type`: `vehicle_number_of_owners`, one of `ONE` / `TWO` /
+`THREE_PLUS`. Target-only, like `title_status` — the search feed comps are
+built from does not render it, so there is nothing to capture for a comp card,
+and `pricing/comps.py` does not read it for matching.
+
+The red-flags list only calls out `TWO` and `THREE_PLUS`; a one-owner car is
+reassurance nobody asked for, the same reasoning as the seller-rating
+threshold beside it.
+
 ### Not listing data
 
 **`field_strategies`** — `{"price_cents": "json_payload", "mileage": "text_pattern"}`.

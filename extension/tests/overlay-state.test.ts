@@ -176,12 +176,48 @@ describe("score breakdown", () => {
     component("seller_and_scam_risk", 10, 100),
   ];
 
-  it("orders by contribution, so a 9-point dimension cannot outrank a 56-point one", () => {
+  it("always orders price, vehicle risk, seller/scam risk, then completeness", () => {
     const order = contributions(components).map((c) => c.component.name);
-    expect(order[0]).toBe("price_residual");
-    expect(order.indexOf("vehicle_risk")).toBeLessThan(
-      order.indexOf("information_completeness"),
-    );
+    expect(order).toEqual([
+      "price_residual",
+      "vehicle_risk",
+      "seller_and_scam_risk",
+      "information_completeness",
+    ]);
+  });
+
+  it("keeps that order even when a low-weight dimension outscores a high-weight one", () => {
+    // Completeness (9%) scores 100 and price residual (56%) scores 10 -- by
+    // contribution, completeness would win. The row order must not care.
+    const reordered = [
+      component("price_residual", 56, 10),
+      component("information_completeness", 9, 100),
+      component("vehicle_risk", 25, 85),
+      component("seller_and_scam_risk", 10, 100),
+    ];
+    const order = contributions(reordered).map((c) => c.component.name);
+    expect(order).toEqual([
+      "price_residual",
+      "vehicle_risk",
+      "seller_and_scam_risk",
+      "information_completeness",
+    ]);
+  });
+
+  it("keeps the fixed order even when a dimension could not be assessed", () => {
+    const missing = [
+      component("price_residual", 56, 40),
+      component("information_completeness", 9, 90),
+      component("vehicle_risk", 25, null),
+      component("seller_and_scam_risk", 10, 100),
+    ];
+    const order = contributions(missing).map((c) => c.component.name);
+    expect(order).toEqual([
+      "price_residual",
+      "vehicle_risk",
+      "seller_and_scam_risk",
+      "information_completeness",
+    ]);
   });
 
   it("makes the contributions sum to the score", () => {
@@ -203,7 +239,9 @@ describe("score breakdown", () => {
     // 56 of the 75 points that were actually available, not 56 of 100.
     expect(price.maxPoints).toBeCloseTo((56 / 75) * 100, 6);
     expect(price.points).toBeCloseTo(((56 / 75) * 100 * 40) / 100, 6);
-    expect(rows.at(-1)!.component.name).toBe("vehicle_risk");
+    // Unassessed, but the row order is fixed regardless -- it stays in its
+    // usual second slot rather than sinking to the bottom.
+    expect(rows.find((r) => r.component.name === "vehicle_risk")!.points).toBeNull();
   });
 
   it("names the dimension that gave away the most points, not the lowest score", () => {

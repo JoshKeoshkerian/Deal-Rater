@@ -41,6 +41,9 @@ class StoredCapture:
     #: Step 5 (flags) reads these.
     target_photo_count: int | None = None
     target_title_status: str | None = None
+    #: Facebook's "About this vehicle" owner-count field: 'ONE' / 'TWO' /
+    #: 'THREE_PLUS'. Read by `serialize.py`'s `_owner_count_label`.
+    target_owner_count: str | None = None
     target_vin: str | None = None
     target_price_changed: bool | None = None
     #: The seller's Marketplace star rating, as of this capture (spec 6.3).
@@ -166,6 +169,7 @@ def load_captures(session: Session, capture_ids: list[int] | None = None) -> lis
                 target_observed_at=target_row[0].observed_at,
                 target_photo_count=target_row[0].photo_count,
                 target_title_status=target_row[0].title_status,
+                target_owner_count=target_row[0].owner_count,
                 target_vin=target_row[1].vin,
                 target_price_changed=target_row[0].price_changed,
                 target_seller_rating_average=rating_average,

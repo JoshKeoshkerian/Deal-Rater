@@ -195,14 +195,30 @@ export interface Contribution {
 }
 
 /**
- * What each dimension actually contributed, sorted by that, descending.
+ * Reading order for the four dimensions -- fixed, regardless of score or
+ * which ones could even be assessed. Rows used to sort by contribution
+ * (highest points first), which meant the same dimension moved from listing
+ * to listing depending on how it scored. A reader checking "what's the
+ * vehicle risk on this one" needs it in the same place every time; a panel
+ * that reshuffles itself is not scannable.
+ */
+const DIMENSION_ORDER = [
+  "price_residual",
+  "vehicle_risk",
+  "seller_and_scam_risk",
+  "information_completeness",
+] as const;
+
+/**
+ * What each dimension actually contributed, in fixed reading order.
  *
  * The bars used to be drawn from the raw sub-score, so information
  * completeness -- 9% of the number -- drew the same length as price residual at
  * 56%. A reader comparing bar lengths was comparing nothing. Length is now
  * weight x sub-score, renormalised over the dimensions that could be assessed,
  * which is exactly how `compute_deal_score` arrives at the headline: the
- * contributions sum to the score.
+ * contributions sum to the score. That renormalisation still varies by
+ * listing; the order of the rows themselves no longer does.
  */
 export function contributions(components: ScoreComponent[]): Contribution[] {
   const available = components.filter((c) => c.value !== null);
@@ -215,13 +231,12 @@ export function contributions(components: ScoreComponent[]): Contribution[] {
     return { component, points, maxPoints };
   });
 
-  // Assessed dimensions first, by contribution; unassessed keep their weight
-  // order underneath, since they have no contribution to sort by.
   return rows.sort((a, b) => {
-    if (a.points === null && b.points === null) return b.component.weight - a.component.weight;
-    if (a.points === null) return 1;
-    if (b.points === null) return -1;
-    return b.points - a.points;
+    const orderOf = (name: string) => {
+      const index = DIMENSION_ORDER.indexOf(name as (typeof DIMENSION_ORDER)[number]);
+      return index === -1 ? DIMENSION_ORDER.length : index;
+    };
+    return orderOf(a.component.name) - orderOf(b.component.name);
   });
 }
 

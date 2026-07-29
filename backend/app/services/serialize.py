@@ -50,6 +50,18 @@ def _seller_type_label(raw: str | None) -> str | None:
     return None
 
 
+def _owner_count_label(raw: str | None) -> str | None:
+    """Facebook's "About this vehicle" owner-count field: ONE / TWO /
+    THREE_PLUS -> one / two / three_plus. None when unstated or unrecognised,
+    same rule as `_seller_type_label`."""
+    if not raw:
+        return None
+    normalized = raw.strip().upper()
+    if normalized in {"ONE", "TWO", "THREE_PLUS"}:
+        return normalized.lower()
+    return None
+
+
 def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> EvaluationOut:
     pricing = evaluation.pricing
     estimate = pricing.estimate
@@ -164,6 +176,7 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             mileage=capture.target.mileage,
             title_status=capture.target_title_status,
             seller_type=_seller_type_label(capture.target.seller_type),
+            owner_count=_owner_count_label(capture.target_owner_count),
         ),
         vehicle_risk=VehicleRiskOut(
             title_risk=evaluation.title.risk.value,

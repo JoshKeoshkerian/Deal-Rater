@@ -48,6 +48,7 @@ function emptyObservation(id: string): ObservationPayload {
     seller_type: null,
     transmission: null,
     title_status: null,
+    owner_count: null,
     description: null,
     photo_count: null,
     posted_at: null,
@@ -107,6 +108,7 @@ async function fromPayloads(
     observation.seller_type = vehicle.sellerType;
     observation.transmission = vehicle.transmission;
     observation.title_status = vehicle.titleStatus;
+    observation.owner_count = vehicle.ownerCount;
     observation.location_text = place.text;
     observation.latitude = place.latitude;
     observation.longitude = place.longitude;

@@ -61,6 +61,7 @@ export const TARGET_FIELD_EXPECTATIONS: Record<string, Expectation> = {
   // the case an `expected` field exists to make visible.
   seller_type: "expected",
   transmission: "optional",
+  owner_count: "optional",
 };
 
 /** A search card shows far less than a listing page, so most fields drop a level. */
@@ -88,6 +89,7 @@ export const COMP_FIELD_EXPECTATIONS: Record<string, Expectation> = {
   // expectations per-scope for exactly this reason.
   seller_type: "optional",
   transmission: "optional",
+  owner_count: "optional",
 };
 
 export type Attempt<T> = readonly [StrategyName, () => T | null | undefined];

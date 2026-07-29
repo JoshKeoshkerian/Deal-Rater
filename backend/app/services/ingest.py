@@ -206,6 +206,7 @@ def _build_observation(
         seller_type=obs.seller_type,
         transmission=obs.transmission,
         title_status=obs.title_status,
+        owner_count=obs.owner_count,
         description=redact_contact_details(obs.description),
         photo_count=obs.photo_count,
         posted_at=obs.posted_at,

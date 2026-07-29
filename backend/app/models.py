@@ -189,6 +189,10 @@ class ListingObservation(Base):
     transmission: Mapped[str | None] = mapped_column(String(32))
 
     title_status: Mapped[str | None] = mapped_column(String(32))
+    #: Marketplace's "About this vehicle" owner-count field: 'ONE' / 'TWO' /
+    #: 'THREE_PLUS'. Target-only, like `title_status` -- comps carry only what
+    #: the search feed renders, which does not include it.
+    owner_count: Mapped[str | None] = mapped_column(String(16))
     description: Mapped[str | None] = mapped_column(Text)
     photo_count: Mapped[int | None] = mapped_column(Integer)
     posted_at: Mapped[datetime | None] = mapped_column(TZDateTime)

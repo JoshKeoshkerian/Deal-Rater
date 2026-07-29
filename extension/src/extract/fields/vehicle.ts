@@ -30,6 +30,7 @@ export interface ResolvedVehicle {
   titleStatus: string | null;
   sellerType: string | null;
   transmission: string | null;
+  ownerCount: string | null;
   title: string | null;
 }
 
@@ -157,6 +158,13 @@ export function resolveVehicle(
     ["text_pattern", () => detectTitleStatus(description, title)],
   ]);
 
+  // "About this vehicle"'s owner-count fact. No text-pattern fallback: unlike
+  // title status, sellers do not reliably write "second owner" in prose, so
+  // there is nothing worth regexing for.
+  const ownerCount = recorder.resolve<string>("owner_count", [
+    ["json_payload", () => textOrNull(pickString(node, FB_KEYS.vehicleNumberOfOwners))],
+  ]);
+
   return {
     year,
     make,
@@ -166,6 +174,7 @@ export function resolveVehicle(
     titleStatus,
     sellerType,
     transmission,
+    ownerCount,
     title,
   };
 }

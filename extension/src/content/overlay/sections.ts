@@ -104,12 +104,21 @@ function scamSignalText(code: string): string {
 //: left out rather than printed as reassurance nobody asked for.
 const LOW_RATING_THRESHOLD = 4.0;
 
+//: Facebook's "About this vehicle" owner-count fact (`vehicle_number_of_owners`).
+//: Only the multi-owner cases are worth a flag -- "one owner" is reassurance
+//: nobody asked for, same reasoning as the rating threshold above.
+const OWNER_COUNT_FLAG_TEXT: Record<string, string> = {
+  two: "Seller states this vehicle has had two owners.",
+  three_plus: "Seller states this vehicle has had three or more owners.",
+};
+
 /**
  * Red flags about the LISTING itself: the scam-pattern combination (spec
- * 6.3), a dealer posing as a private seller, and a star rating low enough to
- * be a signal rather than noise. Title status used to live here too; it now
- * sits with the headliner score instead (`headline.ts`'s `buildTitleStatus`),
- * since it is important enough to see before a click rather than after one.
+ * 6.3), a dealer posing as a private seller, more than one previous owner,
+ * and a star rating low enough to be a signal rather than noise. Title
+ * status used to live here too; it now sits with the headliner score instead
+ * (`headline.ts`'s `buildTitleStatus`), since it is important enough to see
+ * before a click rather than after one.
  *
  * The bullets are deliberately built from the structured fields rather than
  * the backend's prose `messages` list: that list always includes the
@@ -129,6 +138,10 @@ function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
       "Looks like a dealer listing rather than a private-party sale -- the asking price " +
         "may include reconditioning, warranty and overhead.",
     );
+  }
+  const ownerCount = data.vehicle_details.owner_count;
+  if (ownerCount && OWNER_COUNT_FLAG_TEXT[ownerCount]) {
+    bullets.push(OWNER_COUNT_FLAG_TEXT[ownerCount]);
   }
   if (seller) bullets.push(...seller.scam_signals_fired.map(scamSignalText));
   if (seller?.seller_rating_average != null && seller.seller_rating_average < LOW_RATING_THRESHOLD) {

@@ -143,6 +143,7 @@ export async function extractTargetListing(
     seller_type: vehicle.sellerType,
     transmission: vehicle.transmission,
     title_status: vehicle.titleStatus,
+    owner_count: vehicle.ownerCount,
     description,
     photo_count: photoCount,
     posted_at: posting.postedAt ? posting.postedAt.toISOString() : null,
