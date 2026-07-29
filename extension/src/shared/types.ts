@@ -220,11 +220,52 @@ export interface EvaluationResponse {
   } | null;
   negotiation: {
     leverage: string;
+    /**
+     * The 0-100 behind the leverage word.
+     *
+     * NOT RENDERED, deliberately. It starts at the backend's `BASE_STRENGTH` and
+     * reaches neither end of its own scale, so "30/100 negotiating room" on a
+     * fresh listing reads as a measurement when it is an offset -- the panel used
+     * to draw it as a meter, which was the most confident-looking and least
+     * meaningful thing in the section. Kept on the wire for telemetry and spec
+     * 9's calibration pass.
+     */
     strength: number;
     days_listed: number | null;
     time_on_market_score: number | null;
     leverage_points: string[];
-    suggested_offer_cents: number | null;
+    /**
+     * Spec 7.5's offer, as three figures (see `negotiation/offer.py`).
+     *
+     * `basis` is load-bearing rather than metadata: "comps" means the figures come
+     * from an expected asking price the comp set supported, "ask" means they come
+     * from time on market and seller wording alone. Different claims of different
+     * strength, and a panel that prints them identically misrepresents one.
+     */
+    offer: {
+      /** "negotiate" | "pay_near_asking" | "stretch" | "withheld" */
+      stance: string;
+      /** "comps" | "ask" | "none" */
+      basis: string;
+      opening_cents: number | null;
+      target_cents: number | null;
+      /** Null on an ask-anchored plan: walking away is a claim about value. */
+      walk_away_cents: number | null;
+      /** Actionable only: each sentence explains one of the figures above. */
+      reasoning: string[];
+      /**
+       * The single statement of what the figures do NOT claim -- the anchoring
+       * basis, and a missing posted date -- or null when there is nothing to
+       * qualify. Rendered at the END of the section: the panel used to carry this
+       * as its own restatement of backend prose that also appeared in `reasoning`,
+       * so the same hedge appeared twice, in the middle, between the figures and
+       * the evidence for them.
+       */
+      caveat: string | null;
+      withheld_reason: string | null;
+    };
+    /** A drafted opening message. Null when there is no figure to send. */
+    opening_message: string | null;
     motivated_phrases: string[];
     rigid_phrases: string[];
   };

@@ -9,6 +9,28 @@
  * Negotiation and Better alternatives stay their own disclosures further
  * down, each with a summary line that carries the finding, so a user who
  * never expands one has still been told the listing has sat 38 days.
+ *
+ * THE NEGOTIATION SECTION WAS REWORKED, AND WHY
+ * ---------------------------------------------
+ * It used to render a 0-100 "Negotiating room" meter, a leverage word, a day
+ * count, and -- on roughly 1 listing in 20 -- a single figure labelled
+ * "Suggested offer". Three things were wrong with that:
+ *
+ *   1. The figure was gated on the pricing dimension publishing its expected-price
+ *      anchors, which `MAX_INTERVAL_WIDTH_FOR_ANCHORS` withholds on ~95% of real
+ *      evaluations. So the section's one actionable output was usually absent.
+ *   2. One number cannot say whether it is the opening move or the target, and a
+ *      buyer who opens at their own target settles above it.
+ *   3. `strength` is an uncalibrated composite that starts at 30 and tops out near
+ *      83. Drawn as a meter it was the most authoritative-looking and least
+ *      meaningful thing in the panel.
+ *
+ * What replaced them: an offer LADDER (open at / expect to pay / walk away above,
+ * `state.ts`'s `offerLadder`), always populated when the listing has a price
+ * because the backend now falls back to an ask-anchored plan and labels it as
+ * such; days listed drawn on an AXIS with the 14/30/75-day thresholds marked, so
+ * the fact interprets itself instead of being scored; and a drafted opening
+ * message, which is the thing a first-time buyer actually lacks.
  */
 
 import type { EvaluationResponse } from "../../shared/types";
@@ -33,10 +55,17 @@ import {
   alternativeVehicle,
   confidenceTone,
   knownIssuesReasonIsShowable,
+  leverageTone,
+  offerLadder,
+  offerStanceChip,
   priceDelta,
   priceGauge,
+  timeOnMarketTrack,
+  type OfferStep,
   type PriceGauge,
+  type TimeOnMarketTrack,
 } from "./state";
+import type { Tone } from "./tokens";
 
 /* -------------------------------------------------------------------------- */
 /* pricing (spec 5.1's numbers)                                               */
@@ -523,80 +552,232 @@ function buildQuestions(data: EvaluationResponse): HTMLElement[] {
 /* negotiation (spec 6.4)                                                     */
 /* -------------------------------------------------------------------------- */
 
-function leverageTone(leverage: string) {
-  if (leverage === "strong") return "favorable" as const;
-  if (leverage === "moderate") return "caution" as const;
-  return "neutral" as const;
-}
-
+/**
+ * The summary a reader gets without expanding: what the position is, and the one
+ * figure they act on.
+ *
+ * It used to read "listed 38 days · suggest $12,850" -- and on roughly 19
+ * listings in 20 the figure was absent entirely, so the whole line was a day
+ * count. The offer now always has an opening figure when the listing has a price
+ * at all, which is what makes this line worth reading.
+ */
 export function negotiationSummary(data: EvaluationResponse): Node {
   const n = data.negotiation;
   const wrapper = el("span", "summary-inline");
   wrapper.append(chip(leverageTone(n.leverage), `${n.leverage} leverage`));
-  const days =
-    n.days_listed === null ? "no posted date" : `listed ${n.days_listed} day${n.days_listed === 1 ? "" : "s"}`;
+
+  const parts: string[] = [];
+  if (n.days_listed !== null) {
+    parts.push(`listed ${n.days_listed} day${n.days_listed === 1 ? "" : "s"}`);
+  }
+  if (n.offer.opening_cents !== null) {
+    parts.push(`open at ${money(n.offer.opening_cents)}`);
+  }
   wrapper.append(
-    el(
-      "span",
-      "disclosure-summary",
-      n.suggested_offer_cents === null
-        ? days
-        : `${days} · suggest ${money(n.suggested_offer_cents)}`,
-    ),
+    el("span", "disclosure-summary", parts.join(" · ") || "no posted date and no asking price"),
   );
   return wrapper;
 }
 
-export function buildNegotiation(data: EvaluationResponse): HTMLElement[] {
-  const n = data.negotiation;
-  const nodes: HTMLElement[] = [];
+/**
+ * Spec 7.5's three figures, on a rail.
+ *
+ * The rail is doing one job: making the ORDER visible. Read as three tiles the
+ * figures are three prices; read as a progression they are a plan -- this is
+ * where you start, this is where you land, this is where you stop. The opening
+ * figure leads because it is the only one the buyer says to another person.
+ */
+function buildOfferLadder(steps: OfferStep[], askCents: number | null): HTMLElement {
+  const node = el("div", "ladder");
+  node.dataset["steps"] = `${steps.length}`;
 
-  // `strength` is the 0-100 behind the one-word leverage label, and it was
-  // serialized and never shown. The word alone cannot distinguish a listing
-  // that just crossed into "moderate" from one at the top of the band, which
-  // is the difference between opening low and opening very low.
-  nodes.push(
-    meterRow(
-      "Negotiating room",
-      `${Math.round(n.strength)}/100`,
-      n.strength / 100,
-      leverageTone(n.leverage),
-    ),
-  );
-
-  const figures: Row[] = [
-    ["Leverage", n.leverage, { tone: leverageTone(n.leverage) }],
-    ["Days listed", n.days_listed === null ? "unknown" : `${n.days_listed}`],
-  ];
-  nodes.push(rows(figures));
-
-  // The offer is lifted out of the figure rows and given its own block. It is
-  // the one number in the panel meant to be said out loud to another person,
-  // and it is the other thing (with the seller questions) worth copying rather
-  // than transcribing.
-  if (n.suggested_offer_cents !== null) {
-    const offer = el("div", "offer");
-    const text = el("div", "offer-text");
-    text.append(
-      el("div", "offer-label", "Suggested offer"),
-      el("div", "offer-figure", money(n.suggested_offer_cents)),
-    );
-    offer.append(text, copyButton(money(n.suggested_offer_cents)));
-    nodes.push(offer);
+  const rail = el("div", "ladder-rail");
+  for (const step of steps) {
+    const dot = el("i", "ladder-dot");
+    dot.dataset["tone"] = step.tone;
+    rail.append(dot);
   }
 
-  const points = list(n.leverage_points);
-  if (points) nodes.push(points);
+  const cells = el("div", "ladder-cells");
+  for (const step of steps) {
+    const cell = el("div", "ladder-cell");
+    if (step.lead) cell.dataset["lead"] = "true";
+    cell.dataset["tone"] = step.tone;
+    cell.append(
+      el("div", "ladder-label", step.label),
+      el("div", "ladder-figure", money(step.cents)),
+    );
+    cells.append(cell);
+  }
 
+  node.append(cells, rail);
+
+  // Every figure above is a position RELATIVE TO THE ASK, and the ask itself
+  // lives in the pricing section -- inside a collapsed breakdown bar, two clicks
+  // away. Without it here, "open at $13,100" is a number with nothing to be
+  // measured against, which is how the old section read even when it had one.
+  if (askCents !== null) {
+    node.append(el("div", "ladder-caption", `against the ${money(askCents)} asking price`));
+  }
+  return node;
+}
+
+/**
+ * Days listed as a position on an axis rather than a number in a row.
+ *
+ * `Listed 38 days` as a table row is a fact a reader has to interpret against
+ * thresholds they do not know. With 14, 30 and 75 marked, the dot interprets
+ * itself.
+ */
+function buildTimeTrack(track: TimeOnMarketTrack, tone: Tone): HTMLElement {
+  const node = el("div", "timeline");
+  node.setAttribute("role", "img");
+  node.setAttribute(
+    "aria-label",
+    `Listed ${track.days} day${track.days === 1 ? "" : "s"} -- ${track.phase}.`,
+  );
+
+  const head = el("div", "timeline-head");
+  head.append(
+    el("span", "timeline-value", `${track.days} day${track.days === 1 ? "" : "s"} listed`),
+    el("span", "timeline-phase", track.phase),
+  );
+
+  const rail = el("div", "timeline-rail");
+  const fill = el("i", "timeline-fill");
+  fill.dataset["tone"] = tone;
+  rail.append(fillsTo(fill, track.position));
+
+  for (const mark of track.marks) {
+    const tick = el("i", "timeline-tick");
+    tick.style.left = `${mark.position * 100}%`;
+    tick.title = `${mark.label} listed`;
+    rail.append(tick);
+  }
+
+  const dot = el("i", "timeline-dot");
+  dot.dataset["tone"] = tone;
+  dot.style.left = `${track.position * 100}%`;
+  rail.append(dot);
+
+  const scale = el("div", "timeline-scale");
+  for (const mark of track.marks) {
+    const label = el("span", "timeline-scale-label", mark.label);
+    label.style.left = `${mark.position * 100}%`;
+    scale.append(label);
+  }
+
+  node.append(head, rail, scale);
+  return node;
+}
+
+/**
+ * The drafted opening message (beyond the spec -- see
+ * `backend/app/negotiation/message.py`).
+ *
+ * The reason it is here rather than left to the buyer: the section's whole output
+ * is a number to say to a stranger, and a first-time private-party buyer -- spec
+ * 1's target user -- does not know that the comparable prices go BEFORE the
+ * figure, which is the difference between a negotiation and a lowball. Presented
+ * as a draft in a textarea, not as prose: a message the buyer cannot edit before
+ * sending is one they will not send.
+ */
+function buildDraftMessage(text: string): HTMLElement {
+  const node = el("div", "draft");
+
+  const head = el("div", "draft-head");
+  head.append(el("span", "draft-label", "Message to send"), copyButton(text, "Copy message"));
+
+  const body = el("textarea", "draft-body") as HTMLTextAreaElement;
+  body.value = text;
+  body.rows = Math.min(7, text.split("\n").length + 2);
+  body.spellcheck = false;
+  body.setAttribute("aria-label", "Draft opening message, editable before copying");
+
+  node.append(head, body);
+  return node;
+}
+
+export function buildNegotiation(data: EvaluationResponse): HTMLElement[] {
+  const n = data.negotiation;
+  const offer = n.offer;
+  const nodes: HTMLElement[] = [];
+  const tone = leverageTone(n.leverage);
+
+  // 1. What shape of negotiation this is, then the figures. The stance decides
+  // how every number under it reads -- "open at $13,100" against an ask the comps
+  // say is $6,000 too high is a different instruction from the same figure on a
+  // listing priced fairly.
+  const stance = offerStanceChip(offer.stance);
+  const steps = offerLadder(n);
+  if (stance && steps) {
+    const head = el("div", "offer-head");
+    head.append(chip(stance.tone, stance.label));
+    nodes.push(head);
+  }
+
+  if (steps) {
+    nodes.push(buildOfferLadder(steps, data.pricing.ask_cents));
+  } else if (offer.withheld_reason) {
+    // No figure, and the reason is the whole answer. A section that goes quiet
+    // without saying why is what this rework was for.
+    nodes.push(notePill(offer.withheld_reason));
+  }
+
+  // 2. Why those numbers (spec 7.5's "with reasoning"). Prose rather than
+  // bullets: each sentence explains a figure directly above it, and a bulleted
+  // list of the same text detaches from the numbers it is about.
+  //
+  // ACTIONABLE SENTENCES ONLY. What the figures are *not* used to live here too,
+  // and again as a note below it, and again beside the time-on-market graphic --
+  // three blocks of hedging wedged between the offer and the evidence for it. All
+  // of that is now one `offer.caveat`, at the bottom of the section.
+  for (const line of offer.reasoning) {
+    nodes.push(el("p", "muted", line));
+  }
+
+  // 3. Time on market, drawn. This is the fact the whole dimension rests on.
+  const track = timeOnMarketTrack(n.days_listed);
+  if (track) {
+    nodes.push(buildTimeTrack(track, tone));
+  } else {
+    // Stated, not explained. What an unknown posted date MEANS for the figures is
+    // the caveat's job, and saying it in both places is what made this section
+    // read as one long apology.
+    nodes.push(
+      el("p", "muted", "Marketplace did not expose a posted date, so time on market is unknown."),
+    );
+  }
+
+  // 4. The evidence behind the leverage word, as its own labelled group so it
+  // reads as supporting detail rather than as a restatement of the reasoning.
+  const points = list(n.leverage_points);
+  if (points) {
+    nodes.push(el("p", "group-label", "What gives you room"));
+    nodes.push(points);
+  }
+
+  // 5. Seller wording, as chips. These are short quoted phrases scored in
+  // opposite directions (spec 6.4), and a chip carries the direction as tone the
+  // way a comma-separated table cell could not.
   if (n.motivated_phrases.length || n.rigid_phrases.length) {
-    const phrases: Row[] = [];
-    if (n.motivated_phrases.length) {
-      phrases.push(["Sounds motivated", n.motivated_phrases.join(", "), { tone: "favorable" }]);
-    }
-    if (n.rigid_phrases.length) {
-      phrases.push(["Sounds firm", n.rigid_phrases.join(", "), { tone: "caution" }]);
-    }
-    nodes.push(rows(phrases));
+    nodes.push(el("p", "group-label", "How the seller writes"));
+    const phrases = el("div", "chip-row");
+    for (const phrase of n.motivated_phrases) phrases.append(chip("favorable", phrase));
+    for (const phrase of n.rigid_phrases) phrases.append(chip("caution", phrase));
+    nodes.push(phrases);
+  }
+
+  // 6. The message. The thing to do once everything above it has been read.
+  if (n.opening_message) {
+    nodes.push(buildDraftMessage(n.opening_message));
+  }
+
+  // 7. The caveat, LAST and exactly once. It qualifies every figure in the
+  // section, so it cannot sit next to any one of them, and a reader working
+  // towards the offer should not have to wade through it to get there.
+  if (offer.caveat) {
+    nodes.push(notePill(offer.caveat));
   }
 
   return nodes;
@@ -780,21 +961,147 @@ export const SECTION_STYLES = `
   .complaint-chart .meter-label { text-transform: capitalize; }
 
   /* negotiation ------------------------------------------------------- */
-  .offer {
-    display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
-    margin-top: var(--sp-4); padding: var(--sp-4);
+  .offer-head { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+
+  /* The offer ladder. A grid rather than flex so the rail's dots line up under
+     the middle of their own cells at any number of steps -- both rows share one
+     column definition. */
+  .ladder {
+    margin: 0 0 var(--sp-5); padding: var(--sp-4) var(--sp-5) var(--sp-5);
     border: 1px solid var(--border); border-radius: var(--radius-md);
     background: var(--raised);
   }
-  .offer-label {
+  .ladder-cells, .ladder-rail { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+  .ladder-cell { min-width: 0; }
+  /* Every step after the first reads right-of-centre, so the last one hugs the
+     edge and the progression runs left to right rather than sitting in a block. */
+  .ladder-cell + .ladder-cell { text-align: right; }
+  .ladder[data-steps="3"] .ladder-cell:nth-child(2) { text-align: center; }
+  .ladder-label {
+    font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ladder-figure {
+    margin-top: 3px;
+    font-family: var(--font-num); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-md); font-weight: 650; letter-spacing: -.01em; color: var(--text-muted);
+  }
+  /* The lead step is the only figure the buyer says out loud. */
+  .ladder-cell[data-lead="true"] .ladder-figure {
+    font-size: var(--fs-xl); font-weight: 700; letter-spacing: -.02em; color: var(--text);
+  }
+  .ladder-cell[data-lead="true"][data-tone="favorable"] .ladder-figure {
+    color: var(--tone-favorable-text);
+  }
+  .ladder-cell[data-lead="true"][data-tone="caution"] .ladder-figure {
+    color: var(--tone-caution-text);
+  }
+  .ladder-cell[data-lead="true"][data-tone="adverse"] .ladder-figure {
+    color: var(--tone-adverse-text);
+  }
+
+  /* The rail: a hairline through dots that sit under their own cells. */
+  .ladder-rail {
+    position: relative; margin-top: var(--sp-4); align-items: center; height: 9px;
+  }
+  .ladder-rail::before {
+    content: ""; position: absolute; left: 4px; right: 4px; top: 50%; height: 1px;
+    background: var(--border); transform: translateY(-.5px);
+  }
+  .ladder-dot {
+    position: relative; justify-self: start;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--track); box-shadow: 0 0 0 2px var(--raised);
+  }
+  .ladder-rail > .ladder-dot:not(:first-child) { justify-self: end; }
+  .ladder[data-steps="3"] .ladder-rail > .ladder-dot:nth-child(2) { justify-self: center; }
+  .ladder-dot[data-tone="favorable"] { background: var(--tone-favorable-fill); }
+  .ladder-dot[data-tone="caution"]   { background: var(--tone-caution-fill); }
+  .ladder-dot[data-tone="adverse"]   { background: var(--tone-adverse-fill); }
+  .ladder-caption {
+    margin-top: var(--sp-3); font-size: var(--fs-xs); color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* time on market ---------------------------------------------------- */
+  .timeline { margin-top: var(--sp-5); }
+  .timeline-head {
+    display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap;
+    margin-bottom: var(--sp-3);
+  }
+  .timeline-value {
+    font-family: var(--font-num); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-base); font-weight: 650; color: var(--text);
+  }
+  .timeline-phase { font-size: var(--fs-sm); color: var(--text-dim); }
+  .timeline-rail {
+    position: relative; height: 6px; border-radius: var(--radius-pill);
+    background: var(--track);
+  }
+  .timeline-fill {
+    display: block; height: 100%; width: 0; border-radius: inherit;
+    background: var(--tone-neutral-fill);
+    transition: width var(--dur-slow) var(--ease-out);
+  }
+  .timeline-fill[data-tone="favorable"] { background: var(--tone-favorable-fill); }
+  .timeline-fill[data-tone="caution"]   { background: var(--tone-caution-fill); }
+  .timeline-fill[data-tone="adverse"]   { background: var(--tone-adverse-fill); }
+  /* The thresholds are reference lines, not data, so they stay recessive and sit
+     over the fill rather than interrupting it. */
+  .timeline-tick {
+    position: absolute; top: -2px; bottom: -2px; width: 1px;
+    transform: translateX(-.5px);
+    background: var(--text-faint); opacity: .55;
+  }
+  .timeline-dot {
+    position: absolute; top: 50%; width: 11px; height: 11px;
+    margin: -5.5px 0 0 -5.5px; border-radius: 50%;
+    background: var(--text); box-shadow: 0 0 0 2px var(--sheet), var(--elev-1);
+  }
+  .timeline-dot[data-tone="favorable"] { background: var(--tone-favorable-fill); }
+  .timeline-dot[data-tone="caution"]   { background: var(--tone-caution-fill); }
+  .timeline-dot[data-tone="adverse"]   { background: var(--tone-adverse-fill); }
+  .timeline-scale {
+    position: relative; height: 14px; margin-top: var(--sp-2);
+    font-family: var(--font-num); font-variant-numeric: tabular-nums;
+    font-size: var(--fs-2xs); color: var(--text-faint);
+  }
+  .timeline-scale-label { position: absolute; transform: translateX(-50%); }
+
+  /* shared small pieces ----------------------------------------------- */
+  .group-label {
+    margin: var(--sp-5) 0 0; font-size: var(--fs-2xs); font-weight: 700;
+    letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim);
+  }
+  .chip-row {
+    display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3);
+  }
+
+  /* the drafted message ----------------------------------------------- */
+  .draft {
+    margin-top: var(--sp-5); padding: var(--sp-4);
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--raised);
+  }
+  .draft-head {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
+    margin-bottom: var(--sp-3);
+  }
+  .draft-label {
     font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .07em;
     text-transform: uppercase; color: var(--text-dim);
   }
-  .offer-figure {
-    margin-top: 2px;
-    font-family: var(--font-num); font-variant-numeric: tabular-nums;
-    font-size: var(--fs-lg); font-weight: 700; letter-spacing: -.02em; color: var(--text);
+  /* A textarea, because a message nobody can edit before sending is a message
+     nobody sends. Inherits the panel's type so it does not read as a form field
+     dropped into a report. */
+  .draft-body {
+    display: block; width: 100%; box-sizing: border-box; resize: vertical;
+    padding: var(--sp-3); border: 1px solid var(--border-faint);
+    border-radius: var(--radius-sm); background: var(--sheet); color: var(--text-muted);
+    font: 400 var(--fs-sm)/1.55 var(--font-sans);
   }
+  .draft-body:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
 
   .questions-actions { display: flex; justify-content: flex-end; margin-bottom: var(--sp-1); }
 

@@ -17,11 +17,14 @@ import {
   headlineState,
   intervalWidthRatio,
   knownIssuesReasonIsShowable,
+  offerLadder,
+  offerStanceChip,
   priceComparison,
   priceDelta,
   priceGauge,
   scoreGrade,
   scoreTone,
+  timeOnMarketTrack,
 } from "../src/content/overlay/state";
 import { breakdownSummary } from "../src/content/overlay/breakdown";
 import type { EvaluationResponse, ScoreComponent } from "../src/shared/types";
@@ -85,7 +88,17 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
       days_listed: null,
       time_on_market_score: null,
       leverage_points: [],
-      suggested_offer_cents: null,
+      offer: {
+        stance: "withheld",
+        basis: "none",
+        opening_cents: null,
+        target_cents: null,
+        walk_away_cents: null,
+        reasoning: [],
+        caveat: null,
+        withheld_reason: "This listing has no asking price.",
+      },
+      opening_message: null,
       motivated_phrases: [],
       rigid_phrases: [],
     },
@@ -464,5 +477,149 @@ describe("alternative vehicle name", () => {
   it("keeps the whole line when there is no separator to split on", () => {
     // A slightly long heading still says what the car is; an empty one does not.
     expect(alternativeVehicle("2016 Mazda CX5")).toBe("2016 Mazda CX5");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* negotiation (spec 6.4, 7.5)                                                */
+/* -------------------------------------------------------------------------- */
+
+function negotiation(
+  over: Partial<EvaluationResponse["negotiation"]> = {},
+): EvaluationResponse["negotiation"] {
+  return {
+    leverage: "strong",
+    strength: 78,
+    days_listed: 38,
+    time_on_market_score: 80,
+    leverage_points: [],
+    offer: {
+      stance: "negotiate",
+      basis: "comps",
+      opening_cents: 1_310_000,
+      target_cents: 1_380_000,
+      walk_away_cents: 1_460_000,
+      reasoning: [],
+      caveat: null,
+      withheld_reason: null,
+    },
+    opening_message: null,
+    motivated_phrases: [],
+    rigid_phrases: [],
+    ...over,
+  };
+}
+
+describe("offer ladder (spec 7.5)", () => {
+  it("puts the three figures in ascending order with the opening leading", () => {
+    const steps = offerLadder(negotiation())!;
+    expect(steps.map((s) => s.cents)).toEqual([1_310_000, 1_380_000, 1_460_000]);
+    expect(steps[0]!.lead).toBe(true);
+    expect(steps.slice(1).every((s) => !s.lead)).toBe(true);
+  });
+
+  it("collapses to one figure when opening and target are the same", () => {
+    // The backend does this on a listing already asking below what the comps
+    // support. "Open at $12,450 / Expect to pay $12,450" reads as a bug rather
+    // than as the finding that there is nothing to argue down.
+    const steps = offerLadder(
+      negotiation({
+        offer: {
+          stance: "pay_near_asking",
+          basis: "comps",
+          opening_cents: 1_245_000,
+          target_cents: 1_245_000,
+          walk_away_cents: 1_736_000,
+          reasoning: [],
+          caveat: null,
+          withheld_reason: null,
+        },
+      }),
+    )!;
+    expect(steps).toHaveLength(2);
+    expect(steps[0]!.label).toBe("Offer their ask");
+    expect(steps[1]!.label).toBe("Walk away above");
+  });
+
+  it("omits the walk-away step when the backend did not publish one", () => {
+    // An ask-anchored plan has no value estimate under it, so it names no
+    // ceiling. A ladder that invented one would be the panel making a claim.
+    const steps = offerLadder(
+      negotiation({
+        offer: {
+          stance: "negotiate",
+          basis: "ask",
+          opening_cents: 1_310_000,
+          target_cents: 1_380_000,
+          walk_away_cents: null,
+          reasoning: [],
+          caveat: null,
+          withheld_reason: null,
+        },
+      }),
+    )!;
+    expect(steps).toHaveLength(2);
+    expect(steps.some((s) => s.label === "Walk away above")).toBe(false);
+  });
+
+  it("draws nothing when there is no figure at all", () => {
+    expect(
+      offerLadder(
+        negotiation({
+          offer: {
+            stance: "withheld",
+            basis: "none",
+            opening_cents: null,
+            target_cents: null,
+            walk_away_cents: null,
+            reasoning: [],
+            caveat: null,
+            withheld_reason: "No asking price.",
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("offer stance", () => {
+  it("names each stance as a chip a reader can act on", () => {
+    expect(offerStanceChip("negotiate")?.tone).toBe("favorable");
+    expect(offerStanceChip("pay_near_asking")?.tone).toBe("caution");
+    expect(offerStanceChip("stretch")?.tone).toBe("adverse");
+    expect(offerStanceChip("withheld")).toBeNull();
+  });
+
+  // The caveat text is deliberately NOT built here any more. The panel used to
+  // compose its own version of a qualification the backend also put in
+  // `reasoning`, so the same hedge rendered twice; `offer.caveat` is now the only
+  // place the sentence exists, and the panel renders it verbatim at the bottom of
+  // the section.
+});
+
+describe("time on market track", () => {
+  it("marks the 14, 30 and 75 day thresholds so the dot interprets itself", () => {
+    const track = timeOnMarketTrack(38)!;
+    expect(track.marks.map((m) => m.label)).toEqual(["14d", "30d", "75d"]);
+    expect(track.position).toBeGreaterThan(0);
+    expect(track.position).toBeLessThan(1);
+  });
+
+  it("grows the axis for a listing that has outrun it", () => {
+    // A 200-day car pinned to a 90-day axis reads the same as a 90-day one.
+    const long = timeOnMarketTrack(200)!;
+    expect(long.position).toBeLessThan(1);
+    expect(long.marks[2]!.position).toBeLessThan(0.5);
+  });
+
+  it("reads a stale listing and a fresh one differently in words", () => {
+    expect(timeOnMarketTrack(0)!.phase).toContain("just listed");
+    expect(timeOnMarketTrack(90)!.phase).toContain("months");
+  });
+
+  it("draws nothing without a posted date", () => {
+    // Absence of evidence. A marker at zero would render it as posted today,
+    // which is the opposite reading.
+    expect(timeOnMarketTrack(null)).toBeNull();
   });
 });

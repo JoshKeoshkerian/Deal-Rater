@@ -8,9 +8,13 @@ quality". Nothing here reads or writes a price.
     language.py   seller phrasing, scored in opposing directions
     strength.py   time on market, the price x time interaction, leverage
     seller_type.py  dealer detection, because 4 of 5 captured targets are dealers
+    offer.py      spec 7.5's three figures: open at, expect to pay, walk away
+    message.py    the opening message, drafted (beyond the spec)
 """
 
 from .language import Direction, LanguageReading, LanguageSignal, read_seller_language
+from .message import draft_opening_message, vehicle_phrase
+from .offer import OfferBasis, OfferPlan, OfferStance, plan_offer
 from .seller_type import SellerType, SellerTypeReading, detect_seller_type
 from .strength import (
     Leverage,
@@ -25,10 +29,16 @@ __all__ = [
     "LanguageSignal",
     "Leverage",
     "NegotiationAssessment",
+    "OfferBasis",
+    "OfferPlan",
+    "OfferStance",
     "SellerType",
     "SellerTypeReading",
     "assess_negotiation",
     "days_on_market",
     "detect_seller_type",
+    "draft_opening_message",
+    "plan_offer",
     "read_seller_language",
+    "vehicle_phrase",
 ]

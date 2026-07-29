@@ -61,9 +61,6 @@ class NegotiationAssessment:
     #: Spec 6.4: negotiation belongs in the brief, not as a third headline
     #: number. Kept as data so a UI cannot accidentally promote it.
     headline_safe: bool = False
-    #: Extra discount, as a fraction, that leverage justifies on top of the
-    #: pricing anchor. Zero when there is no time-on-market evidence.
-    extra_discount: float = 0.0
     #: Time on market ALONE, 0-100, with no seller-language contribution.
     #:
     #: Spec 5.2's composite lists "Time on market: 20" as a component, which is
@@ -75,6 +72,27 @@ class NegotiationAssessment:
     @property
     def is_stale(self) -> bool:
         return self.days_listed is not None and self.days_listed >= params.STALE_LISTING_DAYS
+
+    @property
+    def leverage_fraction(self) -> float:
+        """How much of the AVAILABLE leverage evidence this listing carries, 0-1.
+
+        The single input `offer.py` scales its discounts by, and deliberately not
+        `strength / 100`: `strength` starts at `BASE_STRENGTH` and never reaches
+        either end of its own scale, so a listing posted an hour ago by a seller
+        who wrote "firm, no lowballers" would score 0.3 on that reading and
+        collect a discount it has done nothing to earn. Measured from the base
+        instead, that listing scores 0 -- which is the truth about it.
+
+        Zero when there is no posted date at all. Absence of evidence is not
+        evidence, and `offer.py` handles the unknown case by falling back to
+        ordinary private-party movement and SAYING that it has, rather than by
+        quietly treating unknown as fresh.
+        """
+        if self.days_listed is None:
+            return 0.0
+        above_base = self.strength - params.BASE_STRENGTH
+        return max(0.0, min(1.0, above_base / params.MAX_STRENGTH_ABOVE_BASE))
 
 
 def days_on_market(posted_at: datetime | None, observed_at: datetime | None) -> int | None:
@@ -209,10 +227,6 @@ def assess_negotiation(
     # is derived from it, and seller phrasing is the softest of the three.
     points = [*bonus_points, *time_points, *language_points]
 
-    extra = 0.0
-    if days is not None:
-        extra = params.MAX_EXTRA_DISCOUNT_FROM_LEVERAGE * (strength / 100.0)
-
     # `_time_component` tops out at TIME_COMPONENT_VERY_STALE for a very stale
     # listing; rescale that to 0-100 so the composite can weight it against
     # other dimensions.
@@ -229,6 +243,5 @@ def assess_negotiation(
         language=reading,
         seller=seller,
         leverage_points=tuple(points),
-        extra_discount=extra,
         time_on_market_score=time_only,
     )

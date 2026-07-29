@@ -349,13 +349,47 @@ class SellerRiskOut(BaseModel):
     messages: list[str]
 
 
+class OfferOut(BaseModel):
+    """Spec 7.5's offer, as three figures rather than one (`negotiation/offer.py`).
+
+    `basis` is load-bearing, not metadata: "comps" means the figures come from an
+    expected asking price the comp set supported, and "ask" means they come from
+    time on market and seller wording alone. Those are different claims of
+    different strength, and a UI that prints them identically is misrepresenting
+    one of them. `walk_away_cents` is null on an "ask" plan for the same reason --
+    walking away is a statement about value, and there is no value estimate under
+    an ask-anchored plan.
+    """
+
+    stance: str
+    basis: str
+    opening_cents: int | None
+    target_cents: int | None
+    walk_away_cents: int | None
+    #: Actionable only: each sentence explains a figure.
+    reasoning: list[str]
+    #: The one statement of what the figures do NOT claim. Null when there is
+    #: nothing to qualify. A renderer should place this at the end of the section,
+    #: not between the figures and their reasoning.
+    caveat: str | None
+    withheld_reason: str | None
+
+
 class NegotiationOut(BaseModel):
     leverage: str
+    #: The 0-100 behind the leverage word. Uncalibrated and NOT a figure to put in
+    #: front of a buyer -- it starts at `BASE_STRENGTH` and never reaches either
+    #: end of its own scale, so "30/100 negotiating room" on a fresh listing reads
+    #: as a measurement when it is an offset. Kept on the wire for telemetry and
+    #: for spec 9's calibration pass; the overlay renders `days_listed` instead.
     strength: float
     days_listed: int | None
     time_on_market_score: float | None
     leverage_points: list[str]
-    suggested_offer_cents: int | None
+    offer: OfferOut
+    #: A drafted opening message (beyond the spec -- `negotiation/message.py`).
+    #: Null when the plan has no figure to send.
+    opening_message: str | None
     motivated_phrases: list[str]
     rigid_phrases: list[str]
 

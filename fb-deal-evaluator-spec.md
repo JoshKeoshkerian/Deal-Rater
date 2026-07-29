@@ -234,6 +234,25 @@ Inputs:
 - **Seller language.** Description phrasing correlates with flexibility. Lift the full keyword set: "firm on price," "no lowballers," "need gone today," "moving," "inherited," "bought a new car," "wife says sell," "OBO," "must sell by [date]." Some signal rigidity, others signal motivation, and they should be scored in opposite directions.
 - **Interaction with price.** Model the interaction explicitly rather than scoring price and time independently. A car at market price sitting 45 days is a better opportunity than the price residual alone suggests.
 
+**Revision, 2026-07-29: the offer is a ladder, and it is not anchored only to the expected price.**
+
+Four defects, three of them in the implementation and one in this spec.
+
+*The spec's error.* Section 5.1 derives every actionable figure from the expected asking price, and section 5.2's `should_publish_anchors` correctly refuses to name a dollar figure when the comp interval is too wide to support one. Those two together withheld the suggested offer on roughly 95% of real evaluations (`docs/scoring-audit.md` finding #5), so the negotiation section shipped a leverage word and a day count and nothing to act on — almost always. The resolution is in this section's own opening claim: if negotiation strength is "genuinely orthogonal to deal quality", a figure derived from time on market and seller wording owes the comp set nothing. So the offer now has **two anchoring bases**, and which one is in use is part of the payload rather than left to be inferred:
+
+- `comps` — "comparable listings support about $X". The stronger claim, available when pricing published its anchors.
+- `ask` — "sellers in this position usually take about $X off". A weaker and different claim, always available, and it declines to name a walk-away figure because walking away is a statement about value and there is no value estimate underneath it.
+
+*One number is not a negotiation.* "Suggested offer $13,200" does not say whether that is the opening move or the target, and a buyer who opens at their own target settles above it, because a seller who splits the difference splits it upward. Three figures now: **open at / expect to pay / walk away above**. Section 5.1's "strong offer" and "walk away above" stay in the pricing section as market benchmarks; the instruments a buyer acts on live here.
+
+*A credibility floor, which this spec had no concept of.* An offer anchored purely to market price can land 40% under the ask. That does not read as aggressive, it reads as an insult, and it ends the conversation the brief exists to start. Openings are floored at roughly 15% under the ask. **The floor may only raise an opening toward the target — never the target itself.** The first version clamped both, which turned a $20,000 ask against a $13,900 market price into "offer $17,000": a figure a seller accepts on the spot while the buyer overpays by three thousand dollars. An offer that goes unanswered costs nothing; that one cost real money. When the floor sits above the defensible price the stance says so and recommends walking.
+
+*Leverage was earned by default.* The old discount was `MAX_EXTRA_DISCOUNT × strength/100`, and `strength` starts at 30, so a listing posted an hour ago by a seller who wrote "firm, no lowballers" collected 1.8% off for leverage it had done nothing to earn. Discounts now scale by `leverage_fraction`, measured from the base rather than from zero, which is 0 for exactly that listing.
+
+**One caveat, at the bottom.** The first pass at this shipped the hedging three times over, all of it wedged between the figures and the evidence for them: the ask-anchored qualification appeared in the offer's `reasoning` *and* as the panel's own restatement of the same point, and a missing posted date was explained inside `reasoning` *and* again beside the time-on-market graphic. `reasoning` is now actionable sentences only — each one explains a figure — and everything the figures do not claim is a single `caveat` field, rendered once as the last element in the section. Null when there is nothing to qualify: a comp-anchored offer on a listing with a posted date carries no asterisk, and section 4.5's asking-versus-sale-price point is already a standing notice on the whole evaluation.
+
+**Also removed from the UI: the 0-100 strength meter.** `strength` starts at `BASE_STRENGTH` and tops out near 83, so "Negotiating room 62/100" was neither a percentage nor a measurement, while being the most authoritative-looking element in the section. Days listed is the underlying fact and it is observed rather than derived; drawn on an axis with the 14/30/75-day thresholds marked, it answers the same question honestly. `strength` stays on the wire for section 9's calibration pass.
+
 ### 6.5 Better alternatives nearby
 
 **The highest-value addition to this spec, and nearly free.** The comp set is already loaded in memory at evaluation time.
@@ -243,6 +262,21 @@ Inputs:
 This reframes the product from "judge this listing" to "help me buy a car," which is a better product and a stronger reason to keep the extension installed. It also gracefully handles the common case where the answer is "this one is fine, but that one is better."
 
 Show alternatives when the target scores average or worse and better-priced comps exist within a reasonable radius. Suppress when the target is already the best available, and say so, since that is also useful.
+
+### 6.7 The opening message, drafted
+
+**Added 2026-07-29. Not in the original spec, and the same argument as 6.5: nearly free, because every fact in it is already computed.**
+
+Section 7.5 stops at "suggested offer with reasoning", which leaves section 1's target user — the first-time private-party buyer — holding a number and no idea what to say. The expertise gap 6.6 identifies for mechanical faults exists just as sharply here: an experienced buyer knows the comparable prices go *before* the figure, and that is the difference between a negotiation and a lowball. A number nobody sends is worth nothing.
+
+**Deterministic templating, not an LLM call.** Section 11 rejects "read this listing like an expert buyer" because a model's version produces "unfalsifiable output that cannot be debugged or validated against section 9". A drafted message fails the same test if a model writes it. Templated from figures the brief already stands behind, every clause traces to a fact, it is testable, and section 10's per-evaluation cost does not move.
+
+Two rules:
+
+1. **No claim the brief has not already made.** The draft may restate the offer, the expected range and the days listed. It may not characterise the vehicle or mention a fault — the buyer has not inspected it, and a message misrepresenting what they know can be quoted back at them.
+2. **It never discloses leverage pointing the other way.** On a listing already asking below what the comps support, "similar ones are asking $16,700 and your $12,450 looks fair" is a true sentence that hands the seller the argument for raising their price, in a message this tool wrote *for the buyer*. The range is suppressed in that case.
+
+Rendered as an editable field, not prose: a message the buyer cannot edit before sending is one they will not send.
 
 ### 6.6 Ownership cost context
 
@@ -258,7 +292,7 @@ Use the cached LLM call for **qualitative** known issues: what fails on this mod
 2. **Pricing:** the four-number range from section 5.1
 3. **Vehicle risk:** known issues, recalls, title flags
 4. **Seller and scam risk:** only when there is something to say
-5. **Negotiation:** strength, leverage points, suggested offer with reasoning
+5. **Negotiation:** leverage, days listed, the three-figure offer with reasoning, and the drafted message (sections 6.4, 6.7)
 6. **Better alternatives:** per section 6.5
 7. **What to check on this specific car:** the qualitative expertise gap
 

@@ -24,7 +24,14 @@ from ..flags import (
     read_title_status,
 )
 from ..known_issues import KnownIssuesReading, evaluate_gate, fetch_known_issues
-from ..negotiation import assess_negotiation
+from ..negotiation import (
+    NegotiationAssessment,
+    OfferPlan,
+    assess_negotiation,
+    draft_opening_message,
+    plan_offer,
+    vehicle_phrase,
+)
 from ..nhtsa import assess_vehicle, enrich_target
 from ..pricing import Limiter, PricingAssessment, assess_listing
 from ..pricing.loader import StoredCapture
@@ -176,6 +183,8 @@ def evaluate_capture(
         seller_rating_count=capture.target_seller_rating_count,
     )
 
+    offer, opening_message = _offer_and_message(capture, pricing, negotiation)
+
     # Last, and deliberately outside `compute_deal_score`: spec 6.6 is
     # qualitative context, not a scored dimension (spec 5.2 lists four weights
     # and this is none of them).
@@ -191,6 +200,8 @@ def evaluate_capture(
     return build_evaluation(
         pricing=pricing,
         negotiation=negotiation,
+        offer=offer,
+        opening_message=opening_message,
         title=title,
         completeness=completeness,
         vehicle_risk=vehicle_risk,
@@ -202,6 +213,50 @@ def evaluate_capture(
         seller_rating_count=capture.target_seller_rating_count,
         extra_notices=_title_explains_discount_notice(pricing, title),
     )
+
+
+def _offer_and_message(
+    capture: StoredCapture,
+    pricing: PricingAssessment,
+    negotiation: NegotiationAssessment,
+) -> tuple[OfferPlan, str | None]:
+    """Spec 7.5's offer figures, and the message that carries them.
+
+    THE ONE JUDGEMENT MADE HERE: whether the offer may be anchored to the comp
+    set. `plan_offer` takes `expected_asking_cents=None` unless pricing PUBLISHED
+    its anchors, because `should_publish_anchors` is pricing's own statement about
+    whether the comp set supports a dollar figure at all, and the negotiation
+    module has no business re-deciding it. When it did not, the plan falls back to
+    an ask-anchored one, which makes the weaker claim and says so
+    (`negotiation/offer.py`).
+
+    That distinction is not a rare branch. `MAX_INTERVAL_WIDTH_FOR_ANCHORS`
+    withholds the anchors on roughly 95% of real evaluations, so the ask-anchored
+    path is the normal one and the comp-anchored path is the exception.
+    """
+    published = bool(pricing.anchors)
+    band = pricing.rating.band if pricing.rating else None
+
+    offer = plan_offer(
+        ask_cents=pricing.ask_cents,
+        expected_asking_cents=pricing.estimate.expected_asking_cents if published else None,
+        walk_away_cents=pricing.anchors.get("walk_away_above_cents"),
+        negotiation=negotiation,
+        overpriced=band == "overpriced",
+    )
+
+    # The range only reaches the draft when pricing published anchors -- quoting a
+    # range this tool itself withheld would put a number in the buyer's mouth
+    # that nothing here stands behind.
+    message = draft_opening_message(
+        vehicle=vehicle_phrase(capture.target.year, capture.target.make, capture.target.model),
+        plan=offer,
+        negotiation=negotiation,
+        expected_low_cents=pricing.estimate.asking_interval_low_cents if published else None,
+        expected_high_cents=pricing.estimate.asking_interval_high_cents if published else None,
+        ask_cents=pricing.ask_cents,
+    )
+    return offer, message
 
 
 def _title_explains_discount_notice(

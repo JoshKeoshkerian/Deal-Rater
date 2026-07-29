@@ -59,13 +59,60 @@ MARKET_HAS_DECLINED_RESIDUAL = -0.02
 STALE_AND_OVERPRICED_BONUS = 18.0
 
 # ---------------------------------------------------------------------------
-# Suggested offer (spec 7)
+# The offer plan (spec 7.5), see `offer.py`
 # ---------------------------------------------------------------------------
 
-# How much further below the expected asking price a strong negotiating
-# position justifies opening. Applied on top of the pricing anchor, never
-# instead of it. UNCALIBRATED.
-MAX_EXTRA_DISCOUNT_FROM_LEVERAGE = 0.06
+# How far below the expected asking price a maximal negotiating position
+# justifies landing. Scaled by `NegotiationAssessment.leverage_fraction`, so a
+# listing with no time-on-market evidence gets none of it. UNCALIBRATED.
+#
+# Deliberately equal to `pricing.params.STRONG_OFFER_BELOW`, which is what makes
+# the two sections agree rather than compete: the pricing gauge's "strong offer"
+# is the best case, and the negotiation target slides between the expected price
+# and that figure according to how much leverage the listing actually gives.
+MAX_LEVERAGE_DISCOUNT = 0.06
+
+# Gap between the opening offer and the price the buyer expects to settle at.
+# An opening offer equal to the target leaves nowhere to be met, so a seller who
+# splits the difference lands ABOVE what the evidence supports. UNCALIBRATED.
+OPENING_GAP = 0.05
+
+# Furthest below the ASK an opening offer can sit and still be answered.
+#
+# The concept the spec has no equivalent of, and the reason it is needed: an
+# offer anchored purely to the expected price can land 40% under a badly
+# overpriced ask, which does not read as an aggressive opening -- it reads as an
+# insult, and it ends the conversation the brief exists to start. Private-party
+# sellers rarely reply below roughly this much off. UNCALIBRATED, and the number
+# most worth checking against real message threads.
+MAX_CREDIBLE_BELOW_ASK = 0.15
+
+# ---------------------------------------------------------------------------
+# Ask-anchored bands
+# ---------------------------------------------------------------------------
+#
+# Used when the comp set cannot name a market price at all -- which is the
+# COMMON case, not the edge case: `pricing.params.MAX_INTERVAL_WIDTH_FOR_ANCHORS`
+# withholds the expected-price anchors on roughly 95% of real evaluations
+# (docs/scoring-audit.md finding #5). Anchoring the whole brief to a figure that
+# exists one time in twenty is what left this section with a leverage word and a
+# day count and nothing to act on.
+#
+# Spec 6.4 already justifies the alternative: negotiation strength is "genuinely
+# orthogonal to deal quality", so a figure derived from time on market and
+# seller wording owes the comp set nothing. It is a different, weaker claim --
+# "this is what sellers in this position usually take", not "this is what the car
+# is worth" -- and `OfferBasis` records which claim is being made so the UI can
+# say so.
+#
+# Each pair interpolates from no leverage to maximum leverage. The floors are the
+# ordinary movement in a private-party sale; the ceilings meet
+# MAX_CREDIBLE_BELOW_ASK so the two models cannot disagree about what is
+# credible. UNCALIBRATED throughout.
+ASK_ANCHORED_OPENING_MIN = 0.07
+ASK_ANCHORED_OPENING_MAX = 0.15
+ASK_ANCHORED_TARGET_MIN = 0.03
+ASK_ANCHORED_TARGET_MAX = 0.09
 
 # ---------------------------------------------------------------------------
 # Strength scoring (spec 6.4, build step 4) -- moved from strength.py
@@ -92,3 +139,17 @@ LANGUAGE_SCORE_MULTIPLIER = 4.0
 # `strength` thresholds for STRONG / MODERATE / WEAK leverage. UNCALIBRATED.
 LEVERAGE_STRONG_AT = 70.0
 LEVERAGE_MODERATE_AT = 45.0
+
+# The most `strength` can rise above BASE_STRENGTH: the very-stale time band,
+# the stale-and-overpriced interaction, and a description made entirely of
+# motivated phrasing. Derived rather than chosen, so it cannot drift out of step
+# with the three constants it is the sum of.
+#
+# This is what makes `leverage_fraction` mean "how much of the available evidence
+# this listing actually has" rather than "strength over 100". Dividing by 100
+# would hand a listing posted an hour ago by a seller who wrote "firm, no
+# lowballers" a leverage fraction of 0.3, and with it a discount it has done
+# nothing to earn -- which is exactly the bug the old `extra_discount` had.
+MAX_STRENGTH_ABOVE_BASE = (
+    TIME_COMPONENT_VERY_STALE + STALE_AND_OVERPRICED_BONUS + LANGUAGE_SCORE_CAP
+)

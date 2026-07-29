@@ -229,6 +229,7 @@ class TestBuildEvaluationExtraNotices:
         ev = build_evaluation(
             pricing=object(),
             negotiation=object(),
+            offer=object(),
             title=object(),
             completeness=object(),
             vehicle_risk=object(),
@@ -243,6 +244,7 @@ class TestBuildEvaluationExtraNotices:
         ev = build_evaluation(
             pricing=object(),
             negotiation=object(),
+            offer=object(),
             title=object(),
             completeness=object(),
             vehicle_risk=object(),

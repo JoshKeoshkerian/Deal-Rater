@@ -23,7 +23,6 @@ from app.pricing.curve import (
     rate_price_residual,
     resolvable_residual,
     should_publish_anchors,
-    suggested_offer_cents,
 )
 from app.pricing.model import assess_listing
 from app.pricing.regression import estimate_expected_asking_price
@@ -279,30 +278,6 @@ class TestNegotiationAnchors:
 
     def test_no_anchors_without_an_estimate(self):
         assert should_publish_anchors(None, None, None) is False
-
-
-class TestSuggestedOfferNeverExceedsTheAsk:
-    """A car listed well below its expected asking price -- a branded title, say
-    -- can put the model's own strong-offer anchor above the seller's actual ask.
-    `strong_offer_cents` is allowed to sit there; it is a market benchmark. But
-    the negotiation brief's "suggested offer" is advice to say to this specific
-    seller, and no negotiating position ever justifies offering more than what
-    they are already asking.
-    """
-
-    def test_caps_at_the_ask_when_the_anchor_sits_above_it(self):
-        # Expected asking price far above a deeply-underpriced target: the model
-        # anchor alone would suggest offering more than the ask.
-        offer = suggested_offer_cents(strong_offer_cents=1_569_600, ask_cents=1_245_000, extra_discount=0.0)
-        assert offer == 1_245_000
-
-    def test_leverage_can_still_discount_below_the_ask(self):
-        offer = suggested_offer_cents(strong_offer_cents=1_320_000, ask_cents=1_400_000, extra_discount=0.05)
-        assert offer == 1_320_000 * 0.95
-
-    def test_no_cap_applied_when_the_ask_is_unknown(self):
-        offer = suggested_offer_cents(strong_offer_cents=1_320_000, ask_cents=None, extra_discount=0.0)
-        assert offer == 1_320_000
 
 
 class TestResolvableResidual:

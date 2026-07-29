@@ -24,11 +24,10 @@ from ..alternatives import find_alternatives
 from ..db import session_scope
 from ..flags import assess_completeness, assess_scam_patterns, read_title_status
 from ..flags.params import SCAM_SIGNALS_FOR_WARNING
-from ..negotiation import NegotiationAssessment, assess_negotiation
+from ..negotiation import NegotiationAssessment, assess_negotiation, plan_offer
 from ..nhtsa import assess_vehicle
 from ..pricing import assess_listing, is_calibrated
 from ..pricing.comps import CompDecision
-from ..pricing.curve import suggested_offer_cents
 from ..pricing.loader import StoredCapture, load_captures
 from ..pricing.model import PricingAssessment
 from ..pricing.regression import EstimatorKind
@@ -97,23 +96,33 @@ def print_negotiation(negotiation: NegotiationAssessment, assessment: PricingAss
     elif not n.language.motivated and not n.language.rigid:
         print("    - Description contains none of the usual flexibility or rigidity phrasing.")
 
-    # Suggested offer: the pricing anchor, moved by leverage. Only shown when
-    # the comp set was tight enough to support naming a figure at all.
-    est = assessment.estimate
-    if assessment.anchors and est.expected_asking_cents:
-        base = assessment.anchors["strong_offer_cents"]
-        offer = suggested_offer_cents(base, assessment.ask_cents, n.extra_discount)
-        print(f"    Suggested offer: {money(offer)}", end="")
-        if assessment.ask_cents is not None and offer >= assessment.ask_cents:
-            print(f"  (at the current ask; the model's own anchor, {money(base)}, is above it)")
-        elif n.extra_discount > 0:
-            print(f"  ({money(base)} on comps, less {n.extra_discount:.1%} for leverage)")
-        else:
-            print()
-    else:
-        print(
-            "    Suggested offer: withheld -- the comp set is too thin to anchor a figure."
-        )
+    # The offer plan (spec 7.5). Anchored to the comp set when pricing published
+    # anchors, and to the ask otherwise -- which is the common case, so the basis
+    # is printed rather than left to be inferred from whether a figure appeared.
+    published = bool(assessment.anchors)
+    plan = plan_offer(
+        ask_cents=assessment.ask_cents,
+        expected_asking_cents=(
+            assessment.estimate.expected_asking_cents if published else None
+        ),
+        walk_away_cents=assessment.anchors.get("walk_away_above_cents"),
+        negotiation=n,
+        overpriced=bool(assessment.rating and assessment.rating.band == "overpriced"),
+    )
+
+    if not plan.has_figures:
+        print(f"    Offer: withheld -- {plan.withheld_reason}")
+        return
+
+    print(
+        f"\n    OFFER ({plan.stance.value}, anchored on {plan.basis.value})"
+        f"\n      Open at:          {money(plan.opening_cents)}"
+        f"\n      Expect to pay:    {money(plan.target_cents)}"
+    )
+    if plan.walk_away_cents is not None:
+        print(f"      Walk away above:  {money(plan.walk_away_cents)}")
+    for line in plan.reasoning:
+        print(f"      - {line}")
 
 
 def print_alternatives(capture: StoredCapture, assessment: PricingAssessment) -> None:

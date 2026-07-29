@@ -38,7 +38,7 @@ from ..alternatives import AlternativesResult
 from ..flags import CompletenessReading, ScamAssessment, TitleReading
 from ..known_issues import KnownIssuesReading
 from ..known_issues.client import NOT_REQUESTED_CODE, NOT_REQUESTED_REASON
-from ..negotiation import NegotiationAssessment
+from ..negotiation import NegotiationAssessment, OfferPlan
 from ..nhtsa import VehicleRiskAssessment
 from ..pricing import PricingAssessment
 from .score import SELLER_RATING_MIN_REVIEWS, DealScore
@@ -78,6 +78,16 @@ class Evaluation:
     scam: ScamAssessment
     negotiation: NegotiationAssessment
     alternatives: AlternativesResult
+
+    # Spec 7.5's "suggested offer with reasoning". Lives on the report rather
+    # than being derived in the serializer, which is where the single old
+    # `suggested_offer_cents` was computed: an actionable figure is part of the
+    # evaluation, and one assembled during wire mapping cannot be tested,
+    # cross-checked against another dimension, or reached by anything but the
+    # HTTP endpoint. The draft message is `offer`'s companion for the same
+    # reason -- see `negotiation/message.py`.
+    offer: OfferPlan
+    opening_message: str | None = None
 
     # The seller's Marketplace star rating (spec 6.3), read straight off the
     # listing page. A reputation number, not identity -- see
@@ -140,6 +150,8 @@ def build_evaluation(
     *,
     pricing: PricingAssessment,
     negotiation: NegotiationAssessment,
+    offer: OfferPlan,
+    opening_message: str | None = None,
     title: TitleReading,
     completeness: CompletenessReading,
     vehicle_risk: VehicleRiskAssessment,
@@ -169,6 +181,8 @@ def build_evaluation(
         scam=scam,
         negotiation=negotiation,
         alternatives=alternatives,
+        offer=offer,
+        opening_message=opening_message,
         known_issues=known_issues or KnownIssuesReading(),
         seller_rating_average=seller_rating_average,
         seller_rating_count=seller_rating_count,

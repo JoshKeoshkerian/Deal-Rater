@@ -10,7 +10,6 @@ heading with nothing under it.
 from __future__ import annotations
 
 from ..evaluation import Evaluation
-from ..pricing.curve import suggested_offer_cents
 from ..pricing.loader import StoredCapture
 from ..schemas import (
     AlternativeOut,
@@ -20,6 +19,7 @@ from ..schemas import (
     EvaluationOut,
     KnownIssuesOut,
     NegotiationOut,
+    OfferOut,
     PricingOut,
     ScoreComponentOut,
     SellerRiskOut,
@@ -68,11 +68,6 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
     negotiation = evaluation.negotiation
     risk = evaluation.vehicle_risk
     scam = evaluation.scam
-
-    suggested_offer: int | None = None
-    if pricing.anchors:
-        base = pricing.anchors["strong_offer_cents"]
-        suggested_offer = suggested_offer_cents(base, pricing.ask_cents, negotiation.extra_discount)
 
     # Spec 6.6. Absent far more often than present -- no key, spec 10's gate, or
     # a failed call -- so both halves are always emitted and exactly one of them
@@ -195,7 +190,17 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             days_listed=negotiation.days_listed,
             time_on_market_score=negotiation.time_on_market_score,
             leverage_points=list(negotiation.leverage_points),
-            suggested_offer_cents=suggested_offer,
+            offer=OfferOut(
+                stance=evaluation.offer.stance.value,
+                basis=evaluation.offer.basis.value,
+                opening_cents=evaluation.offer.opening_cents,
+                target_cents=evaluation.offer.target_cents,
+                walk_away_cents=evaluation.offer.walk_away_cents,
+                reasoning=list(evaluation.offer.reasoning),
+                caveat=evaluation.offer.caveat,
+                withheld_reason=evaluation.offer.withheld_reason,
+            ),
+            opening_message=evaluation.opening_message,
             motivated_phrases=list(negotiation.language.motivated),
             rigid_phrases=list(negotiation.language.rigid),
         ),

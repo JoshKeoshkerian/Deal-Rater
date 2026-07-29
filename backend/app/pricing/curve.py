@@ -371,31 +371,20 @@ def negotiation_anchors(
     the comp set cannot support a specific dollar figure. A number a buyer will
     say out loud to a stranger should not be published at all if the evidence
     does not support it.
+
+    THESE ARE MARKET BENCHMARKS, NOT THE OFFER TO MAKE. A deeply-underpriced
+    listing can put "strong offer" above its own ask, which is correct for a
+    benchmark and useless as advice. What to actually say to this seller is
+    `negotiation/offer.py`'s job -- it takes the expected asking price as one
+    input, bounds the result by what an ask will credibly answer, and falls back
+    to an ask-anchored plan on the ~95% of evaluations where these anchors are
+    withheld entirely. A `suggested_offer_cents` helper used to live here and did
+    none of that.
     """
     return {
         "strong_offer_cents": int(expected_asking_cents * (1.0 - params.STRONG_OFFER_BELOW)),
         "walk_away_above_cents": int(expected_asking_cents * (1.0 + params.WALK_AWAY_ABOVE)),
     }
-
-
-def suggested_offer_cents(
-    strong_offer_cents: int, ask_cents: int | None, extra_discount: float
-) -> int:
-    """The negotiation brief's actionable number: what to actually say to this seller.
-
-    `strong_offer_cents` anchors to the EXPECTED asking price (see
-    `negotiation_anchors` above), not to this listing's ask. That is fine for the
-    pricing dimension's own "Strong offer" figure, which is a market benchmark and
-    is allowed to sit above a deeply-underpriced listing's ask. It is not fine
-    here: a listing already asking below that benchmark would otherwise produce a
-    "suggested offer" higher than what the seller is asking for, which is not an
-    offer anyone would make. You can always simply pay the ask, so no negotiating
-    position ever justifies suggesting more than that.
-    """
-    offer = int(strong_offer_cents * (1.0 - extra_discount))
-    if ask_cents is not None:
-        offer = min(offer, ask_cents)
-    return offer
 
 
 def should_publish_anchors(

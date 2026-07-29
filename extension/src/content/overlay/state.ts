@@ -313,6 +313,164 @@ export function alternativeVehicle(description: string): string {
 }
 
 /* -------------------------------------------------------------------------- */
+/* negotiation (spec 6.4, 7.5)                                                */
+/* -------------------------------------------------------------------------- */
+
+export function leverageTone(leverage: string): Tone {
+  if (leverage === "strong") return "favorable";
+  if (leverage === "moderate") return "caution";
+  return "neutral";
+}
+
+/**
+ * Day counts the time-on-market track draws its zones from.
+ *
+ * MIRRORS `backend/app/negotiation/params.py`. Duplicated rather than sent on the
+ * wire, the same way `LOW_RATING_THRESHOLD` and `SCAM_SIGNAL_TEXT` in
+ * `sections.ts` are: these are the graphic's own axis, and a track whose zones
+ * arrive over the network cannot be drawn until they do. If the backend's bands
+ * move, this moves with them.
+ */
+const FRESH_DAYS = 1;
+const ESTABLISHED_DAYS = 14;
+const STALE_DAYS = 30;
+const VERY_STALE_DAYS = 75;
+
+/** Where the track's axis ends when the listing has not run past it. */
+const TRACK_DEFAULT_MAX_DAYS = 90;
+
+export interface TimeOnMarketMark {
+  /** 0-1 position along the track. */
+  position: number;
+  label: string;
+}
+
+export interface TimeOnMarketTrack {
+  days: number;
+  /** 0-1 position of the listing's own marker. */
+  position: number;
+  marks: TimeOnMarketMark[];
+  /** What this many days means, in words. */
+  phase: string;
+}
+
+/**
+ * Days listed, drawn on an axis instead of scored out of 100.
+ *
+ * WHY THIS REPLACED A METER. The section led with `strength` as "Negotiating room
+ * 62/100" -- an uncalibrated composite that starts at 30 and tops out around 83,
+ * so it was neither a percentage nor a measurement, and it was the most
+ * confident-looking element in the panel. Days listed is the underlying fact, it
+ * is observed rather than derived, and on an axis with the thresholds marked it
+ * answers the same question honestly: a dot past the 30-day mark says more than
+ * any score can.
+ *
+ * Null when there is no posted date. That is absence of evidence, and drawing a
+ * marker at zero would render it as a listing posted today -- the opposite
+ * reading.
+ */
+export function timeOnMarketTrack(daysListed: number | null): TimeOnMarketTrack | null {
+  if (daysListed === null || daysListed < 0) return null;
+
+  // The axis grows for a listing that has outrun it, so a 200-day car does not
+  // pin to the end and read the same as a 90-day one.
+  const maxDays = Math.max(TRACK_DEFAULT_MAX_DAYS, Math.ceil(daysListed * 1.15));
+  const at = (days: number) => Math.max(0, Math.min(1, days / maxDays));
+
+  return {
+    days: daysListed,
+    position: at(daysListed),
+    marks: [
+      { position: at(ESTABLISHED_DAYS), label: `${ESTABLISHED_DAYS}d` },
+      { position: at(STALE_DAYS), label: `${STALE_DAYS}d` },
+      { position: at(VERY_STALE_DAYS), label: `${VERY_STALE_DAYS}d` },
+    ],
+    phase: timeOnMarketPhase(daysListed),
+  };
+}
+
+function timeOnMarketPhase(days: number): string {
+  if (days < FRESH_DAYS) return "just listed, so everyone who saw it is still looking";
+  if (days < ESTABLISHED_DAYS) return "still fresh, and early interest has not passed";
+  if (days < STALE_DAYS) return "past the first rush of interest";
+  if (days < VERY_STALE_DAYS) return "sat longer than a car that is priced right usually does";
+  return "unsold for months at this price";
+}
+
+export interface OfferStep {
+  label: string;
+  cents: number;
+  /** The figure the buyer says first, sized and toned to be read first. */
+  lead: boolean;
+  tone: Tone;
+}
+
+/**
+ * Spec 7.5's offer as an ordered ladder, or null when there is nothing to draw.
+ *
+ * WHY A LADDER AND NOT A FIGURE. The section showed one number labelled
+ * "Suggested offer", which does not say whether it is the opening move or the
+ * target. A buyer who opens at their own target settles above it, because a seller
+ * who splits the difference splits it upward -- so the single figure was not just
+ * incomplete, it was costing money.
+ *
+ * The steps COLLAPSE when two figures are equal. On a listing already asking below
+ * what the comps support the backend sets opening and target to the same number,
+ * and printing "Open at $12,450 / Expect to pay $12,450" twice reads as a bug
+ * rather than as the finding that there is nothing to argue down.
+ */
+export function offerLadder(negotiation: EvaluationResponse["negotiation"]): OfferStep[] | null {
+  const { offer } = negotiation;
+  const opening = offer.opening_cents;
+  const target = offer.target_cents;
+  if (opening === null || target === null) return null;
+
+  const tone = leverageTone(negotiation.leverage);
+  const steps: OfferStep[] = [];
+
+  if (opening === target) {
+    steps.push({
+      label: offer.stance === "pay_near_asking" ? "Offer their ask" : "Offer",
+      cents: opening,
+      lead: true,
+      tone,
+    });
+  } else {
+    steps.push({ label: "Open at", cents: opening, lead: true, tone });
+    steps.push({
+      label: offer.stance === "pay_near_asking" ? "Their ask" : "Expect to pay",
+      cents: target,
+      lead: false,
+      tone: "neutral",
+    });
+  }
+
+  if (offer.walk_away_cents !== null) {
+    steps.push({
+      label: "Walk away above",
+      cents: offer.walk_away_cents,
+      lead: false,
+      tone: "caution",
+    });
+  }
+  return steps;
+}
+
+/** The stance as a chip: what shape of negotiation this is. */
+export function offerStanceChip(stance: string): { tone: Tone; label: string } | null {
+  switch (stance) {
+    case "negotiate":
+      return { tone: "favorable", label: "room to negotiate" };
+    case "pay_near_asking":
+      return { tone: "caution", label: "little to argue down" };
+    case "stretch":
+      return { tone: "adverse", label: "asking well over the comps" };
+    default:
+      return null;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /* score breakdown                                                            */
 /* -------------------------------------------------------------------------- */
 

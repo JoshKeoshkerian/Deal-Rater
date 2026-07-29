@@ -89,7 +89,17 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
       days_listed: 38,
       time_on_market_score: 80,
       leverage_points: ["Listed 38 days."],
-      suggested_offer_cents: 1_285_000,
+      offer: {
+        stance: "negotiate",
+        basis: "comps",
+        opening_cents: 1_310_000,
+        target_cents: 1_380_000,
+        walk_away_cents: 1_460_000,
+        reasoning: ["Comparable listings support about $13,800."],
+        caveat: null,
+        withheld_reason: null,
+      },
+      opening_message: "Hi -- is the 2016 Mazda CX-5 still available?",
       motivated_phrases: ["moving"],
       rigid_phrases: [],
     },
@@ -283,5 +293,141 @@ describe("what the panel is not allowed to drop", () => {
 
   it("shows an alternative's price difference against this listing", () => {
     expect(text()).toContain("$1,700 less");
+  });
+});
+
+/**
+ * The negotiation section, whose whole reason for being reworked is that on most
+ * listings it rendered a 0-100 meter, a leverage word and a day count -- and no
+ * figure at all, because the offer was gated on comp anchors the backend
+ * withholds roughly 19 times in 20.
+ */
+describe("negotiation (spec 6.4, 7.5)", () => {
+  const render = (over: Partial<EvaluationResponse> = {}) => {
+    renderEvaluation(evaluation(over));
+    return document.getElementById(HOST_ID)!.shadowRoot!;
+  };
+
+  /**
+   * The negotiation disclosure's own body.
+   *
+   * Scoped rather than `querySelector(".disclosure-body")`, which would land on
+   * whichever disclosure the panel happens to render first -- currently one nested
+   * inside a breakdown bar.
+   */
+  const negotiationBody = (root: ShadowRoot): Element => {
+    const found = Array.from(root.querySelectorAll("details.disclosure")).find(
+      (node) => node.querySelector(".disclosure-title")?.textContent === "Negotiation",
+    );
+    return found!.querySelector(".disclosure-body")!;
+  };
+
+  it("renders the offer ladder rather than one unlabelled figure", () => {
+    const root = render();
+    const body = root.textContent ?? "";
+    expect(body).toContain("Open at");
+    expect(body).toContain("$13,100");
+    expect(body).toContain("Expect to pay");
+    expect(body).toContain("$13,800");
+    expect(body).toContain("Walk away above");
+  });
+
+  const askAnchored = (over: Partial<EvaluationResponse["negotiation"]> = {}) => ({
+    ...evaluation().negotiation,
+    offer: {
+      stance: "negotiate",
+      basis: "ask",
+      opening_cents: 1_310_000,
+      target_cents: 1_380_000,
+      walk_away_cents: null,
+      reasoning: ["Open at $13,100 and expect to settle nearer $13,800."],
+      caveat: "These figures come from how long this has been listed, not from comparable prices.",
+      withheld_reason: null,
+    },
+    ...over,
+  });
+
+  it("still has figures when the comp set could not name a price", () => {
+    // The defect this rework exists for. An ask-anchored plan is the COMMON
+    // case, and it has to render as a complete section, not a degraded one.
+    const body = render({ negotiation: askAnchored() }).textContent ?? "";
+    expect(body).toContain("$13,100");
+    // ...and says which claim it is making, so it cannot be read as a market price.
+    expect(body).toContain("not from comparable prices");
+  });
+
+  it("puts the caveat last and says it once", () => {
+    // It used to be said three times, in the middle: in the offer's reasoning, as
+    // the panel's own restatement of the same point, and a third time beside the
+    // time-on-market graphic when there was no posted date. A reader working
+    // towards the offer had to wade through the hedging to reach it.
+    const body = negotiationBody(render({ negotiation: askAnchored() }));
+    const pills = body.querySelectorAll(".note-pill");
+    expect(pills).toHaveLength(1);
+
+    const children = Array.from(body.children);
+    expect(children[children.length - 1]).toBe(pills[0]);
+  });
+
+  it("does not hedge a comp-anchored offer that has nothing to qualify", () => {
+    // Spec 4.5's asking-vs-sale-price point is already a standing notice on the
+    // whole evaluation, and repeating it per-section is what made this read as an
+    // apology rather than a brief.
+    expect(negotiationBody(render()).querySelectorAll(".note-pill")).toHaveLength(0);
+  });
+
+  it("draws days listed on an axis instead of scoring it out of 100", () => {
+    const body = render().textContent ?? "";
+    expect(body).toContain("38 days listed");
+    expect(body).toContain("30d");
+    // The old meter. An uncalibrated composite that starts at 30 and tops out
+    // near 83 has no business being drawn as a score.
+    expect(body).not.toContain("Negotiating room");
+    expect(body).not.toContain("78/100");
+  });
+
+  it("states a missing posted date once, without explaining it twice", () => {
+    // The fact goes where the graphic would have been; what it MEANS for the
+    // figures goes in the caveat at the bottom. Both used to say both.
+    const body =
+      negotiationBody(
+        render({ negotiation: { ...evaluation().negotiation, days_listed: null } }),
+      ).textContent ?? "";
+    expect(body).toContain("did not expose a posted date");
+    expect(body.match(/posted date/g)).toHaveLength(1);
+  });
+
+  it("offers the drafted message as something editable and copyable", () => {
+    const root = render({
+      negotiation: {
+        ...evaluation().negotiation,
+        opening_message: "Hi -- is the 2016 Mazda CX-5 still available?",
+      },
+    });
+    const draft = root.querySelector<HTMLTextAreaElement>("textarea.draft-body");
+    expect(draft).not.toBeNull();
+    expect(draft!.value).toContain("still available");
+    expect(root.textContent).toContain("Copy message");
+  });
+
+  it("explains itself rather than showing an empty section when withheld", () => {
+    const body =
+      render({
+        negotiation: {
+          ...evaluation().negotiation,
+          offer: {
+            stance: "withheld",
+            basis: "none",
+            opening_cents: null,
+            target_cents: null,
+            walk_away_cents: null,
+            reasoning: [],
+            caveat: null,
+            withheld_reason: "This listing has no asking price.",
+          },
+          opening_message: null,
+        },
+      }).textContent ?? "";
+    expect(body).toContain("no asking price");
   });
 });
