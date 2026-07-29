@@ -188,6 +188,8 @@ export interface EvaluationResponse {
     model: string | null;
     mileage: number | null;
     title_status: string | null;
+    /** "private_party" / "dealer", from Facebook's own field. Null when unstated. */
+    seller_type: string | null;
   };
   vehicle_risk: {
     title_risk: string;

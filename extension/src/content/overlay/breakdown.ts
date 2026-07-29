@@ -232,7 +232,7 @@ export const BREAKDOWN_STYLES = `
      sized for a full-width top-level row rather than a nested one. */
   .component-body > .disclosure { border-bottom: 1px solid var(--border-faint); }
   .component-body > .disclosure:last-child { border-bottom: 0; }
-  .component-body > .disclosure:first-of-type { margin-top: 12px; }
+  .component-body > .disclosure:first-of-type { margin-top: 4px; }
   .component-body > .disclosure > summary { padding: 8px 0 8px 14px; }
   .component-body > .disclosure > .disclosure-body { padding: 2px 0 10px 28px; }
 

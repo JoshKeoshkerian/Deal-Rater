@@ -35,6 +35,21 @@ def _vehicle_label(capture: StoredCapture) -> str:
     return " ".join(p for p in parts if p) or "Unidentified vehicle"
 
 
+def _seller_type_label(raw: str | None) -> str | None:
+    """Facebook's own `vehicle_seller_type`, not `negotiation.seller_type`'s
+    text-pattern guess -- spec 4.3's correction: Marketplace states this
+    outright, so the target listing does not need the same heuristic comps
+    are stuck with (`negotiation/seller_type.py`)."""
+    if not raw:
+        return None
+    normalized = raw.strip().upper()
+    if normalized == "DEALER":
+        return "dealer"
+    if normalized == "PRIVATE_SELLER":
+        return "private_party"
+    return None
+
+
 def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> EvaluationOut:
     pricing = evaluation.pricing
     estimate = pricing.estimate
@@ -148,6 +163,7 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
             model=capture.target.model,
             mileage=capture.target.mileage,
             title_status=capture.target_title_status,
+            seller_type=_seller_type_label(capture.target.seller_type),
         ),
         vehicle_risk=VehicleRiskOut(
             title_risk=evaluation.title.risk.value,

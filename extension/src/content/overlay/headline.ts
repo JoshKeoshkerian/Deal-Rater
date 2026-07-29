@@ -44,6 +44,66 @@ function betaBadge(): HTMLElement {
   return node;
 }
 
+const SELLER_TYPE_TEXT: Record<string, { label: string; description: string }> = {
+  private_party: {
+    label: "Private party",
+    description: "Sold directly by the vehicle's owner, not a dealership.",
+  },
+  dealer: {
+    label: "Dealer",
+    description:
+      "Sold by a dealership rather than a private owner. The asking price may include " +
+      "reconditioning, a warranty, and dealer fees that this tool's private-party comps do not.",
+  },
+};
+
+/**
+ * Private party vs. dealer, top right next to the close button -- spec 1's
+ * first differentiator is that this tool's comps are private-party listings,
+ * so whether the listing being evaluated is one itself is worth seeing before
+ * reading anything else. Hover-only description (the `betaBadge` pattern
+ * above), since one word plus a glyph is the whole story until asked for more.
+ * Null when Facebook did not state it (`serialize.py`'s `_seller_type_label`),
+ * which is common enough that no badge is shown rather than guessing.
+ */
+function buildSellerTypeBadge(data: EvaluationResponse): HTMLElement | null {
+  const sellerType = data.vehicle_details.seller_type;
+  const copy = sellerType ? SELLER_TYPE_TEXT[sellerType] : undefined;
+  if (!copy) return null;
+
+  const node = el("span", "seller-type-badge", copy.label);
+  node.dataset["type"] = sellerType!;
+  node.title = copy.description;
+  return node;
+}
+
+/** disqualifying/branded read as adverse, unstated as caution, clean as favorable. */
+function titleTone(titleRisk: string): string {
+  if (titleRisk === "disqualifying" || titleRisk === "branded") return "adverse";
+  if (titleRisk === "unstated") return "caution";
+  return "favorable";
+}
+
+/**
+ * Title status, promoted out of the red-flags list and up to the headliner:
+ * of everything on a listing, title is the fact most likely to change whether
+ * this is a car worth buying at all, so it sits right under the score's own
+ * descriptive line rather than a click away inside "Seller and scam risk".
+ * Shown in both header states -- an unreliable price estimate does not make
+ * the title question go away.
+ */
+function buildTitleStatus(data: EvaluationResponse): HTMLElement {
+  const risk = data.vehicle_risk;
+  const label = data.vehicle_details.title_status
+    ? `Title: ${data.vehicle_details.title_status}`
+    : "Title status not stated";
+
+  const node = el("div", "title-status");
+  node.append(chip(titleTone(risk.title_risk), label));
+  node.append(el("p", "title-status-message", risk.title_message));
+  return node;
+}
+
 function buildConfident(data: EvaluationResponse): HTMLElement[] {
   const { score, suppressed_reason: suppressed, beta } = data.deal_score;
 
@@ -60,7 +120,7 @@ function buildConfident(data: EvaluationResponse): HTMLElement[] {
   if (beta) row.append(betaBadge());
 
   const comparison = suppressed ?? priceComparison(data.pricing) ?? data.headline;
-  return [row, el("p", "headline", comparison)];
+  return [row, el("p", "headline", comparison), buildTitleStatus(data)];
 }
 
 function buildUnreliable(data: EvaluationResponse): HTMLElement[] {
@@ -70,6 +130,7 @@ function buildUnreliable(data: EvaluationResponse): HTMLElement[] {
   // The primary text position, and the point of the whole state: the reason,
   // in the panel's own words, before any number.
   nodes.push(el("p", "verdict", "This vehicle cannot be priced confidently."));
+  nodes.push(buildTitleStatus(data));
 
   const problems = compProblems(data.pricing, 2);
   if (problems.length) {
@@ -126,7 +187,12 @@ export function buildHeader(data: EvaluationResponse, onClose: () => void): HTML
   close.setAttribute("aria-label", "Close evaluation");
   close.addEventListener("click", onClose);
 
-  header.append(close, el("div", "vehicle", data.vehicle));
+  const actions = el("div", "header-actions");
+  const sellerTypeBadge = buildSellerTypeBadge(data);
+  if (sellerTypeBadge) actions.append(sellerTypeBadge);
+  actions.append(close);
+
+  header.append(actions, el("div", "vehicle", data.vehicle));
   header.append(
     ...(state === "confident" ? buildConfident(data) : buildUnreliable(data)),
   );
@@ -144,16 +210,26 @@ export const HEADER_STYLES = `
     border-bottom-color: var(--tone-caution-border);
     box-shadow: inset 3px 0 0 var(--tone-caution-fill);
   }
-  .close {
+  .header-actions {
     position: absolute; top: 12px; right: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .close {
     background: none; border: 0; color: var(--text-dim);
     font-size: 22px; line-height: 1; cursor: pointer; padding: 4px 6px; border-radius: 6px;
   }
   .close:hover { color: var(--text); }
+  .seller-type-badge {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .03em;
+    padding: 3px 8px; border-radius: 999px; border: 1px solid currentColor;
+    cursor: default; white-space: nowrap;
+  }
+  .seller-type-badge[data-type="private_party"] { color: var(--tone-favorable-text); }
+  .seller-type-badge[data-type="dealer"] { color: var(--tone-caution-text); }
   .vehicle {
     font-size: 12px; color: var(--text-dim);
     letter-spacing: .04em; text-transform: uppercase;
-    padding-right: 28px;
+    padding-right: 90px;
   }
 
   /* confident */
@@ -173,6 +249,12 @@ export const HEADER_STYLES = `
   .score-of { font-size: 13px; color: var(--text-faint); margin-left: -4px; }
   .score-withheld { font-size: 17px; font-weight: 600; color: var(--tone-caution-text); }
   .headline { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+
+  /* title status, shared by both header states */
+  .title-status { margin-top: 10px; }
+  .title-status-message {
+    margin: 5px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--text-muted);
+  }
 
   /* unreliable */
   .verdict {

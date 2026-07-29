@@ -63,6 +63,7 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
       model: "CX-5",
       mileage: 45_000,
       title_status: "Clean",
+      seller_type: "private_party",
     },
     vehicle_risk: {
       title_risk: "clean",

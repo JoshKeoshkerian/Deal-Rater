@@ -137,7 +137,11 @@ def assess_completeness(
         ("trim", bool(trim_text and trim_text.strip()), 8.0),
         ("VIN", bool(vin), 12.0),
         (
-            "a description",
+            # A short-but-present description still fails this bar (it is a
+            # length threshold, not a presence check), and "not stated" would
+            # misreport a seller who wrote a couple of thin sentences as having
+            # written nothing at all.
+            "a description" if not text else "more detail in the description",
             len(text) >= params.MINIMAL_DESCRIPTION_CHARS,
             18.0,
         ),

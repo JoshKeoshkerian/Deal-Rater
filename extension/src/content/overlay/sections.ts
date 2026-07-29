@@ -105,11 +105,11 @@ function scamSignalText(code: string): string {
 const LOW_RATING_THRESHOLD = 4.0;
 
 /**
- * Red flags about the LISTING itself: the seller's stated title status (no
- * longer shown in Pricing now that section is back to just its three
- * numbers), title branding, the scam-pattern combination (spec 6.3), a
- * dealer posing as a private seller, and a star rating low enough to be a
- * signal rather than noise.
+ * Red flags about the LISTING itself: the scam-pattern combination (spec
+ * 6.3), a dealer posing as a private seller, and a star rating low enough to
+ * be a signal rather than noise. Title status used to live here too; it now
+ * sits with the headliner score instead (`headline.ts`'s `buildTitleStatus`),
+ * since it is important enough to see before a click rather than after one.
  *
  * The bullets are deliberately built from the structured fields rather than
  * the backend's prose `messages` list: that list always includes the
@@ -119,18 +119,9 @@ const LOW_RATING_THRESHOLD = 4.0;
  * parts that are actually flags.
  */
 function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
-  const nodes: HTMLElement[] = [];
-  const risk = data.vehicle_risk;
   const seller = data.seller_risk;
 
-  nodes.push(rows([["Title status", data.vehicle_details.title_status ?? "not stated"]]));
-
   const flagNodes: HTMLElement[] = [];
-  if (risk.title_risk === "disqualifying" || risk.title_risk === "branded") {
-    flagNodes.push(callout("adverse", `Title: ${risk.title_risk}`, [risk.title_message]));
-  } else if (risk.title_risk === "unstated") {
-    flagNodes.push(callout("caution", "Title status not stated", [risk.title_message]));
-  }
 
   const bullets: string[] = [];
   if (seller?.seller_type === "dealer") {
@@ -169,8 +160,7 @@ function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
   if (flagNodes.length === 0) {
     flagNodes.push(el("p", "muted", "No red flags identified on this listing."));
   }
-  nodes.push(...flagNodes);
-  return nodes;
+  return flagNodes;
 }
 
 /** Open recall campaigns (spec 6.2), on its own rather than mixed with
@@ -200,11 +190,15 @@ function buildRecalls(data: EvaluationResponse): HTMLElement[] {
 }
 
 /**
- * What's known to be wrong with THIS model at THIS mileage: NHTSA complaint
- * density (gathered, not generated) plus the cached LLM read (spec 6.6),
- * concise by construction -- the prompt already refuses to pad an empty list
- * (`known_issues/prompt.py`), so this renders what it's given rather than
- * imposing its own cap on top.
+ * What's known to be wrong with THIS model at THIS mileage: the cached LLM
+ * read (spec 6.6), concise by construction -- the prompt already refuses to
+ * pad an empty list (`known_issues/prompt.py`), so this renders what it's
+ * given rather than imposing its own cap on top.
+ *
+ * Deliberately LLM-only. NHTSA complaint density (count and top components)
+ * used to render here too, but it read as part of the model's finding when it
+ * is gathered data with its own caveats -- it stays in `vehicle_risk` for
+ * scoring, just not surfaced beside the LLM prose.
  *
  * "Ask" is deliberately absent: those bullets are spec 7's own section now
  * (`buildQuestions`), not folded in here.
@@ -223,17 +217,7 @@ function buildKnownIssuesSubsection(data: EvaluationResponse): HTMLElement[] {
     nodes.push(el("p", "muted", data.known_issues_unavailable_reason));
   }
 
-  const figures: Row[] = [];
-  if (risk.complaint_count !== null) figures.push(["Owner complaints", `${risk.complaint_count}`]);
-  if (risk.decoded_spec) figures.push(["VIN decode", risk.decoded_spec]);
-  if (figures.length) nodes.push(rows(figures));
-
-  if (risk.top_complaint_components.length) {
-    nodes.push(el("p", "muted", "Most complained-about systems"));
-    nodes.push(
-      list(risk.top_complaint_components.map(([name, count]) => `${name.toLowerCase()} (${count})`))!,
-    );
-  }
+  if (risk.decoded_spec) nodes.push(rows([["VIN decode", risk.decoded_spec]]));
 
   if (known) {
     const groups: Array<[string, string[]]> = [

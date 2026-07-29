@@ -290,6 +290,11 @@ class VehicleDetailsOut(BaseModel):
     model: str | None
     mileage: int | None
     title_status: str | None
+    #: "private_party" / "dealer", normalised from Facebook's own
+    #: `vehicle_seller_type` field (`PRIVATE_SELLER` / `DEALER`) -- see
+    #: `serialize.py`'s `_seller_type_label`. None when Facebook did not state
+    #: it, which is common enough that this must not be read as "private".
+    seller_type: str | None
 
 
 class CompletenessOut(BaseModel):
