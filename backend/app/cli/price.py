@@ -131,7 +131,6 @@ def print_alternatives(capture: StoredCapture, assessment: PricingAssessment) ->
         assessment.target,
         assessment.comp_set.included,
         assessment.estimate,
-        assessment.confidence.level,
     )
 
     print("\n  BETTER ALTERNATIVES   (spec 6.5)")

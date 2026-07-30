@@ -23,11 +23,30 @@ import { collapseWhitespace } from "../shared/parse";
 
 const SEND_LABEL = /^send$/i;
 
+/**
+ * A page this size carries more than one thing matching "Send" -- a hidden
+ * template, an off-screen a11y-only label, a collapsed row in an unopened
+ * panel. `getBoundingClientRect` on any of those returns a degenerate,
+ * all-zero rect, and `trigger-button.ts` treats that rect as gospel: it
+ * happened to compute `right: <viewport width>px; bottom: <viewport
+ * height>px`, which reads as "off past the top-left corner", i.e. the dock
+ * flashing and vanishing that this filter exists to prevent.
+ *
+ * `offsetParent === null` catches `display:none` and its ancestors; the
+ * explicit width/height check catches everything laid out at zero size
+ * (collapsed rows, empty wrappers) that `offsetParent` alone would not.
+ */
+function isRenderedOnScreen(node: HTMLElement): boolean {
+  if (node.offsetParent === null) return false;
+  const rect = node.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
 export function findSendButtonAnchor(doc: Document = document): Element | null {
   const main = mainRegion(doc);
   const candidates = Array.from(
     main.querySelectorAll<HTMLElement>('[role="button"], button, [aria-label]'),
-  );
+  ).filter(isRenderedOnScreen);
 
   for (const node of candidates) {
     const label = node.getAttribute("aria-label");

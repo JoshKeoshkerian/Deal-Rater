@@ -170,7 +170,6 @@ def evaluate_capture(
         pricing.target,
         pricing.comp_set.included,
         pricing.estimate,
-        pricing.confidence.level,
     )
     deal_score = compute_deal_score(
         rating=pricing.rating,

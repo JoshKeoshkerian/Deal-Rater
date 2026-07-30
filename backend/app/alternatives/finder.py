@@ -94,11 +94,9 @@ is.
 
 from __future__ import annotations
 
-import statistics
 from dataclasses import dataclass
 
 from ..pricing.comps import CompCandidate, CompDecision, TrimMatch
-from ..pricing.confidence import Confidence
 from ..pricing.regression import AskingPriceEstimate
 from ..services.vehicle_facts import decompose
 from . import params
@@ -262,13 +260,23 @@ def find_alternatives(
     target: CompCandidate,
     comps: list[CompDecision],
     estimate: AskingPriceEstimate,
-    confidence: Confidence | None = None,
 ) -> AlternativesResult:
     """Find comps worth looking at instead of the target (spec 6.5).
 
-    `confidence` gates display alongside the target's standing in its own comp
-    set -- see `_should_suppress`. Neither gates the underlying comparison, so
-    `target_is_best` stays truthful even when nothing is displayed.
+    NO "ALREADY WELL PRICED" GATE, 2026-07-30 (later same day)
+    ------------------------------------------------------------
+    A prior version hid `alternatives` outright whenever the target's own
+    residual was at or better than the median of its comps, on the theory
+    that a buyer looking at an already-good deal did not need the distraction.
+    Reported bug against a captured 2010 370Z: `target_is_best` was FALSE --
+    genuinely better-priced comps existed -- and the panel printed "This
+    listing is priced better than at least half of its comparable listings,
+    so alternatives are not worth the distraction" instead of naming them.
+    That reads as "there might be something better, and this tool is
+    choosing not to tell you," which is worse than either showing the
+    comps or saying nothing. Spec 6.5's own suppression case is narrower and
+    stays: `target_is_best` (the target beats EVERY comp, not just half of
+    them) still suppresses `alternatives` and says so in `message()`.
     """
     # Each vehicle is priced at ITS OWN mileage (and year, when the published
     # fit uses one). Using the target's expected price as the denominator for
@@ -371,16 +379,6 @@ def find_alternatives(
         and r > params.TOO_CHEAP_TO_RECOMMEND
     ]
 
-    suppressed = _should_suppress(target_residual, [r for _, r, _ in scored], confidence)
-    if suppressed is not None:
-        return AlternativesResult(
-            alternatives=(),
-            target_is_best=target_is_best,
-            suppressed_reason=suppressed,
-            withheld=withheld,
-            trim_known=target_trim_known,
-        )
-
     plausible.sort(key=lambda pair: pair[1])
     different_trim_better.sort(key=lambda pair: pair[1])
 
@@ -409,52 +407,4 @@ def find_alternatives(
         withheld=withheld,
         different_trim=different_trim,
         trim_known=target_trim_known,
-    )
-
-
-def _should_suppress(
-    target_residual: float,
-    comp_residuals: list[float],
-    confidence: Confidence | None,
-) -> str | None:
-    """Whether to hide alternatives, and what to say instead. None to show them.
-
-    WHY THIS IS NOT THE PRICING RATING ANY MORE
-    -------------------------------------------
-    The previous rule was `target_rating > 60`, and it contradicted the pricing
-    dimension it was supposed to agree with. A captured listing asking at the
-    87th percentile of its own expected range -- price residual its WORST
-    sub-score -- still cleared 60 on the curve and so printed "already well
-    priced against its comps" directly beneath a panel saying the opposite. One
-    absolute threshold on a curve that plateaus cannot express "better than its
-    comps"; that is a comparison, so it is now made by comparison.
-
-    Three conditions, all required to suppress:
-
-    1. THE TARGET IS AT OR BETTER THAN THE MEDIAN COMP. Lower residual is better
-       (advertised further below what its own mileage predicts), so "at or above
-       the median in price standing" is `residual <= median`. Half the comp set
-       being worse-priced is what "already well priced against its comps" has to
-       mean if it is to be said at all.
-
-    2. CONFIDENCE IS NOT LOW. Suppressing on a fit the panel is simultaneously
-       disowning asserts a ranking the same evaluation says it cannot make. When
-       confidence is low the alternatives are shown, caveats and all, and the
-       buyer decides.
-
-    3. THE TARGET IS NOT ITSELF AN IMPLAUSIBLE DISCOUNT. Condition 1 is true by
-       construction for a car advertised 40% under the line, and calling that
-       "well priced" would be spec 2's adverse selection restated as praise.
-    """
-    if confidence is Confidence.LOW or confidence is Confidence.NONE:
-        return None
-    if not comp_residuals:
-        return None
-    if target_residual <= params.TOO_CHEAP_TO_RECOMMEND:
-        return None
-    if target_residual > statistics.median(comp_residuals):
-        return None
-    return (
-        "This listing is priced better than at least half of its comparable "
-        "listings, so alternatives are not worth the distraction."
     )

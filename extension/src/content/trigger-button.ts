@@ -324,12 +324,18 @@ export function mountTriggerButton(
    * element work without reading anything from the page beyond its geometry.
    */
   const reposition = () => {
-    if (!aboveTarget?.isConnected) {
+    const rect = aboveTarget?.isConnected ? aboveTarget.getBoundingClientRect() : null;
+    // A rect can go degenerate between `updateAnchor` handing this element in
+    // and this running -- collapsed by a layout change, hidden by Facebook's
+    // own JS -- and an all-zero rect is not "top-left corner of the page", it
+    // is "not actually on screen". Trusting it anyway is what sent the dock
+    // off past the top-left edge and out of the viewport entirely. Falling
+    // back to the corner position beats disappearing.
+    if (!rect || rect.width === 0 || rect.height === 0) {
       panel.style.removeProperty("right");
       panel.style.removeProperty("bottom");
       return;
     }
-    const rect = aboveTarget.getBoundingClientRect();
     panel.style.right = `${Math.max(window.innerWidth - rect.right, 8)}px`;
     panel.style.bottom = `${Math.max(window.innerHeight - rect.top + ANCHOR_GAP_PX, 8)}px`;
   };

@@ -14,12 +14,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-import pytest
-
 from app.alternatives import find_alternatives
 from app.alternatives import params as alt_params
 from app.pricing.comps import CompCandidate, filter_comps
-from app.pricing.confidence import Confidence
 from app.pricing.regression import estimate_expected_asking_price
 
 
@@ -62,14 +59,10 @@ def line(n: int = 10) -> list[CompCandidate]:
     ]
 
 
-def run(
-    t: CompCandidate,
-    comps: list[CompCandidate],
-    confidence: Confidence | None = Confidence.HIGH,
-):
+def run(t: CompCandidate, comps: list[CompCandidate]):
     comp_set = filter_comps(t, comps)
     estimate = estimate_expected_asking_price(comp_set)
-    return find_alternatives(t, comp_set.included, estimate, confidence)
+    return find_alternatives(t, comp_set.included, estimate)
 
 
 class TestBetterMeansValueNotPrice:
@@ -148,15 +141,21 @@ class TestSuppression:
         assert not result.has_alternatives
         assert "best of them" in result.message()
 
-    def test_a_target_priced_better_than_half_its_comps_suppresses(self):
-        # Spec 6.5 gates display on the target scoring average or worse. Better
-        # comps exist here, so the suppression is the gate doing its job rather
-        # than there being nothing to show.
+    def test_a_target_priced_better_than_half_its_comps_still_shows_them(self):
+        # 2026-07-30 (later same day): a prior version suppressed
+        # `alternatives` outright whenever the target beat the MEDIAN comp,
+        # even when it did not beat all of them and genuinely better-priced
+        # comps existed -- the exact bug reported against a captured 2010
+        # 370Z. "This listing is priced better than at least half of its
+        # comparable listings, so alternatives are not worth the distraction"
+        # reads as "there might be something better and this tool is
+        # choosing not to tell you," which is worse than naming the comps.
+        # Only `target_is_best` (beats EVERY comp) suppresses now.
         comps = [*line(9), comp(50, price=984_000, mileage=100_000)]
         result = run(target(price=1_000_000, mileage=120_000), comps)
-        assert not result.has_alternatives
         assert not result.target_is_best
-        assert "better than at least half" in result.message()
+        assert result.has_alternatives
+        assert "not worth the distraction" not in result.message()
 
     def test_a_target_priced_above_its_comps_is_never_called_well_priced(self):
         # THE REGRESSION THIS RULE EXISTS FOR.
@@ -171,22 +170,6 @@ class TestSuppression:
         result = run(target(price=1_400_000, mileage=120_000), comps)
         assert result.has_alternatives
         assert "well priced" not in result.message()
-
-    def test_low_confidence_never_suppresses(self):
-        # Suppressing on a fit the same evaluation is disowning asserts a
-        # ranking it has just said it cannot make.
-        comps = [*line(9), comp(50, price=984_000, mileage=100_000)]
-        good = target(price=1_000_000, mileage=120_000)
-        assert not run(good, comps, Confidence.HIGH).has_alternatives
-        assert run(good, comps, Confidence.LOW).has_alternatives
-        assert run(good, comps, Confidence.NONE).has_alternatives
-
-    def test_an_implausibly_cheap_target_is_not_called_well_priced(self):
-        # True by construction under rule 1 -- a car advertised 60% under the
-        # line beats every comp -- and calling it "well priced" would be spec
-        # 2's adverse selection restated as praise.
-        result = run(target(price=400_000, mileage=120_000), line())
-        assert "better than at least half" not in result.message()
 
     def test_target_is_best_stays_truthful_even_when_display_is_gated(self):
         # The comparison still runs; only the display is suppressed.
@@ -221,7 +204,6 @@ class TestSuppression:
             target(price=1_600_000, mileage=100_000),
             comp_set.included,
             dominated,
-            Confidence.HIGH,
         )
         assert not result.has_alternatives
         assert "outlier sensitivity" in result.message()
@@ -257,13 +239,6 @@ class TestOutputShape:
         if len(result.alternatives) == 1:
             assert " is better priced" in result.message()
 
-    @pytest.mark.parametrize(
-        "confidence", [None, Confidence.LOW, Confidence.MEDIUM, Confidence.HIGH]
-    )
-    def test_an_overpriced_target_shows_alternatives_at_any_confidence(self, confidence):
-        result = run(target(price=1_600_000, mileage=100_000), line(), confidence)
-        assert result.has_alternatives
-
 
 class TestTrimRestriction:
     """2026-07-30: `alternatives` is same-trim only; a different-trim comp that
@@ -287,7 +262,9 @@ class TestTrimRestriction:
         # same-vs-different comparison either way.
         comps = [*line(9), comp(50, price=900_000, mileage=100_000, trim_text=None)]
         result = run(target(price=1_600_000, mileage=100_000), comps)
-        ids = {a.candidate.source_listing_id for a in (*result.alternatives, *result.different_trim)}
+        ids = {
+            a.candidate.source_listing_id for a in (*result.alternatives, *result.different_trim)
+        }
         assert "c50" not in ids
 
     def test_different_trim_still_requires_a_meaningful_advantage(self):
