@@ -70,6 +70,52 @@ export const TRIM_MATCH_TARGET = 6;
  */
 const MAX_YEAR_WINDOW = 4;
 
+/**
+ * How much of the home search must have been the right vehicle before a
+ * trim-worded search is worth a request.
+ *
+ * THE EXHAUSTION SIGNAL. Facebook returns a fixed-size page (14-16 rows on every
+ * observed search) and pads it with other models once it runs out of the one
+ * asked for. So the same-model fraction of that page says whether the radius
+ * still holds inventory this query could surface: a page that is 14/15 the right
+ * model means Facebook chose which trims to show, while 2/14 means there is
+ * nothing left and no wording will invent it.
+ *
+ * MEASURED, on 17 captures through the shipped instrumentation, gain being the
+ * same-trim comp count before versus after the trim query:
+ *
+ *     home_usable / home_returned    n   mean gain   any gain
+ *     >= 0.90                        8      +3.25        7/8
+ *     0.75 - 0.90                    5      +2.20        2/5
+ *     0.50 - 0.75                    2      +0.50        1/2
+ *     < 0.50                         2       0.00        0/2
+ *
+ * Monotonic across every band, which is what makes it usable as a gate. Cut at
+ * 0.50 rather than higher because the two costs are not symmetric: skipping
+ * wrongly forfeits a real gain (the 0.75-0.90 band still averages +2.2), while
+ * firing wrongly costs one request. So this only declines the clearly exhausted.
+ *
+ * UNCALIBRATED, and thin where it matters: 2 observations below the line, plus
+ * the hand-run Lexus RC that motivated looking (7/14, no gain). Four data points
+ * agreeing on zero, against 15 above the line averaging +2.53. Re-check as
+ * captures accumulate -- `home_returned` and `home_usable` are recorded on every
+ * capture for exactly this.
+ */
+export const MIN_HOME_MODEL_FRACTION_FOR_TRIM_QUERY = 0.5;
+
+/**
+ * Whether a trim-worded search can still find anything in this market.
+ *
+ * False when the home page came back mostly other models, which means the radius
+ * is out of this vehicle and only geographic widening can help.
+ */
+export function homeMarketHasHeadroom(homeReturned: number, homeUsable: number): boolean {
+  // No page at all is not evidence of exhaustion -- it is a failed search, and
+  // the caller has other reasons to skip in that case.
+  if (homeReturned <= 0) return true;
+  return homeUsable / homeReturned >= MIN_HOME_MODEL_FRACTION_FOR_TRIM_QUERY;
+}
+
 /** A loose stand-in for the backend's comp filter. See the module docstring. */
 export function looksUsable(target: ObservationPayload, comp: ObservationPayload): boolean {
   if (comp.price_cents === null || comp.price_cents <= 0) return false;

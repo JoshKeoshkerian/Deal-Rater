@@ -52,6 +52,47 @@ not to. Estimator kind is broken out because a median fallback and a fitted
 regression are different models, and averaging them together hides which one
 moved.
 
+CALIBRATION RUN, 2026-07-30: the acquisition fixes, measured on new captures
+----------------------------------------------------------------------------
+446 captures, 423 contributing, 10,082 predictions. MedAPE 15.5% -> 15.3%.
+
+Only 30 of the 446 came from the fixed extension, so the headline is still
+almost entirely old data and the 0.2 points are not attributable. The
+attributable comparison is new-build captures against old, deduplicated by
+target listing, through the same comp filter:
+
+    group        n   median incl   median fit   median same-trim   reach >=6
+    new build   20            32           30                  6      10/20
+    old build  198            26           25                  2     50/198
+
+Median same-trim comps TRIPLED and the share of comp sets reaching
+`MIN_COMPS_FOR_SLOPE` doubled. That is the whole intent of the three changes:
+the trim counter no longer over-reports (so widening actually fires), listings
+without coordinates now widen at all, and the trim-worded query adds same-market
+comps of the right trim.
+
+PER-REQUEST YIELD of the trim query, from its own instrumentation, on 17
+captures where it ran: mean +2.53 same-trim comps, positive on 10 of 17, and it
+newly cleared the 6-comp target on 5. A peer metro is worth ~+2 for the same
+request, so the trim query is at least competitive and does not import another
+market's price level. The pre-build hand estimate was +2.3; this is +2.53.
+
+THE EXHAUSTION GATE IS NOW SET FROM DATA, which is what the recorded columns
+existed for. `home_usable / home_returned` predicts the gain monotonically
+across four bands (>=0.90: +3.25, 0.75-0.90: +2.20, 0.50-0.75: +0.50, <0.50:
+0.00), and the cut landed at 0.50. See `widen.MIN_HOME_MODEL_FRACTION_FOR_TRIM_QUERY`.
+
+ONE THING GOT WORSE, and it is a measurement problem rather than a regression.
+`TRIM_DISAGREEMENT` now fires on 85% of new-build captures against 66% of old
+ones, because `trim_agreement` is a RATIO and the fixes add comps of every trim,
+not only the target's. A comp set with 6 same-trim comps out of 32 has better
+evidence than one with 2 out of 26 and a worse agreement ratio. The limiter is
+measuring the wrong shape: what drives fit quality is the ABSOLUTE count, which
+is what `preferred_fit_points` and `MIN_COMPS_FOR_SLOPE` already use. Not
+changed here -- it is a confidence-model question and `params.py` forbids moving
+a calibrated threshold without a calibration run aimed at it. Recorded as the
+next thing to look at.
+
 BASELINE, 2026-07-29: trim-mix bias, and why this file could not see it
 -----------------------------------------------------------------------
 413 captures stored, 393 contributing, 9,116 predictions. MedAPE 15.5%.

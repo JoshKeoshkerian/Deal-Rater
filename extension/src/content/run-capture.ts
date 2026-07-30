@@ -18,6 +18,7 @@ import {
   TRIM_MATCH_TARGET,
   countTrimMatched,
   countUsable,
+  homeMarketHasHeadroom,
   pendingPeers,
   shouldWiden,
 } from "../comps/widen";
@@ -203,6 +204,16 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   let trimSearchQuery: string | null = null;
   let trimQueryReturned: number | null = null;
   let trimQueryNew: number | null = null;
+  // Why the trim query did not run, when it did not. A gate that only records
+  // its hits cannot be evaluated: `market_exhausted` in particular is a
+  // threshold set from 4 observations, and the only way to find out it is wrong
+  // is to count how often it fires and on what.
+  let trimQuerySkipped:
+    | "unscoped_home_search"
+    | "trim_target_already_met"
+    | "market_exhausted"
+    | "no_trim_level"
+    | null = null;
   let trimMatchedBefore = 0;
   let trimMatchedAfter = 0;
   const search = buildCompSearch(target.observation, target.locationId);
@@ -294,9 +305,23 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     // back empty and fell back to unscoped, that place id does not resolve, and
     // this query -- which uses the same one and has no fallback of its own --
     // would return zero for the same reason. A guaranteed-empty request.
-    if (locationScoped && trimMatchedBefore < TRIM_MATCH_TARGET) {
+    //
+    // And gated on the market having headroom. This is the threshold the first
+    // version of this code recorded rather than acted on, now that 17 captures
+    // have gone through the instrumentation: below half the home page being the
+    // right model, the trim query returned no gain on any capture measured.
+    // See `homeMarketHasHeadroom`.
+    if (!locationScoped) {
+      trimQuerySkipped = "unscoped_home_search";
+    } else if (trimMatchedBefore >= TRIM_MATCH_TARGET) {
+      trimQuerySkipped = "trim_target_already_met";
+    } else if (!homeMarketHasHeadroom(homeReturned, homeUsable)) {
+      trimQuerySkipped = "market_exhausted";
+    } else {
       const trimSearch = buildTrimSearch(target.observation, target.locationId);
-      if (trimSearch) {
+      if (trimSearch === null) {
+        trimQuerySkipped = "no_trim_level";
+      } else {
         onStatus("Searching this trim…", "comps");
         const trimResult = await runCompSearch(trimSearch.url, capturedAt);
         trimSearchQuery = trimSearch.query.query;
@@ -424,6 +449,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
           home_returned: homeReturned,
           home_usable: homeUsable,
           trim_query: trimSearchQuery,
+          trim_query_skipped: trimQuerySkipped,
           trim_query_returned: trimQueryReturned,
           trim_query_new: trimQueryNew,
           trim_matched_before: trimMatchedBefore,

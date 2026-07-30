@@ -22,6 +22,7 @@ import {
   USABLE_COMP_TARGET,
   countTrimMatched,
   countUsable,
+  homeMarketHasHeadroom,
   looksUsable,
   pendingPeers,
   shouldWiden,
@@ -327,6 +328,37 @@ describe("the trim-worded search", () => {
     const search = buildTrimSearch(target, PLACE);
     expect(search?.query.location_id).toBe(PLACE);
     expect(search?.query.query).toContain("limited");
+  });
+});
+
+describe("the exhaustion gate on the trim query", () => {
+  // Facebook returns a fixed-size page and pads it with other models once it
+  // runs out of the one asked for, so the same-model fraction says whether the
+  // radius still holds inventory a trim query could surface.
+
+  it("has headroom when the home page was mostly the right vehicle", () => {
+    expect(homeMarketHasHeadroom(15, 14)).toBe(true); // Civic, gained +5 to +9
+    expect(homeMarketHasHeadroom(14, 13)).toBe(true);
+  });
+
+  it("has no headroom when the page was padded with other models", () => {
+    expect(homeMarketHasHeadroom(14, 2)).toBe(false); // CX-9 Sport, gained 0
+    expect(homeMarketHasHeadroom(15, 6)).toBe(false); // Lexus RC, gained 0
+  });
+
+  it("cuts at half, not higher", () => {
+    // The two costs are not symmetric: skipping wrongly forfeits a real gain
+    // (the 0.75-0.90 band still averaged +2.2 same-trim comps), while firing
+    // wrongly costs one request. So only the clearly exhausted are declined.
+    expect(homeMarketHasHeadroom(14, 7)).toBe(true); // exactly 0.50
+    expect(homeMarketHasHeadroom(15, 7)).toBe(false); // just under
+    expect(homeMarketHasHeadroom(20, 15)).toBe(true); // 0.75, still fires
+  });
+
+  it("treats a failed home search as headroom, not exhaustion", () => {
+    // Zero returned is a broken search, not an empty market, and the caller has
+    // its own reasons to skip in that case. Dividing by it would also throw.
+    expect(homeMarketHasHeadroom(0, 0)).toBe(true);
   });
 });
 

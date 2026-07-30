@@ -20,6 +20,7 @@
       "home_returned": 14,
       "home_usable": 12,
       "trim_query": "2014 Toyota Camry le",
+      "trim_query_skipped": null,
       "trim_query_returned": 14,
       "trim_query_new": 5,
       "trim_matched_before": 2,
