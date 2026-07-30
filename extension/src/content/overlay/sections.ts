@@ -303,12 +303,12 @@ function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
   const flagNodes: HTMLElement[] = [];
 
   const bullets: string[] = [];
-  if (seller?.seller_type === "dealer") {
-    bullets.push(
-      "Looks like a dealer listing rather than a private-party sale -- the asking price " +
-        "may include reconditioning, warranty and overhead.",
-    );
-  }
+  // DISABLED, 2026-07-30: dealer-vs-private detection pulled from the UI
+  // ahead of a production push, alongside the badge in `headline.ts`
+  // (`buildSellerTypeBadge`) -- see that comment for the current status.
+  // `seller.seller_type` is still computed and still gates comp-set exclusion
+  // in the backend (`pricing/comps.py`); only this listing-facing bullet is
+  // suppressed.
   const ownerCount = data.vehicle_details.owner_count;
   if (ownerCount && OWNER_COUNT_FLAG_TEXT[ownerCount]) {
     bullets.push(OWNER_COUNT_FLAG_TEXT[ownerCount]);

@@ -57,16 +57,19 @@ const SELLER_TYPE_TEXT: Record<string, { label: string; description: string }> =
  * above), since one word plus a glyph is the whole story until asked for more.
  * Null when Facebook did not state it (`serialize.py`'s `_seller_type_label`),
  * which is common enough that no badge is shown rather than guessing.
+ *
+ * DISABLED, 2026-07-30: pulled from the UI ahead of a production push.
+ * Re-enabled briefly the same day on the theory that the `vehicle_seller_type`
+ * fix in `negotiation/seller_type.py` had resolved it; still not accurate
+ * enough in practice, so it is hidden again. That backend fix is still real
+ * (it corrects `negotiation.seller.is_dealer`, comp-set exclusion, and the
+ * offer/leverage logic) -- what remains unreliable is specifically
+ * `vehicle_seller_type` itself: Facebook does not always state it, and
+ * misclassifies some listings it does state. Re-enabling is dropping this
+ * early return; nothing needs to be recomputed.
  */
-function buildSellerTypeBadge(data: EvaluationResponse): HTMLElement | null {
-  const sellerType = data.vehicle_details.seller_type;
-  const copy = sellerType ? SELLER_TYPE_TEXT[sellerType] : undefined;
-  if (!copy) return null;
-
-  const node = el("span", "seller-type-badge", copy.label);
-  node.dataset["type"] = sellerType!;
-  node.title = copy.description;
-  return node;
+function buildSellerTypeBadge(_data: EvaluationResponse): HTMLElement | null {
+  return null;
 }
 
 /** disqualifying/branded read as adverse, unstated as caution, clean as favorable. */
