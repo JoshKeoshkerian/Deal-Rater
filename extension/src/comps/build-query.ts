@@ -41,6 +41,7 @@
  */
 
 import type { ObservationPayload } from "../shared/types";
+import { trimLevelQueryTerm } from "./trim-level";
 
 const MARKETPLACE_ROOT = "https://www.facebook.com/marketplace";
 const SEARCH_BASE = `${MARKETPLACE_ROOT}/search/`;
@@ -78,7 +79,13 @@ const VEHICLES_CATEGORY_ID = "546583916084032";
 export interface CompSearchQuery extends Record<string, unknown> {
   query: string;
   /** What the query was built from, so a bad comp set can be diagnosed later. */
-  derived_from: { year: number | null; make: string | null; model: string | null };
+  derived_from: {
+    year: number | null;
+    make: string | null;
+    model: string | null;
+    /** The trim level named in the query, or null on the plain search. */
+    trim: string | null;
+  };
   /**
    * The Facebook place id the search was scoped to, or null when the listing
    * page carried none. Recorded whether or not the search honoured it, so a
@@ -123,15 +130,69 @@ export function buildMetroSearch(
   return buildCompSearch(target, metroId);
 }
 
+/**
+ * The same search with the target's trim level named in the query.
+ *
+ * MEASURED BEFORE BUILT, and the result is conditional rather than clean. Three
+ * hand-run pairs in the listing's own metro, counting same-model-and-same-trim
+ * cards on the first page:
+ *
+ *     vehicle                        plain -> trim   same-model on plain page
+ *     2019 Jeep Cherokee Limited         7 -> 13            13 / 14
+ *     2016 Mazda CX-5 Grand Touring      5 ->  6            14 / 14
+ *     2015 Lexus RC F Sport              3 ->  3             7 / 14
+ *
+ * Facebook is not ANDing the token -- `total` came back 14 on all six pages, so
+ * the result set is the same size and the trim word only reorders what surfaces.
+ * Which means the query can only help when there is latent supply of that trim
+ * to reorder INTO view:
+ *
+ *   - Cherokee: the plain page was already 13/14 same-model, so Facebook had
+ *     Limiteds deeper in the set and naming the trim brought them forward.
+ *   - Lexus RC: the plain page was 7/14 same-model, i.e. Facebook padded with
+ *     other models because it had run out of RCs inside the radius. There is no
+ *     eighth RC to surface and no wording can invent one. That case needs
+ *     geographic widening, which is what the peer loop is for.
+ *   - CX-5: moved by one card, indistinguishable from noise.
+ *
+ * So: one clear win, one null, one wasted request out of three. Worth one
+ * request on the cases that can benefit, not worth firing unconditionally --
+ * see `run-capture.ts` for the gate, and the recorded per-query counts, which
+ * exist so the "market is exhausted, skip it" threshold can be set from data
+ * rather than from these three rows.
+ *
+ * NEVER RUNS UNSCOPED, unlike `buildCompSearch`, and that is the same decision
+ * twice over: no `fallbackUrl`, and null when there is no place id to scope to.
+ * An unrecognised or absent location makes Facebook return the ACCOUNT's own
+ * metro. The plain search accepts that trade because some comps beat none. A
+ * supplementary query does not -- it would spend a request adding a second
+ * helping of the wrong market to a comp set that is already drawn from it, which
+ * is the defect this file exists to prevent. Zero results, or no search at all,
+ * is the correct answer.
+ */
+export function buildTrimSearch(
+  target: ObservationPayload,
+  locationId: string | null,
+): CompSearch | null {
+  if (!LOCATION_ID_RE.test(locationId ?? "")) return null;
+  const trimTerm = trimLevelQueryTerm(target.trim_text, target.model);
+  if (trimTerm === null) return null;
+  const search = buildCompSearch(target, locationId, trimTerm);
+  if (search === null) return null;
+  return { ...search, fallbackUrl: null };
+}
+
 export function buildCompSearch(
   target: ObservationPayload,
   locationId: string | null = null,
+  trimTerm: string | null = null,
 ): CompSearch | null {
   const { year, make, model } = target;
   if (!model || !make) return null;
 
-  const terms = [year !== null ? String(year) : null, make, model].filter(Boolean);
+  const terms = [year !== null ? String(year) : null, make, model, trimTerm].filter(Boolean);
   const query = terms.join(" ");
+  const derived = { year, make, model, trim: trimTerm };
 
   const unscoped = new URL(SEARCH_BASE);
   unscoped.searchParams.set("query", query);
@@ -142,7 +203,7 @@ export function buildCompSearch(
     return {
       url: unscoped.toString(),
       fallbackUrl: null,
-      query: { query, derived_from: { year, make, model }, location_id: null },
+      query: { query, derived_from: derived, location_id: null },
     };
   }
 
@@ -153,6 +214,6 @@ export function buildCompSearch(
   return {
     url: url.toString(),
     fallbackUrl: unscoped.toString(),
-    query: { query, derived_from: { year, make, model }, location_id: scoped },
+    query: { query, derived_from: derived, location_id: scoped },
   };
 }

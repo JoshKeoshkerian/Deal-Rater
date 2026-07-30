@@ -242,6 +242,9 @@ describe("buildCompSearch", () => {
       year: 2014,
       make: "Toyota",
       model: "Camry",
+      // Null on the plain search, so a stored capture says which of the two
+      // searches produced it rather than leaving it to be inferred.
+      trim: null,
     });
   });
 

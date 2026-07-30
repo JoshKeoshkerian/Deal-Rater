@@ -51,6 +51,31 @@ look like two genuine sightings.
 
 `extraction_ok` is derived server-side from the report, never sent by a client.
 
+### `comp_search_query`
+
+A free-form JSON blob (`schemas.CaptureIn` types it as `dict`), because it
+records how the extension went looking rather than anything the backend scores.
+Nothing reads it at evaluation time except `location_scoped`. It exists so a bad
+comp set can be diagnosed after the fact instead of inferred from city names —
+and so the acquisition strategy can be changed against measurement rather than
+against intuition. Current keys, beyond `query` / `derived_from` / `source`:
+
+| key | why it is recorded |
+|---|---|
+| `location_scoped` | False means the comps came back scoped to the *user's* metro rather than the listing's. Invalidates a comp set rather than merely widening it. |
+| `search_radius_km` | Not settable per request — Facebook holds it against the account — so recording it is the only way a comp set's geographic scope is knowable later. |
+| `home_metro`, `home_metro_source` | Which market the peer list was drawn from, and whether it came from coordinates or from city names (`comps/metros.ts`). Distinguishes "the listing's market could not be identified" from "its peers were all searched", which both used to read as an empty `extra_metros_searched`. |
+| `extra_metros_searched`, `extra_metros_unresolved` | Which peer markets were reached, and which slugs silently returned somebody else's metro. |
+| `home_returned`, `home_usable` | The home search's own composition. A page that came back mostly same-model means Facebook still had inventory and merely chose which trims to show; a page padded out with other models means the radius is out of them. This is the signal that should eventually gate the trim query. |
+| `trim_query`, `trim_query_returned`, `trim_query_new` | The trim-worded search (§4.3, `build-query.buildTrimSearch`), what it returned, and how much of that was new after dedup. Null when it did not fire. |
+| `trim_matched_before`, `trim_matched_after` | Same-trim comp count either side of the trim query, so its yield per request is measurable against a peer metro's. |
+| `usable_comp_estimate` | The extension's own loose count, for comparison against what the backend actually keeps. |
+
+The trim-query keys are deliberately verbose for a feature that helped on one of
+three hand-tested vehicles. It was shipped conditional and instrumented rather
+than either skipped or trusted, and these columns are what will decide which it
+should have been.
+
 ## `listings`
 
 Identity only: `(source, source_listing_id)` unique, plus the two keys that

@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { buildTrimSearch } from "../src/comps/build-query";
 import { findMetro, peersFor } from "../src/comps/metros";
 import {
   TRIM_MATCH_TARGET,
@@ -265,6 +266,67 @@ describe("widening for trim, not just count", () => {
 
   it("stops widening for trim once the peer list runs out, regardless of count", () => {
     expect(shouldWiden(target, [obs({ trim_text: "Sport" })], 0)).toBe(false);
+  });
+});
+
+describe("the trim-worded search", () => {
+  const PLACE = "108508369173486";
+  const target = obs({
+    role: "target",
+    year: 2019,
+    make: "Jeep",
+    model: "Cherokee",
+    trim_text: "Limited Sport Utility 4D",
+  });
+
+  it("names the trim level in the query, not the whole trim string", () => {
+    // "Limited Sport Utility 4D" would drag the body style into a keyword
+    // search, which is not what distinguishes this listing from its comps.
+    const search = buildTrimSearch(target, PLACE);
+    expect(search?.query.query).toBe("2019 Jeep Cherokee limited");
+    expect(search?.query.derived_from.trim).toBe("limited");
+  });
+
+  it("scopes to the listing's own metro and the Vehicles category", () => {
+    const url = new URL(buildTrimSearch(target, PLACE)!.url);
+    expect(url.pathname).toContain(PLACE);
+    expect(url.searchParams.get("category_id")).toBe("546583916084032");
+  });
+
+  it("has no unscoped fallback", () => {
+    // The plain search accepts the account's-own-metro fallback because some
+    // comps beat none. This one must not: it would inject another market's
+    // listings alongside comps that are already local.
+    expect(buildTrimSearch(target, PLACE)?.fallbackUrl).toBeNull();
+  });
+
+  it("declines entirely when there is no place id to scope to", () => {
+    // The same decision as having no fallback, and it has to be made twice: an
+    // absent place id produces an unscoped URL, which Facebook answers with the
+    // ACCOUNT's own metro. Spending a request to add more of the wrong market to
+    // a comp set already drawn from it buys nothing.
+    expect(buildTrimSearch(target, null)).toBeNull();
+    expect(buildTrimSearch(target, "not a place id")).toBeNull();
+  });
+
+  it("declines when there is no trim level to name", () => {
+    const bodyOnly = obs({ role: "target", trim_text: "Sport Utility 4D" });
+    expect(buildTrimSearch(bodyOnly, PLACE)).toBeNull();
+    expect(buildTrimSearch(obs({ role: "target", trim_text: null }), PLACE)).toBeNull();
+  });
+
+  it("declines when there is no vehicle to search for", () => {
+    const noModel = obs({ role: "target", model: null, trim_text: "Limited" });
+    expect(buildTrimSearch(noModel, PLACE)).toBeNull();
+  });
+
+  it("records the trim it searched for, so the query is attributable later", () => {
+    // `trim_query` on the stored capture is how the per-request yield of this
+    // feature gets measured against a peer metro's. A search whose own query is
+    // not recorded cannot be held to that.
+    const search = buildTrimSearch(target, PLACE);
+    expect(search?.query.location_id).toBe(PLACE);
+    expect(search?.query.query).toContain("limited");
   });
 });
 

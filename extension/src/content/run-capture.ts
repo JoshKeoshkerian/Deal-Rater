@@ -7,14 +7,20 @@
  */
 
 import type { CaptureStage } from "./capture-stages";
-import { buildCompSearch, buildMetroSearch } from "../comps/build-query";
+import { buildCompSearch, buildMetroSearch, buildTrimSearch } from "../comps/build-query";
 import {
   metroFromLocationText,
   nearestMetro,
   peersFor,
   verifyMetroResults,
 } from "../comps/metros";
-import { countUsable, pendingPeers, shouldWiden } from "../comps/widen";
+import {
+  TRIM_MATCH_TARGET,
+  countTrimMatched,
+  countUsable,
+  pendingPeers,
+  shouldWiden,
+} from "../comps/widen";
 import { loadBadMetroSlugs, rememberBadMetroSlug } from "../shared/metro-health";
 import { fetchDocument, runCompSearch } from "../comps/fetch-search";
 import { extractTargetListing } from "../extract/listing";
@@ -157,6 +163,16 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   // the data -- both appeared as an empty `extra_metros_searched`.
   let homeMetro: string | null = null;
   let homeMetroSource: "coordinates" | "location_text" | null = null;
+  // The home search's own composition and the trim query's contribution. All
+  // null / zero when no search ran at all, which the payload distinguishes from
+  // a search that ran and found nothing.
+  let homeReturned = 0;
+  let homeUsable = 0;
+  let trimSearchQuery: string | null = null;
+  let trimQueryReturned: number | null = null;
+  let trimQueryNew: number | null = null;
+  let trimMatchedBefore = 0;
+  let trimMatchedAfter = 0;
   const search = buildCompSearch(target.observation, target.locationId);
   let comps: CapturePayload["comps"] = [];
   let compSource = "none";
@@ -209,6 +225,58 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     };
     absorb(result.observations);
 
+    // The home page's own composition, recorded BEFORE anything is added to it.
+    // This is the exhaustion signal: a page that came back mostly same-model
+    // means Facebook still had inventory of this vehicle and simply chose which
+    // trims to show, while a page padded out with other models means the radius
+    // is genuinely out of them. Hand-measured, the trim query below helped in
+    // the first case (Cherokee, 13/14 same-model) and was wasted in the second
+    // (Lexus RC, 7/14). Recorded rather than acted on: three observations are
+    // not enough to set a threshold, and this is what will set it.
+    homeReturned = result.observations.length;
+    homeUsable = countUsable(target.observation, observations);
+    trimMatchedBefore = countTrimMatched(target.observation, observations);
+
+    // Snapshotted here, and used further down by `metroFromLocationText`. The
+    // trim query below is scoped to the same place id so its cities would be
+    // just as valid a vote -- but that function's measured accuracy was
+    // established on home-search results only, and keeping the input to exactly
+    // that is cheaper than re-establishing it.
+    const homeCities = observations.map((o) => o.location_text);
+
+    // ONE trim-worded search in the listing's OWN metro, before any peer.
+    //
+    // Preferred over an extra peer for the same request because it adds comps
+    // from the same market: a peer metro's asks carry that market's price level,
+    // which `comps/metros.ts` documents as a real distortion even inside matched
+    // rust and price tiers. Measured yield is comparable (+2.3 same-trim comps
+    // per request across three hand-run vehicles, against a peer's ~+2), so the
+    // tie-breaker is contamination, not count.
+    //
+    // Gated on there being something to gain: a known trim level, and the trim
+    // target not already met. `buildTrimSearch` returns null when the trim
+    // reduces to nothing but a body style, and when there is no place id to
+    // scope to.
+    //
+    // Also gated on the home search having stayed scoped. If its scoped URL came
+    // back empty and fell back to unscoped, that place id does not resolve, and
+    // this query -- which uses the same one and has no fallback of its own --
+    // would return zero for the same reason. A guaranteed-empty request.
+    if (locationScoped && trimMatchedBefore < TRIM_MATCH_TARGET) {
+      const trimSearch = buildTrimSearch(target.observation, target.locationId);
+      if (trimSearch) {
+        onStatus("Searching this trim…", "comps");
+        const trimResult = await runCompSearch(trimSearch.url, capturedAt);
+        trimSearchQuery = trimSearch.query.query;
+        trimQueryReturned = trimResult.observations.length;
+        const before = observations.length;
+        absorb(trimResult.observations);
+        trimQueryNew = observations.length - before;
+        issues.push(...trimResult.issues);
+      }
+    }
+    trimMatchedAfter = countTrimMatched(target.observation, observations);
+
     // Facebook's 40-mile radius is not settable per request, so a wider market
     // is only reachable as SEPARATE searches centred on other metros. Peers are
     // chosen by market similarity, not just distance -- see comps/metros.ts.
@@ -237,10 +305,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
       // Reached with coordinates too, not only without them: `nearestMetro`
       // also declines beyond `MAX_HOME_METRO_MILES`, so recording the source
       // from `latitude !== null` would mislabel a rural listing.
-      home = metroFromLocationText(
-        target.observation.location_text,
-        observations.map((o) => o.location_text),
-      );
+      home = metroFromLocationText(target.observation.location_text, homeCities);
       if (home) homeMetroSource = "location_text";
     }
     homeMetro = home?.slug ?? null;
@@ -319,6 +384,18 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
           // which both used to read as an empty `extra_metros_searched`.
           home_metro: homeMetro,
           home_metro_source: homeMetroSource,
+          // The trim-worded search, and enough around it to decide later whether
+          // it earns its request. `home_returned` / `home_usable` are the
+          // exhaustion signal (see the comment at the call site): the threshold
+          // that should skip this query on a market with nothing left to surface
+          // is not set from three hand-run vehicles, it is set from these.
+          home_returned: homeReturned,
+          home_usable: homeUsable,
+          trim_query: trimSearchQuery,
+          trim_query_returned: trimQueryReturned,
+          trim_query_new: trimQueryNew,
+          trim_matched_before: trimMatchedBefore,
+          trim_matched_after: trimMatchedAfter,
           // Which metros were searched, so a comp set spanning several markets
           // is visible in the data rather than inferred from city names.
           extra_metros_searched: metrosSearched,

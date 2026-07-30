@@ -11,9 +11,19 @@
       "derived_from": {
         "year": 2014,
         "make": "Toyota",
-        "model": "Camry"
+        "model": "Camry",
+        "trim": null
       },
-      "source": "same_origin_fetch"
+      "source": "same_origin_fetch",
+      "home_metro": "stlouis",
+      "home_metro_source": "coordinates",
+      "home_returned": 14,
+      "home_usable": 12,
+      "trim_query": "2014 Toyota Camry le",
+      "trim_query_returned": 14,
+      "trim_query_new": 5,
+      "trim_matched_before": 2,
+      "trim_matched_after": 4
     }
   },
   "target": {
