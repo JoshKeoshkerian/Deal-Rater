@@ -39,6 +39,7 @@ const bundles = [
 async function copyStatic() {
   await cp(resolve(root, "manifest.json"), resolve(outdir, "manifest.json"));
   await cp(resolve(root, "src/options/options.html"), resolve(outdir, "options.html"));
+  await cp(resolve(root, "icons"), resolve(outdir, "icons"), { recursive: true });
 
   // The options page's stylesheet is generated from the same tokens as the two
   // shadow roots (src/options/styles.ts). Emitted as a file the page links,

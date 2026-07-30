@@ -5,6 +5,12 @@
   "description": "Captures the Marketplace vehicle listing you are looking at, on request, when you click Capture.",
   "minimum_chrome_version": "116",
 
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
   "permissions": ["storage"],
 
   "host_permissions": [
@@ -36,6 +42,11 @@
   },
 
   "action": {
-    "default_title": "Deal Rater"
+    "default_title": "Deal Rater",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   }
 }
