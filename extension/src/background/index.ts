@@ -1,16 +1,19 @@
 /**
  * Service worker.
  *
- * Three jobs, and no others: post captures to the backend, fetch the resulting
- * evaluation, and drive the background-tab fallback for the comp search. It holds no timers, registers no
- * alarms, and does nothing at all unless a content script asks it to — the
- * user-initiated constraint in spec 8.1 is a property of this file's structure.
+ * Four jobs, and no others: post captures to the backend, fetch the resulting
+ * evaluation, and drive the background-tab fallback for the comp search and for
+ * a stale target listing. It holds no timers, registers no alarms, and does
+ * nothing at all unless a content script asks it to — the user-initiated
+ * constraint in spec 8.1 is a property of this file's structure.
  */
 
 import type {
+  BackgroundToContent,
   ContentToBackground,
   EvaluationResult,
   HarvestResult,
+  HarvestTargetResult,
   SubmitCaptureResult,
 } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
@@ -55,6 +58,15 @@ chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, send
     return true;
   }
 
+  if (message?.type === "HARVEST_TARGET_VIA_TAB") {
+    handleTargetHarvest(message.url)
+      .then(sendResponse)
+      .catch((error: unknown) =>
+        sendResponse({ ok: false, error: describe(error) } satisfies HarvestTargetResult),
+      );
+    return true;
+  }
+
   if (message?.type === "CONTENT_READY") {
     const tabId = sender.tab?.id;
     if (tabId !== undefined) {
@@ -78,14 +90,21 @@ async function handleSubmit(payload: unknown): Promise<SubmitCaptureResult> {
 }
 
 /**
- * Open the search in a background tab, ask its content script for the cards,
- * and close it.
+ * Open a page in a background tab, ask its content script for the data, and
+ * close it.
  *
  * The tab is created inactive so it never takes focus, and it is removed in a
  * `finally` so a failure part-way through does not leave a stray tab behind.
  * No `tabs` permission is required: nothing here reads the tab's URL or title.
+ *
+ * Shared by the comp-search harvest and the target-listing one below: both are
+ * the same operation -- a real navigation, standing in for the one a fetch
+ * cannot do -- aimed at different content-script listeners.
  */
-async function handleHarvest(url: string): Promise<HarvestResult> {
+async function harvestViaTab<T extends { ok: boolean }>(
+  url: string,
+  request: BackgroundToContent,
+): Promise<T | { ok: false; error: string }> {
   let tabId: number | undefined;
 
   try {
@@ -95,9 +114,7 @@ async function handleHarvest(url: string): Promise<HarvestResult> {
 
     await waitForContentScript(tabId);
 
-    const result = (await chrome.tabs.sendMessage(tabId, {
-      type: "HARVEST_COMPS",
-    })) as HarvestResult | undefined;
+    const result = (await chrome.tabs.sendMessage(tabId, request)) as T | undefined;
 
     return result ?? { ok: false, error: "no response from the harvest tab" };
   } catch (error) {
@@ -108,6 +125,27 @@ async function handleHarvest(url: string): Promise<HarvestResult> {
       await chrome.tabs.remove(tabId).catch(() => undefined);
     }
   }
+}
+
+async function handleHarvest(url: string): Promise<HarvestResult> {
+  return harvestViaTab<HarvestResult>(url, { type: "HARVEST_COMPS" });
+}
+
+/**
+ * The same background-tab technique as `handleHarvest`, aimed at a stale
+ * TARGET listing instead of a search page.
+ *
+ * `run-capture.ts`'s same-origin `fetch` re-fetch already catches the common
+ * case of a click-through payload describing the previous listing. But a plain
+ * `fetch` is not a real navigation, and `comps/fetch-search.ts`'s
+ * `looksLikeShell` exists precisely because Facebook sometimes answers one with
+ * a stripped shell rather than the full rendered page. When that happens here,
+ * the re-fetch silently keeps the incomplete extraction, and the only thing
+ * that ever fixed it was the user manually refreshing the tab -- which is a
+ * real navigation. This is that same real navigation, done by the extension.
+ */
+async function handleTargetHarvest(url: string): Promise<HarvestTargetResult> {
+  return harvestViaTab<HarvestTargetResult>(url, { type: "HARVEST_TARGET" });
 }
 
 function waitForContentScript(tabId: number): Promise<void> {

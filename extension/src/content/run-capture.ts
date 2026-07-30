@@ -25,7 +25,11 @@ import { loadBadMetroSlugs, rememberBadMetroSlug } from "../shared/metro-health"
 import { fetchDocument, runCompSearch } from "../comps/fetch-search";
 import { extractTargetListing } from "../extract/listing";
 import { collapseIssues } from "../extract/self-check";
-import type { EvaluationResult, SubmitCaptureResult } from "../shared/messages";
+import type {
+  EvaluationResult,
+  HarvestTargetResult,
+  SubmitCaptureResult,
+} from "../shared/messages";
 import { sendToBackground } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
 import { renderEvaluation } from "./overlay";
@@ -104,6 +108,34 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
       // not. A redirect to a login wall would otherwise replace a partial
       // extraction with an empty one.
       if (refetched.payloadMatched) target = refetched;
+    }
+
+    // A same-origin `fetch` is not a real navigation, and `comps/fetch-search.ts`'s
+    // `looksLikeShell` documents why that matters: Facebook sometimes answers one
+    // with a stripped shell instead of the full rendered page. When that happens
+    // here, the fetch above silently leaves the stale extraction in place -- the
+    // field cascades still run, but against a page describing the wrong listing,
+    // which is exactly the "fields blank on the right car" failure a manual
+    // refresh always fixed, because a refresh IS a real navigation. This is that
+    // same real navigation, run by the extension in a background tab instead of
+    // by hand, the same escalation the comp search already makes.
+    if (!target.payloadMatched) {
+      onStatus("Reloading listing…", "reading");
+      const harvested = await sendToBackground<HarvestTargetResult>({
+        type: "HARVEST_TARGET_VIA_TAB",
+        url: canonical,
+      });
+      if (harvested?.ok && harvested.payloadMatched) {
+        target = {
+          observation: harvested.observation,
+          issues: harvested.issues,
+          pageSignature: harvested.pageSignature,
+          usable: harvested.usable,
+          locationId: harvested.locationId,
+          searchRadiusKm: harvested.searchRadiusKm,
+          payloadMatched: harvested.payloadMatched,
+        };
+      }
     }
   }
 

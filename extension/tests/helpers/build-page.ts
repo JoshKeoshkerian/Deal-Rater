@@ -41,6 +41,8 @@ export interface ListingSpec {
   priceDropped?: boolean;
   trim?: string | null;
   titleStatus?: string | null;
+  /** Facebook's own "About this vehicle" VIN field, distinct from a VIN typed into the description. */
+  vin?: string | null;
   /** Renders a page with no listing data at all, to test the structural probe. */
   broken?: boolean;
 }
@@ -115,6 +117,7 @@ function listingPayload(spec: ListingSpec): Record<string, unknown> {
 
   if (spec.trim) node["vehicle_trim"] = spec.trim;
   if (spec.titleStatus) node["vehicle_title_status"] = spec.titleStatus;
+  if (spec.vin) node["vehicle_identification_number"] = spec.vin;
 
   return node;
 }

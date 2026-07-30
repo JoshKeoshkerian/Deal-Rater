@@ -47,11 +47,16 @@ export function resolveDescription(
 }
 
 /**
- * Recover a VIN from the listing text (spec 4.2).
+ * Recover a VIN from the listing (spec 4.2).
  *
  * Opportunistic — most listings will not contain one. The check digit is
  * validated in `findVin` before a candidate is accepted, so a mistyped VIN is
  * dropped rather than transmitted and wasted on a decode call in step 6.
+ *
+ * Facebook's own VIN field (`vehicle_identification_number`, shown in "About
+ * this vehicle") is tried first: a seller who fills that field in rather than
+ * typing the VIN into the description previously fell through both text
+ * tiers entirely, since neither scans a field that was never read at all.
  *
  * Runs against the description *before* redaction would matter: the token
  * substitution only touches phone numbers and emails, neither of which can
@@ -59,10 +64,12 @@ export function resolveDescription(
  */
 export function resolveVin(
   recorder: ExtractionRecorder,
+  node: JsonObject | null,
   description: string | null,
   title: string | null,
 ): string | null {
   return recorder.resolve<string>("vin", [
+    ["json_payload", () => findVin(pickString(node, FB_KEYS.vehicleVin))],
     ["text_pattern", () => findVin(description)],
     ["text_pattern", () => findVin(title)],
   ]);

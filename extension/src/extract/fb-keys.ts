@@ -125,6 +125,15 @@ export const FB_KEYS = {
    * mileage -- a plain payload field, like `vehicleSellerType`.
    */
   vehicleNumberOfOwners: ["vehicle_number_of_owners"],
+  /**
+   * The dedicated VIN field Marketplace shows in "About this vehicle" when a
+   * seller fills it in, as opposed to typing the VIN into the free-text
+   * description. `resolveVin` used to only regex the description and title,
+   * which missed it whenever a seller used this field instead -- the same
+   * class of bug as `vehicleSellerType`: a fact stated outright on the
+   * listing node with no reader for it.
+   */
+  vehicleVin: ["vehicle_identification_number"],
 } as const;
 
 /** Search-result feed containers, used to scope comp card discovery. */

@@ -103,7 +103,7 @@ export async function extractTargetListing(
   // After the vehicle, so its title can serve as a mileage source of last
   // resort for sellers who type the odometer into the title instead.
   const mileage = resolveMileage(recorder, node, headerBlock, descBlock, vehicle.title);
-  const vin = resolveVin(recorder, description, vehicle.title);
+  const vin = resolveVin(recorder, node, description, vehicle.title);
   // Only trust the id-less photos lookup once `node` has confirmed the payload
   // set is fresh for THIS listing (see `findListingPhotosNode`'s docstring) --
   // otherwise a stale page could attribute a previous listing's photos here.

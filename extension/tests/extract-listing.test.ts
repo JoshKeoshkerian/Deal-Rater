@@ -210,6 +210,22 @@ const scenarios: Scenario[] = [
     expected: { vin: null },
   },
   {
+    name: "20a VIN in Facebook's own 'About this vehicle' field, not typed into the description",
+    spec: { ...BASE, description: "Runs great, cold AC.", vin: "1HGCM82633A004352" },
+    mode: "payload",
+    expected: { vin: "1HGCM82633A004352" },
+  },
+  {
+    name: "20b invalid VIN in the structured field falls through to the description",
+    spec: {
+      ...BASE,
+      description: "Clean title. VIN 1HGCM82633A004352.",
+      vin: "1HGCM82633A004353",
+    },
+    mode: "payload",
+    expected: { vin: "1HGCM82633A004352" },
+  },
+  {
     name: "21 two-word make",
     spec: { ...BASE, title: "2016 Land Rover Range Rover Sport" },
     mode: "payload",
@@ -347,6 +363,15 @@ describe("field strategies", () => {
     expect(observation.field_strategies["price_cents"]).toBe("json_payload");
     expect(observation.field_strategies["mileage"]).toBe("json_payload");
     expect(observation.field_strategies["location_text"]).toBe("json_payload");
+  });
+
+  it("prefers the structured VIN field over one typed into the description", async () => {
+    const { observation } = await extract(
+      { ...BASE, description: "VIN 1HGCM82633A004352.", vin: "3CZRU6H77MM730145" },
+      "payload",
+    );
+    expect(observation.vin).toBe("3CZRU6H77MM730145");
+    expect(observation.field_strategies["vin"]).toBe("json_payload");
   });
 
   it("records the fallback tier when the payload is gone", async () => {

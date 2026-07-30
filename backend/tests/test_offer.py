@@ -253,6 +253,26 @@ class TestCompAnchoredStances:
         assert plan.opening_cents == 1_245_000
         assert plan.target_cents == 1_245_000
         assert any("little here to argue" in line for line in plan.reasoning)
+        # `walk_away_cents` came in at 1_736_000 -- above the $12,450 ask. Nobody
+        # buying on Marketplace ends up paying more than the posted price, so the
+        # ceiling is capped at the ask rather than passed through as-is.
+        assert plan.walk_away_cents == 1_245_000
+
+    def test_walk_away_is_never_above_the_ask(self):
+        # `pricing.curve.negotiation_anchors` derives walk_away_above_cents from
+        # the EXPECTED price with no view of this listing's own ask, so on a
+        # deeply underpriced listing the raw figure lands above what the seller
+        # is asking. "Walk away above $17,360" on a $12,450 listing is not
+        # something a buyer can act on -- there is no bidding war on Marketplace
+        # pushing the price past the post.
+        plan = plan_offer(
+            ask_cents=1_245_000,
+            expected_asking_cents=1_670_000,
+            walk_away_cents=1_736_000,
+            negotiation=negotiation(days_ago=20),
+        )
+        assert plan.walk_away_cents is not None
+        assert plan.walk_away_cents <= 1_245_000
 
     def test_a_stale_underpriced_listing_can_still_be_trimmed(self):
         plan = plan_offer(

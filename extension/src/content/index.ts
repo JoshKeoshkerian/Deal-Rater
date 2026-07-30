@@ -15,7 +15,8 @@
  */
 
 import { extractCompCards } from "../extract/comp-card";
-import type { BackgroundToContent, HarvestResult } from "../shared/messages";
+import { extractTargetListing } from "../extract/listing";
+import type { BackgroundToContent, HarvestResult, HarvestTargetResult } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
 import { runCapture } from "./run-capture";
 import { downloadPageSnapshot } from "./snapshot";
@@ -93,33 +94,61 @@ function watchRoute(): void {
 }
 
 /**
- * Respond to a comp harvest request from the service worker.
- *
- * Only reachable on a search page opened by the background-tab fallback, which
- * itself only happens inside a capture the user started.
+ * Respond to a harvest request from the service worker: comps on a search
+ * page, or a stale target listing on an item page. Only reachable on a tab
+ * opened by one of the two background-tab fallbacks below, which themselves
+ * only ever run inside a capture the user started.
  */
 chrome.runtime.onMessage.addListener((message: BackgroundToContent, _sender, sendResponse) => {
-  if (message?.type !== "HARVEST_COMPS") return false;
+  if (message?.type === "HARVEST_COMPS") {
+    extractCompCards(document, location.href)
+      .then((result) =>
+        sendResponse({
+          ok: true,
+          observations: result.observations,
+          issues: result.issues,
+        } satisfies HarvestResult),
+      )
+      .catch((error: unknown) =>
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        } satisfies HarvestResult),
+      );
+    return true;
+  }
 
-  extractCompCards(document, location.href)
-    .then((result) =>
-      sendResponse({
-        ok: true,
-        observations: result.observations,
-        issues: result.issues,
-      } satisfies HarvestResult),
-    )
-    .catch((error: unknown) =>
-      sendResponse({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      } satisfies HarvestResult),
-    );
+  if (message?.type === "HARVEST_TARGET") {
+    // The tab this runs in came from a real navigation (`chrome.tabs.create`),
+    // not a same-origin `fetch`, so `document` here is what a manual refresh
+    // would have produced: the fix for a stale click-through payload that
+    // `run-capture.ts`'s own re-fetch could not always reach on its own.
+    extractTargetListing(document, location.href)
+      .then((result) =>
+        sendResponse({
+          ok: true,
+          observation: result.observation,
+          issues: result.issues,
+          pageSignature: result.pageSignature,
+          usable: result.usable,
+          locationId: result.locationId,
+          searchRadiusKm: result.searchRadiusKm,
+          payloadMatched: result.payloadMatched,
+        } satisfies HarvestTargetResult),
+      )
+      .catch((error: unknown) =>
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        } satisfies HarvestTargetResult),
+      );
+    return true;
+  }
 
-  return true;
+  return false;
 });
 
-if (isSearchPage()) {
+if (isSearchPage() || isItemPage()) {
   // Tells the worker this tab is ready to be harvested. Ignored when the tab
   // was opened by the user rather than by the fallback.
   void chrome.runtime.sendMessage({ type: "CONTENT_READY", url: location.href }).catch(

@@ -257,12 +257,23 @@ def _comp_anchored(
     where the pricing gauge's own "strong offer" figure sits. So the two sections
     agree by construction: the gauge shows the best case, and this shows how much
     of it this particular listing's leverage actually reaches.
+
+    `walk_away_cents` is capped at the ask. `pricing.curve.negotiation_anchors`
+    computes it as a fixed markup over the EXPECTED price, with no view of this
+    listing's own ask -- a defensible benchmark there (spec 5.1's gauge shows what
+    a fair ceiling looks like in general) but not here: on an underpriced listing
+    the uncapped figure lands above the asking price, and "walk away above
+    $17,360" on a $12,450 listing is not advice anyone selling on Marketplace can
+    act on -- there is no bidding war pushing the price past what the seller
+    posted. The most a buyer is ever asked to pay is the ask itself.
     """
     fraction = negotiation.leverage_fraction
     discount = params.MAX_LEVERAGE_DISCOUNT * fraction
     target = _round_down(round(expected_asking_cents * (1.0 - discount)))
     floor = _round_down(round(ask_cents * (1.0 - params.MAX_CREDIBLE_BELOW_ASK)))
     clause = _leverage_clause(negotiation)
+    if walk_away_cents is not None:
+        walk_away_cents = min(walk_away_cents, ask_cents)
 
     if ask_cents <= target:
         # The ask is already at or under the defensible price. Offering below it
