@@ -15,7 +15,7 @@
  *
  * VERTICAL ORDER
  * ---------------
- * Headline -> score breakdown -> Negotiation -> Better alternatives. The
+ * Headline -> score breakdown -> Negotiation -> Alternatives. The
  * latter two are not deal-score dimensions (spec 6.4 keeps negotiation
  * strength out of the composite on purpose), so they stay their own
  * disclosures rather than living under a bar that doesn't exist for them.
@@ -283,9 +283,9 @@ export function renderEvaluation(data: EvaluationResponse): void {
     disclosure("Negotiation", negotiationSummary(data), buildNegotiation(data)),
   );
 
-  // 3. Better alternatives.
+  // 3. Alternatives.
   sheet.append(
-    disclosure("Better alternatives", alternativesSummary(data), buildAlternatives(data)),
+    disclosure("Alternatives", alternativesSummary(data), buildAlternatives(data)),
   );
 
   sheet.append(buildNotices(data));

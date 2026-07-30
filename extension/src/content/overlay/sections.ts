@@ -6,7 +6,7 @@
  * supplies what goes inside each one -- `buildPricing` for price residual,
  * `buildCompleteness` for information completeness, `buildVehicleRiskDetail`
  * for vehicle risk, `buildSellerScamRiskDetail` for seller and scam risk.
- * Negotiation and Better alternatives stay their own disclosures further
+ * Negotiation and Alternatives stay their own disclosures further
  * down, each with a summary line that carries the finding, so a user who
  * never expands one has still been told the listing has sat 38 days.
  *
@@ -784,7 +784,7 @@ export function buildNegotiation(data: EvaluationResponse): HTMLElement[] {
 }
 
 /* -------------------------------------------------------------------------- */
-/* better alternatives (spec 6.5)                                             */
+/* alternatives (spec 6.5)                                                    */
 /* -------------------------------------------------------------------------- */
 
 export function alternativesSummary(data: EvaluationResponse): string {
@@ -865,6 +865,19 @@ export function buildAlternatives(data: EvaluationResponse): HTMLElement[] {
     if (link) item.insertBefore(reason, link);
     else item.append(reason);
     nodes.push(item);
+  }
+
+  // A nested dropdown, not folded into the list above: these comps are
+  // priced better but are NOT the same trim as the target -- a cheaper EX-L
+  // is not an alternative to an Si, it is a different car. Not labelled
+  // "lower trim": the backend has no ordinal ranking between trim names, only
+  // same-vs-different, so this only ever claims "different".
+  const differentTrim = data.alternatives.different_trim;
+  if (differentTrim.length > 0) {
+    const n = differentTrim.length;
+    const summary = `${n} different-trim listing${n === 1 ? "" : "s"}, better priced.`;
+    const cards = differentTrim.map((alt) => buildAlternativeCard(alt, ask));
+    nodes.push(disclosure("Different trim", summary, cards));
   }
 
   return nodes;

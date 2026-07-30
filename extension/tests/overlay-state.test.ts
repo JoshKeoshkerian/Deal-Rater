@@ -102,7 +102,7 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
       motivated_phrases: [],
       rigid_phrases: [],
     },
-    alternatives: { message: "", target_is_best: false, items: [], withheld: [] },
+    alternatives: { message: "", target_is_best: false, items: [], withheld: [], different_trim: [] },
     known_issues: null,
     known_issues_unavailable_reason: null,
     known_issues_unavailable_code: null,

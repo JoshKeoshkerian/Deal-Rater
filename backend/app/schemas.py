@@ -423,8 +423,13 @@ class WithheldAlternativeOut(BaseModel):
 class AlternativesOut(BaseModel):
     message: str
     target_is_best: bool
+    #: Same-trim comps only, better or equalish against the target's own
+    #: residual. See `alternatives/finder.py`'s "TRIM-RESTRICTED" note.
     items: list[AlternativeOut]
     withheld: list[WithheldAlternativeOut]
+    #: Better-priced comps whose trim genuinely differs from the target's.
+    #: Not called "lower trim": there is no ordinal trim ranking to assert one.
+    different_trim: list[AlternativeOut]
 
 
 class KnownIssuesOut(BaseModel):

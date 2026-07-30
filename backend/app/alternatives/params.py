@@ -19,14 +19,36 @@ from __future__ import annotations
 # constant here because the median of the comp residuals is the threshold, and
 # it is recomputed per listing.
 
-# How much better a comp's own residual must be before it is worth naming.
-# Without a margin, a comp 0.4% cheaper would be presented as an alternative,
-# which is noise dressed up as advice. UNCALIBRATED.
+# How much better a comp's own residual must be before it counts as a
+# meaningful advantage rather than a practical tie. Without a margin, a comp
+# 0.4% cheaper would be presented as decisively better, which is noise dressed
+# up as advice. UNCALIBRATED.
 MIN_RESIDUAL_ADVANTAGE = 0.05
 
-# Most alternatives to show. Spec 6.5's example names four; beyond a handful the
-# list stops being a recommendation and becomes a search results page.
+# How much WORSE a same-trim comp's residual may be than the target's and
+# still be shown in `alternatives` as "equalish" rather than dropped.
+#
+# Added 2026-07-30 alongside the trim restriction in `finder.py`: with
+# `alternatives` now scoped to comps that actually share the target's trim,
+# the pool is often thin (spec 4.3: trim is missing on 21% of comps outright),
+# and a same-trim comp within a couple of points of the target's own residual
+# is a practical tie, not "worse" -- silently dropping it made "no
+# alternatives" and "no BETTER alternatives" look identical when they are not.
+# Only pulls comps in on the good-or-tied side: `find_alternatives` still
+# excludes anything genuinely worse than the target. UNCALIBRATED.
+EQUALISH_TOLERANCE = 0.02
+
+# Most same-trim alternatives to show. Spec 6.5's example names four; beyond a
+# handful the list stops being a recommendation and becomes a search results
+# page.
 MAX_ALTERNATIVES = 4
+
+# Most different-trim alternatives to show, in the "Different trim" dropdown.
+# Mirrors MAX_ALTERNATIVES; kept as its own constant because there is no
+# reason the two caps have to move together -- the different-trim pool is
+# usually the larger one (see `finder.py`'s TRIM-RESTRICTED note), so the same
+# cap keeps that dropdown from turning into a second search-results page.
+MAX_DIFFERENT_TRIM_ALTERNATIVES = 4
 
 # ---------------------------------------------------------------------------
 # What disqualifies a comp from being recommended

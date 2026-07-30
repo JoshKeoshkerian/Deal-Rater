@@ -272,6 +272,7 @@ export interface EvaluationResponse {
   alternatives: {
     message: string;
     target_is_best: boolean;
+    /** Same-trim comps only, better or equalish against the target's own residual. */
     items: Array<{
       description: string;
       url: string | null;
@@ -294,6 +295,20 @@ export interface EvaluationResponse {
       mileage: number | null;
       location_text: string | null;
       reason: string;
+    }>;
+    /**
+     * Better-priced comps whose trim genuinely differs from the target's.
+     * Not called "lower trim": there is no ordinal trim ranking backing that
+     * claim, only same-vs-different (see `alternatives/finder.py`).
+     */
+    different_trim: Array<{
+      description: string;
+      url: string | null;
+      price_cents: number | null;
+      mileage: number | null;
+      location_text: string | null;
+      advantage: number;
+      mileage_tradeoff: boolean;
     }>;
   };
   /**

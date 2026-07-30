@@ -14,6 +14,21 @@
  * some of them are slow -- the widening pass is several sequential searches.
  * One line of replaced text gives no sense of how far in the run is, so a
  * fifteen-second step reads as a hang. See `capture-stages.ts`.
+ *
+ * FIXED, BUT NOT BLIND. The dock floats over the page at a fixed position, the
+ * way it always has -- this is deliberately NOT mounted inline in the page's
+ * own layout, because Facebook's SPA tears out and replaces DOM subtrees on
+ * listing-to-listing navigation, and an inline-mounted button gets torn out
+ * with them.
+ *
+ * Its resting spot is a fixed offset from the viewport corner UNLESS
+ * `send-anchor.ts` finds Marketplace's own "Send" button, in which case the
+ * dock floats a fixed gap above it instead. That element is caller-supplied
+ * for the same reason `findSendButtonAnchor` lives in its own module: this
+ * file has no business knowing Facebook's markup. The reason it matters: the
+ * default corner position sits in the same neighbourhood as the seller's
+ * message composer, and a misclick there does not just fail to evaluate a
+ * listing -- it sends a half-finished message to a stranger.
  */
 
 import { themeVariables } from "./overlay/tokens";
@@ -21,10 +36,33 @@ import { CAPTURE_STEPS, stageIndex, type CaptureStage } from "./capture-stages";
 
 const HOST_ID = "deal-rater-trigger";
 
+const IDLE_LABEL = "Evaluate Listing";
+const BUSY_LABEL = "Evaluating…";
+
+/**
+ * Every error this button ever shows -- a bad extraction, a network failure,
+ * a background-worker timeout -- traces back to one capture run that didn't
+ * finish, and the fix is always the same one click. Centralised here rather
+ * than appended at each call site in `run-capture.ts`, so the instruction
+ * cannot go missing from a message added later.
+ */
+const RELOAD_HINT = "Reload the page and try again.";
+
+function withReloadHint(text: string): string {
+  if (/reload/i.test(text)) return text;
+  const trimmed = text.trim();
+  const needsStop = trimmed.length > 0 && !/[.!?]$/.test(trimmed);
+  return `${trimmed}${needsStop ? "." : ""} ${RELOAD_HINT}`.trim();
+}
+
 const RULES = `
 
   .dock {
     position: fixed;
+    /* Defaults for when no Send button was found. mountTriggerButton and
+       updateAnchor override right/bottom with inline styles once one is --
+       inline styles win over these regardless of specificity, so the
+       fallback and the anchored position never fight each other. */
     right: 16px;
     bottom: 16px;
     /* One BELOW the evaluation overlay's backdrop (2147483646), which is the
@@ -40,6 +78,7 @@ const RULES = `
     gap: var(--sp-3);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    transition: right var(--dur-base) var(--ease-out), bottom var(--dur-base) var(--ease-out);
   }
 
   button.capture {
@@ -192,9 +231,31 @@ export interface TriggerButton {
   setBusy(busy: boolean): void;
   remove(): void;
   addExtraAction(label: string, onClick: () => void): void;
+  /**
+   * Re-point the dock at a new element to float above (typically Marketplace's
+   * own Send button, from `send-anchor.ts`), or at null to fall back to the
+   * fixed corner position. `content/index.ts` calls this on every route
+   * change: the dock itself is never torn down by a listing-to-listing
+   * navigation (it lives on `document.body`, not inside the page's own
+   * layout), but the Send button it was floating above belonged to the
+   * PREVIOUS listing's composer and may no longer exist.
+   */
+  updateAnchor(target: Element | null): void;
 }
 
-export function mountTriggerButton(onClick: () => void): TriggerButton | null {
+/** Gap kept between the dock and whatever it is floating above. */
+const ANCHOR_GAP_PX = 16;
+
+/**
+ * `aboveElement` is the element to float a fixed gap above -- typically
+ * Marketplace's own Send button, from `send-anchor.ts` -- so the dock cannot
+ * be mistaken for it. Null (or not found) falls back to the fixed corner
+ * position this button has always used.
+ */
+export function mountTriggerButton(
+  onClick: () => void,
+  aboveElement?: Element | null,
+): TriggerButton | null {
   if (document.getElementById(HOST_ID)) return null;
 
   const host = document.createElement("div");
@@ -243,12 +304,43 @@ export function mountTriggerButton(onClick: () => void): TriggerButton | null {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "capture";
-  button.textContent = "Capture listing";
+  button.textContent = IDLE_LABEL;
   button.addEventListener("click", onClick);
 
   panel.append(card, button);
   shadow.append(style, panel);
   document.body.appendChild(host);
+
+  let aboveTarget: Element | null | undefined = aboveElement;
+
+  /**
+   * Pin the dock a fixed gap above `aboveTarget`'s current on-screen position,
+   * right-aligned to it. Inline styles rather than a CSS class: they beat the
+   * stylesheet's `right: 16px; bottom: 16px` fallback unconditionally, so
+   * there is never a specificity fight between "anchored" and "not".
+   *
+   * `getBoundingClientRect` is VIEWPORT-relative, same coordinate space as
+   * `position: fixed`, which is what makes floating above an in-flow page
+   * element work without reading anything from the page beyond its geometry.
+   */
+  const reposition = () => {
+    if (!aboveTarget?.isConnected) {
+      panel.style.removeProperty("right");
+      panel.style.removeProperty("bottom");
+      return;
+    }
+    const rect = aboveTarget.getBoundingClientRect();
+    panel.style.right = `${Math.max(window.innerWidth - rect.right, 8)}px`;
+    panel.style.bottom = `${Math.max(window.innerHeight - rect.top + ANCHOR_GAP_PX, 8)}px`;
+  };
+
+  reposition();
+  // Fixed positioning tracks the VIEWPORT, not the Send button -- if the page
+  // scrolls or the window resizes, the dock has to be told to recompute or it
+  // drifts away from whatever it was floating above. Passive: this only reads
+  // layout, never blocks the scroll it is listening to.
+  window.addEventListener("scroll", reposition, { passive: true, capture: true });
+  window.addEventListener("resize", reposition, { passive: true });
 
   let hideTimer: number | undefined;
   // A clock, not a poller. It runs only between setBusy(true) and
@@ -307,7 +399,7 @@ export function mountTriggerButton(onClick: () => void): TriggerButton | null {
       clearTitle();
       elapsed.textContent = "";
       drawRail(undefined);
-      message.textContent = text;
+      message.textContent = tone === "error" ? withReloadHint(text) : text;
       card.hidden = false;
 
       if (tone === "error") {
@@ -335,13 +427,15 @@ export function mountTriggerButton(onClick: () => void): TriggerButton | null {
 
     setBusy(busy) {
       button.disabled = busy;
-      button.textContent = busy ? "Capturing…" : "Capture listing";
+      button.textContent = busy ? BUSY_LABEL : IDLE_LABEL;
       if (!busy) stopClock();
     },
 
     remove() {
       if (hideTimer) clearTimeout(hideTimer);
       stopClock();
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
       host.remove();
     },
 
@@ -352,6 +446,11 @@ export function mountTriggerButton(onClick: () => void): TriggerButton | null {
       extra.textContent = label;
       extra.addEventListener("click", handler);
       panel.appendChild(extra);
+    },
+
+    updateAnchor(target) {
+      aboveTarget = target;
+      reposition();
     },
   };
 }

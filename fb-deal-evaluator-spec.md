@@ -260,7 +260,7 @@ Four defects, three of them in the implementation and one in this spec.
 
 **Also removed from the UI: the 0-100 strength meter.** `strength` starts at `BASE_STRENGTH` and tops out near 83, so "Negotiating room 62/100" was neither a percentage nor a measurement, while being the most authoritative-looking element in the section. Days listed is the underlying fact and it is observed rather than derived; drawn on an axis with the 14/30/75-day thresholds marked, it answers the same question honestly. `strength` stays on the wire for section 9's calibration pass.
 
-### 6.5 Better alternatives nearby
+### 6.5 Alternatives nearby
 
 **The highest-value addition to this spec, and nearly free.** The comp set is already loaded in memory at evaluation time.
 
@@ -269,6 +269,28 @@ Four defects, three of them in the implementation and one in this spec.
 This reframes the product from "judge this listing" to "help me buy a car," which is a better product and a stronger reason to keep the extension installed. It also gracefully handles the common case where the answer is "this one is fine, but that one is better."
 
 Show alternatives when the target scores average or worse and better-priced comps exist within a reasonable radius. Suppress when the target is already the best available, and say so, since that is also useful.
+
+**Renamed and trim-restricted, 2026-07-30.** "Better alternatives" is now
+"Alternatives" throughout the UI; the word "better" was carrying weight the
+list did not actually enforce (see below). Two substantive changes went with
+the rename:
+
+1. **The list is now same-trim only.** A cheaper EX-L shown beside an Si
+   target is not an alternative to it, it is a different car -- exactly the
+   naive price-only comparison this section exists to avoid making. The
+   residual comparison against the fitted line (unchanged) now only runs
+   across comps `pricing/comps.py`'s `grade_trim` calls the same trim as the
+   target. It also now admits comps that are *equalish*, not only ones
+   meaningfully better, since a same-trim pool is often thin and a practical
+   tie was previously indistinguishable from "no alternatives at all."
+
+2. **A second, separate list for comps that are a different trim and
+   meaningfully cheaper.** Deliberately not called "lower trim": there is no
+   table anywhere in this system that ranks trim names against each other
+   (is a Sport "lower" than an Si? that is a real question with no answer in
+   the data this product has), so a "lower trim" label would assert an
+   ordering nothing here can verify. It is titled **Different trim** and
+   rendered as its own dropdown inside the Alternatives section instead.
 
 ### 6.7 The opening message, drafted
 
@@ -300,7 +322,7 @@ Use the cached LLM call for **qualitative** known issues: what fails on this mod
 3. **Vehicle risk:** known issues, recalls, title flags
 4. **Seller and scam risk:** only when there is something to say
 5. **Negotiation:** leverage, days listed, the three-figure offer with reasoning, and the drafted message (sections 6.4, 6.7)
-6. **Better alternatives:** per section 6.5
+6. **Alternatives:** per section 6.5
 7. **What to check on this specific car:** the qualitative expertise gap
 
 Example:
@@ -408,7 +430,7 @@ Gate each on a data-volume threshold rather than a date, and ship each when its 
 4. **Time on market and negotiation strength.** Cheap, high-value, differentiating.
 5. **Flags and completeness.** Description patterns, seller language keywords, photo count, title status, scam pattern detection.
 6. **VIN decode and recalls.** NHTSA integration; feed decoded trim back into comp matching.
-7. **Better alternatives** (section 6.5). Nearly free once comps are retained.
+7. **Alternatives** (section 6.5). Nearly free once comps are retained.
 8. **Composite score, separated dimensions, overlay UI, negotiation brief.**
 9. **Calibration pass** (section 9), then adjust weights.
 

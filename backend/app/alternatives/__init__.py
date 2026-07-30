@@ -1,4 +1,4 @@
-"""Better alternatives nearby (spec 6.5, build step 7).
+"""Alternatives nearby (spec 6.5, build step 7).
 
 Spec 6.5: "The highest-value addition to this spec, and nearly free. The comp
 set is already loaded in memory at evaluation time." Nothing here fetches

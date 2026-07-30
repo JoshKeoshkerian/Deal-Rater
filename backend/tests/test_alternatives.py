@@ -1,4 +1,4 @@
-"""Better alternatives nearby (spec 6.5, build step 7).
+"""Alternatives nearby (spec 6.5, build step 7).
 
 The claims under test:
 
@@ -94,12 +94,25 @@ class TestBetterMeansValueNotPrice:
         residuals = [a.residual for a in result.alternatives]
         assert residuals == sorted(residuals)
 
-    def test_a_trivial_advantage_is_not_worth_naming(self):
-        # Without a margin, a comp 0.4% cheaper becomes "advice".
+    def test_a_trivial_advantage_still_counts_as_equalish(self):
+        # 2026-07-30: a same-trim comp within EQUALISH_TOLERANCE of the
+        # target's own residual is a practical tie, not "not worth naming" --
+        # dropping it made "no alternatives" indistinguishable from "no
+        # BETTER alternatives" (see finder.py's TRIM-RESTRICTED note).
         comps = line()
         estimate = estimate_expected_asking_price(filter_comps(target(), comps))
         expected = estimate.expected_asking_cents
         result = run(target(price=int(expected * 1.001), mileage=120_000), comps)
+        assert result.has_alternatives
+        assert all(a.advantage < alt_params.MIN_RESIDUAL_ADVANTAGE for a in result.alternatives)
+
+    def test_a_meaningfully_worse_comp_is_never_shown(self):
+        # Beyond EQUALISH_TOLERANCE, a same-trim comp is genuinely worse value
+        # than the target and must not appear in `alternatives`.
+        comps = line()
+        estimate = estimate_expected_asking_price(filter_comps(target(), comps))
+        expected = estimate.expected_asking_cents
+        result = run(target(price=int(expected * 0.80), mileage=120_000), comps)
         assert not result.has_alternatives
 
 
@@ -250,3 +263,82 @@ class TestOutputShape:
     def test_an_overpriced_target_shows_alternatives_at_any_confidence(self, confidence):
         result = run(target(price=1_600_000, mileage=100_000), line(), confidence)
         assert result.has_alternatives
+
+
+class TestTrimRestriction:
+    """2026-07-30: `alternatives` is same-trim only; a different-trim comp that
+    is meaningfully cheaper goes in `different_trim` instead, never both."""
+
+    def test_a_cheaper_different_trim_comp_is_not_an_alternative(self):
+        # A cheaper EX-L is not an alternative to a Touring -- it is a
+        # different car.
+        comps = [*line(9), comp(50, price=950_000, mileage=100_000, trim_text="EX-L")]
+        result = run(target(price=1_600_000, mileage=100_000), comps)
+        assert all(a.candidate.trim_text != "EX-L" for a in result.alternatives)
+        assert any(a.candidate.trim_text == "EX-L" for a in result.different_trim)
+
+    def test_same_trim_comps_never_land_in_different_trim(self):
+        # Every comp in `line()` shares the target's "Touring" trim.
+        result = run(target(price=1_600_000, mileage=100_000), line())
+        assert not result.different_trim
+
+    def test_an_unstated_trim_comp_is_excluded_from_both_lists(self):
+        # Spec 4.3: an unstated trim costs confidence, it is not grounds for a
+        # same-vs-different comparison either way.
+        comps = [*line(9), comp(50, price=900_000, mileage=100_000, trim_text=None)]
+        result = run(target(price=1_600_000, mileage=100_000), comps)
+        ids = {a.candidate.source_listing_id for a in (*result.alternatives, *result.different_trim)}
+        assert "c50" not in ids
+
+    def test_different_trim_still_requires_a_meaningful_advantage(self):
+        # EQUALISH_TOLERANCE is a same-trim concession only -- a different trim
+        # priced about the same as the target is not a finding worth its own
+        # dropdown, since it is neither cheaper for what it is nor the same car.
+        comps = line()
+        estimate = estimate_expected_asking_price(filter_comps(target(), comps))
+        expected = estimate.expected_asking_cents
+        near_tie = comp(50, price=expected, mileage=120_000, trim_text="EX-L")
+        result = run(target(price=int(expected * 1.001), mileage=120_000), [*comps, near_tie])
+        assert not any(a.candidate.source_listing_id == "c50" for a in result.different_trim)
+
+    def test_the_different_trim_list_is_capped(self):
+        comps = [
+            comp(i, price=900_000, mileage=100_000 + i, trim_text=f"Trim{i}") for i in range(10)
+        ]
+        result = run(target(price=1_600_000, mileage=100_000), [*line(), *comps])
+        assert len(result.different_trim) <= alt_params.MAX_DIFFERENT_TRIM_ALTERNATIVES
+
+
+class TestUnknownTargetTrim:
+    """2026-07-30 (later same day): a target with no stated trim graded every
+    comp `UNKNOWN` (grade_trim requires both sides to state one), which
+    emptied `alternatives` AND `different_trim` regardless of price -- the
+    exact bug reported against a captured 2013 Scion FR-S asking $16,000
+    against same-mileage comps asking $12,000, which showed "No better-priced
+    alternatives found."
+    """
+
+    def test_alternatives_still_show_when_the_target_states_no_trim(self):
+        t = replace(target(price=1_600_000, mileage=100_000), trim_text=None)
+        result = run(t, line())
+        assert result.has_alternatives
+
+    def test_an_empty_string_trim_is_treated_the_same_as_none(self):
+        # The captured listing had "" rather than a null trim_text.
+        t = replace(target(price=1_600_000, mileage=100_000), trim_text="")
+        result = run(t, line())
+        assert result.has_alternatives
+
+    def test_the_message_notes_trim_was_not_matched(self):
+        t = replace(target(price=1_600_000, mileage=100_000), trim_text=None)
+        result = run(t, line())
+        assert not result.trim_known
+        assert "trim" in result.message().lower()
+
+    def test_a_stated_target_trim_still_restricts_normally(self):
+        # Guards against the fix disabling the restriction unconditionally
+        # rather than only when the TARGET's own trim is unknown.
+        comps = [*line(9), comp(50, price=950_000, mileage=100_000, trim_text="EX-L")]
+        result = run(target(price=1_600_000, mileage=100_000), comps)
+        assert result.trim_known
+        assert all(a.candidate.trim_text != "EX-L" for a in result.alternatives)

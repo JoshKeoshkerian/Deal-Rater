@@ -230,6 +230,18 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
                 )
                 for w in evaluation.alternatives.withheld
             ],
+            different_trim=[
+                AlternativeOut(
+                    description=a.describe(),
+                    url=a.url,
+                    price_cents=a.candidate.price_cents,
+                    mileage=a.candidate.mileage,
+                    location_text=a.candidate.location_text,
+                    advantage=a.advantage,
+                    mileage_tradeoff=a.mileage_tradeoff,
+                )
+                for a in evaluation.alternatives.different_trim
+            ],
         ),
         known_issues=known_issues,
         known_issues_unavailable_reason=known.unavailable_reason,

@@ -7,7 +7,7 @@ Spec 7:
     3. Vehicle risk: known issues, recalls, title flags
     4. Seller and scam risk: ONLY WHEN THERE IS SOMETHING TO SAY
     5. Negotiation: strength, leverage points, suggested offer with reasoning
-    6. Better alternatives
+    6. Alternatives
     7. What to check on this specific car
 
 Item 7 is spec 6.6's cached LLM call -- the only non-deterministic part of this

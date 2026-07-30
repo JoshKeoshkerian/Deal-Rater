@@ -6,7 +6,7 @@
  * of -- Pricing under price residual, a completeness readout under
  * information completeness, recalls plus the model's read under vehicle risk,
  * red flags plus seller questions under seller and scam risk. Negotiation and
- * Better alternatives stay separate disclosures elsewhere in the panel; they
+ * Alternatives stay separate disclosures elsewhere in the panel; they
  * are not deal-score dimensions (spec 6.4), so they have no bar to hang off.
  *
  * THE BAR LENGTH IS THE CONTRIBUTION, NOT THE SUB-SCORE

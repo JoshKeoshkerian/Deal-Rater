@@ -19,6 +19,7 @@ import { extractTargetListing } from "../extract/listing";
 import type { BackgroundToContent, HarvestResult, HarvestTargetResult } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
 import { runCapture } from "./run-capture";
+import { findSendButtonAnchor } from "./send-anchor";
 import { downloadPageSnapshot } from "./snapshot";
 import { mountTriggerButton, type TriggerButton } from "./trigger-button";
 
@@ -61,9 +62,16 @@ async function syncButton(): Promise<void> {
     return;
   }
 
-  if (button) return;
+  if (button) {
+    // The dock itself survives a listing-to-listing navigation (it lives on
+    // `document.body`, not inside the page's own layout), but the Send button
+    // it was floating above belonged to the PREVIOUS listing's composer.
+    // Re-locate it rather than leaving the dock pinned to a stale position.
+    button.updateAnchor(findSendButtonAnchor());
+    return;
+  }
 
-  button = mountTriggerButton(() => void handleClick());
+  button = mountTriggerButton(() => void handleClick(), findSendButtonAnchor());
   // Two gates, not one. `devMode` is a setting a user could flip; `__DEV__` is
   // the build, and it is what keeps the fixture-capture control out of a
   // packaged extension entirely rather than one checkbox away from appearing.

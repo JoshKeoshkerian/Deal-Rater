@@ -143,7 +143,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   if (!target.usable) {
     return {
       ok: false,
-      message: "Could not identify this listing. Open a Marketplace item page and try again.",
+      message: "Could not identify this listing.",
       compCount: 0,
       extractionOk: false,
     };
@@ -161,7 +161,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   if (make === null && model === null && priceCents === null) {
     return {
       ok: false,
-      message: "This listing is still loading. Give it a moment and click again.",
+      message: "This listing is still loading.",
       compCount: 0,
       extractionOk: false,
     };
@@ -507,8 +507,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
       ok: false,
       message:
         `${summary} Could not load the evaluation ` +
-        `(${evaluation?.error ?? "no response from the extension background worker"}). ` +
-        "Reopen this listing and click again to retry.",
+        `(${evaluation?.error ?? "no response from the extension background worker"}).`,
       compCount: comps.length,
       extractionOk: response.extraction_ok,
     };

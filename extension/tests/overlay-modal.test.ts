@@ -118,6 +118,7 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
         },
       ],
       withheld: [],
+      different_trim: [],
     },
     known_issues: null,
     known_issues_unavailable_reason: null,

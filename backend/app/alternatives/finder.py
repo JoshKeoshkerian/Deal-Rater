@@ -1,4 +1,4 @@
-"""Better alternatives nearby (spec 6.5, build step 7).
+"""Alternatives nearby (spec 6.5, build step 7).
 
 Spec 6.5 calls this "the highest-value addition to this spec, and nearly free.
 The comp set is already loaded in memory at evaluation time." That is exactly
@@ -40,6 +40,56 @@ Either the listing is worth naming with its caveat, or it is not worth
 mentioning. Naming it with the caveat is more useful -- "this one is 38% under
 expected, which is a reason to ask why, not a saving" is exactly the education
 spec 6.3 says a first-time buyer needs.
+
+TRIM-RESTRICTED, 2026-07-30
+----------------------------
+`alternatives` is now restricted to comps `pricing/comps.py`'s `grade_trim`
+calls the SAME trim as the target (`TrimMatch.EXACT` or `TRIM_ONLY` -- the
+latter agrees on trim level and differs only in body style, which is not the
+difference this list is about). A cheaper EX-L is not a reason to walk away
+from an Si; it is a different car, and naming it as an "alternative" without
+saying so is exactly the naive price-only comparison this module's own
+docstring above rejects.
+
+The residual gate also loosened from "meaningfully better" to "better or not
+meaningfully worse" (`EQUALISH_TOLERANCE` in `params.py`): a same-trim comp
+priced within a couple of points of the target's own residual is practically a
+tie, and dropping it silently made "no alternatives" and "no BETTER
+alternatives" look the same when they are not.
+
+Comps whose trim genuinely `DIFFERS` are not discarded, because a materially
+cheaper different-trim car is real information for a buyer weighing trims
+against each other -- they go in `different_trim` instead, kept separate and
+never merged into `alternatives`. Deliberately not labelled "lower trim":
+`grade_trim` has no notion of ordinal trim rank (is a Sport "lower" than an
+Si? there is no table answering that here), only same/different, so claiming
+"lower" would assert an ordering this module cannot verify. `TrimMatch.UNKNOWN`
+comps -- either side stated no trim at all -- are excluded from both lists;
+spec 4.3 already treats an unstated trim as a confidence cost, not grounds for
+any trim comparison.
+
+UNKNOWN-TARGET-TRIM ESCAPE HATCH, 2026-07-30 (later same day)
+---------------------------------------------------------------
+`grade_trim` returns `UNKNOWN` whenever EITHER side has no stated trim level,
+which includes the target. A target with no stated trim (common: spec 4.3
+puts it at 21% of comps, and the target is scraped the same way) therefore
+graded every single comp `UNKNOWN` -- not because none of them shared its
+trim, but because there was nothing on our side to compare against. The
+restriction above then emptied `alternatives` AND `different_trim`
+unconditionally, regardless of how badly the target was priced: a 2013 FR-S
+asking $16,000 against same-mileage comps asking $12,000 reported "No
+better-priced alternatives found," which is the trim restriction failing
+exactly the case it was not trying to guard against.
+
+So: when the TARGET's own trim is unknown, the same/different distinction
+cannot be computed either way, and `alternatives` falls back to every scored
+comp regardless of grade -- the pre-restriction behaviour -- rather than
+emptying. This reopens the EX-L-beside-an-Si risk the restriction exists to
+prevent, but the alternative is worse: refusing to compare at all hides real
+pricing signal from exactly the buyer who most needs it, on the exact
+listings (trim unstated) spec 4.3 already flags as lower-confidence. The
+message says so, so the comparison is not presented as more certain than it
+is.
 """
 
 from __future__ import annotations
@@ -47,10 +97,17 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass
 
-from ..pricing.comps import CompCandidate, CompDecision
+from ..pricing.comps import CompCandidate, CompDecision, TrimMatch
 from ..pricing.confidence import Confidence
 from ..pricing.regression import AskingPriceEstimate
+from ..services.vehicle_facts import decompose
 from . import params
+
+#: `grade_trim` outcomes that count as "the same trim" for `alternatives`.
+#: TRIM_ONLY agrees on trim level and differs only in body style -- a real
+#: difference in the vehicle, but not the EX-vs-Si difference this list is
+#: restricted against. See the module docstring's "TRIM-RESTRICTED" note.
+_SAME_TRIM = (TrimMatch.EXACT, TrimMatch.TRIM_ONLY)
 
 
 @dataclass(frozen=True)
@@ -88,7 +145,13 @@ class Alternative:
         price = f"${(c.price_cents or 0) / 100:,.0f}"
         miles = f"{c.mileage:,} mi" if c.mileage else "mileage unknown"
         line = f"{vehicle} - {price}, {miles}, {c.location_text or 'location unknown'}"
-        line += f"  [better value by {self.advantage:.0%} of expected price]"
+        # Below MIN_RESIDUAL_ADVANTAGE the comp only cleared the EQUALISH_TOLERANCE
+        # band, not a meaningful advantage -- "better value by 1%" overstates a
+        # near-tie, so it reads as a tie instead.
+        if self.advantage >= params.MIN_RESIDUAL_ADVANTAGE:
+            line += f"  [better value by {self.advantage:.0%} of expected price]"
+        else:
+            line += "  [comparable value for what it is]"
         if self.mileage_tradeoff:
             line += "  (higher mileage - a trade-off, not a straight win)"
         return line
@@ -128,21 +191,40 @@ class WithheldAlternative:
 
 @dataclass(frozen=True)
 class AlternativesResult:
+    #: Same-trim comps only (`TrimMatch.EXACT` or `TRIM_ONLY`), better or
+    #: equalish against the target's own residual. See "TRIM-RESTRICTED" in the
+    #: module docstring.
     alternatives: tuple[Alternative, ...]
-    #: True when the target is the best-priced vehicle in its own comp set.
-    #: Spec 6.5: "Suppress when the target is already the best available, and
-    #: say so, since that is also useful."
+    #: True when the target is the best-priced vehicle in its own comp set,
+    #: across ALL trims -- this is a market-wide fact and stays unrestricted
+    #: even though `alternatives` itself is trim-scoped. Spec 6.5: "Suppress
+    #: when the target is already the best available, and say so, since that
+    #: is also useful."
     target_is_best: bool
     #: Why nothing is shown, when nothing is shown.
     suppressed_reason: str | None = None
     #: Comps that were better-priced but too cheap to responsibly recommend,
     #: each with the reason attached. Shown, not counted -- see the module
-    #: docstring.
+    #: docstring. Same-trim scoped, like `alternatives`.
     withheld: tuple[WithheldAlternative, ...] = ()
+    #: Better-priced comps whose trim genuinely differs from the target's.
+    #: Never merged into `alternatives` -- see "TRIM-RESTRICTED" above for why
+    #: this is not called "lower trim".
+    different_trim: tuple[Alternative, ...] = ()
+    #: False when the TARGET itself stated no trim, in which case `alternatives`
+    #: falls back to every scored comp regardless of grade -- see the module
+    #: docstring's "UNKNOWN-TARGET-TRIM ESCAPE HATCH". `message()` caveats the
+    #: count when this is False so the comparison is not read as trim-matched
+    #: when it could not be.
+    trim_known: bool = True
 
     @property
     def has_alternatives(self) -> bool:
         return bool(self.alternatives)
+
+    @property
+    def has_different_trim(self) -> bool:
+        return bool(self.different_trim)
 
     @property
     def withheld_as_implausible(self) -> int:
@@ -151,14 +233,29 @@ class AlternativesResult:
     def message(self) -> str:
         if self.alternatives:
             n = len(self.alternatives)
-            return (
+            base = (
                 f"{n} comparable listing{'s' if n != 1 else ''} in this search "
                 f"{'are' if n != 1 else 'is'} better priced for what "
                 f"{'they are' if n != 1 else 'it is'}."
             )
+            if not self.trim_known:
+                base += " This listing's own trim wasn't stated, so these aren't trim-matched."
+            return base
         if self.target_is_best:
             return "Nothing in this comp set is better priced. This is the best of them."
-        return self.suppressed_reason or "No better-priced alternatives found."
+        if self.suppressed_reason:
+            return self.suppressed_reason
+        # `alternatives` is same-trim only, so it can be empty while a real
+        # finding sits in `different_trim` -- without this branch that read as
+        # "no better-priced alternatives found" alongside cheaper cars in the
+        # very next dropdown, which is the section contradicting itself.
+        if self.different_trim:
+            n = len(self.different_trim)
+            return (
+                f"No same-trim alternatives, but {n} different-trim listing{'s' if n != 1 else ''} "
+                f"{'are' if n != 1 else 'is'} better priced -- see Different trim below."
+            )
+        return "No better-priced alternatives found."
 
 
 def find_alternatives(
@@ -193,8 +290,11 @@ def find_alternatives(
             ),
         )
 
-    # Score every included comp on the same line the target was scored against.
-    scored: list[tuple[CompCandidate, float]] = []
+    # Score every included comp on the same line the target was scored against,
+    # keeping its graded trim relationship alongside -- `CompDecision.trim_match`
+    # is already computed by `pricing/comps.py` against this same target, so
+    # there is nothing to recompute here.
+    scored: list[tuple[CompCandidate, float, TrimMatch]] = []
     for decision in comps:
         candidate = decision.candidate
         residual = estimate.residual_against_own_expectation(
@@ -202,7 +302,7 @@ def find_alternatives(
         )
         if residual is None:
             continue
-        scored.append((candidate, residual))
+        scored.append((candidate, residual, decision.trim_match))
 
     # A line dominated by one comp cannot rank the others. Suppressing here is
     # not caution for its own sake: naming a specific car to a first-time buyer
@@ -225,52 +325,90 @@ def find_alternatives(
             suppressed_reason="No comparable listings carried enough detail to rank.",
         )
 
-    better = [(c, r) for c, r in scored if target_residual - r >= params.MIN_RESIDUAL_ADVANTAGE]
+    # `target_is_best` is a market-wide fact (spec 6.5), so it is decided over
+    # every graded comp regardless of trim -- see the module docstring.
+    better = [(c, r) for c, r, _ in scored if target_residual - r >= params.MIN_RESIDUAL_ADVANTAGE]
     target_is_best = not better
+
+    # See "UNKNOWN-TARGET-TRIM ESCAPE HATCH" above: when the TARGET itself has
+    # no stated trim, `grade_trim` graded every comp UNKNOWN, not because none
+    # of them match -- there is nothing on our side to compare. Restricting to
+    # `_SAME_TRIM` in that case empties `alternatives` regardless of price, so
+    # it falls back to every scored comp instead.
+    target_trim_known = decompose(target.trim_text).trim_level is not None
+    same_trim = (
+        [(c, r) for c, r, _ in scored]
+        if not target_trim_known
+        else [(c, r) for c, r, g in scored if g in _SAME_TRIM]
+    )
+    different_trim_scored = [(c, r) for c, r, g in scored if g is TrimMatch.DIFFERS]
+
+    # `alternatives` (spec 6.5, trim-restricted): better than the target OR
+    # close enough to be a practical tie -- see EQUALISH_TOLERANCE in params.py
+    # and the "TRIM-RESTRICTED" note above. Genuinely worse same-trim comps
+    # never reach this list.
+    eligible = [(c, r) for c, r in same_trim if target_residual - r >= -params.EQUALISH_TOLERANCE]
 
     # Spec 2, applied in reverse: sorting by residual alone would promote the
     # single cheapest car in the set, which is disproportionately the worst one.
-    plausible = [(c, r) for c, r in better if r > params.TOO_CHEAP_TO_RECOMMEND]
+    plausible = [(c, r) for c, r in eligible if r > params.TOO_CHEAP_TO_RECOMMEND]
     withheld = tuple(
         WithheldAlternative(candidate=c, residual=r)
         for c, r in sorted(
-            (pair for pair in better if pair[1] <= params.TOO_CHEAP_TO_RECOMMEND),
+            (pair for pair in eligible if pair[1] <= params.TOO_CHEAP_TO_RECOMMEND),
             key=lambda pair: pair[1],
         )
     )
 
-    suppressed = _should_suppress(target_residual, [r for _, r in scored], confidence)
+    # Different-trim comps keep the stricter "meaningfully better" bar rather
+    # than the equalish one -- a different trim priced about the same as the
+    # target is not information worth a dropdown of its own, since it is not
+    # cheaper for what it is AND it is not the same car.
+    different_trim_better = [
+        (c, r)
+        for c, r in different_trim_scored
+        if target_residual - r >= params.MIN_RESIDUAL_ADVANTAGE
+        and r > params.TOO_CHEAP_TO_RECOMMEND
+    ]
+
+    suppressed = _should_suppress(target_residual, [r for _, r, _ in scored], confidence)
     if suppressed is not None:
         return AlternativesResult(
             alternatives=(),
             target_is_best=target_is_best,
             suppressed_reason=suppressed,
             withheld=withheld,
+            trim_known=target_trim_known,
         )
 
     plausible.sort(key=lambda pair: pair[1])
+    different_trim_better.sort(key=lambda pair: pair[1])
 
-    alternatives: list[Alternative] = []
-    for candidate, residual in plausible[: params.MAX_ALTERNATIVES]:
+    def _build(candidate: CompCandidate, residual: float) -> Alternative:
         extra_miles = (
             (candidate.mileage or 0) - (target.mileage or 0)
             if candidate.mileage is not None and target.mileage is not None
             else 0
         )
-        alternatives.append(
-            Alternative(
-                candidate=candidate,
-                residual=residual,
-                advantage=target_residual - residual,
-                mileage_tradeoff=extra_miles >= params.MILEAGE_TRADEOFF_THRESHOLD,
-                cheaper_outright=(candidate.price_cents or 0) < (target.price_cents or 0),
-            )
+        return Alternative(
+            candidate=candidate,
+            residual=residual,
+            advantage=target_residual - residual,
+            mileage_tradeoff=extra_miles >= params.MILEAGE_TRADEOFF_THRESHOLD,
+            cheaper_outright=(candidate.price_cents or 0) < (target.price_cents or 0),
         )
 
+    alternatives = tuple(_build(c, r) for c, r in plausible[: params.MAX_ALTERNATIVES])
+    different_trim = tuple(
+        _build(c, r) for c, r in different_trim_better[: params.MAX_DIFFERENT_TRIM_ALTERNATIVES]
+    )
+
     return AlternativesResult(
-        alternatives=tuple(alternatives),
+        alternatives=alternatives,
         target_is_best=target_is_best,
         withheld=withheld,
+        different_trim=different_trim,
+        trim_known=target_trim_known,
     )
 
 
