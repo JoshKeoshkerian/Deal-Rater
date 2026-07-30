@@ -3,20 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_PEER_MILES,
   METROS,
+  MIN_COMP_CITY_HITS,
   findMetro,
+  metroFromLocationText,
   milesBetween,
   nearestMetro,
   peersFor,
   verifyMetroResults,
 } from "../src/comps/metros";
-import {
-  countTrimMatched,
-  countUsable,
-  looksUsable,
-  pendingPeers,
-  shouldWiden,
-  trimLooksSimilar,
-} from "../src/comps/widen";
 import type { ObservationPayload } from "../src/shared/types";
 
 const obs = (patch: Partial<ObservationPayload>): ObservationPayload =>
@@ -156,171 +150,87 @@ describe("verifying a slug resolved", () => {
   });
 });
 
-describe("tiered widening", () => {
-  const target = obs({ role: "target" });
+describe("locating a metro from city names", () => {
+  // The fallback for listings whose page publishes no coordinates. Before it
+  // existed those captures did no widening at all -- 32 of 237 post-fix
+  // captures, finishing on a median of ~10 usable comps against ~34.
 
-  it("counts only comps the backend would plausibly keep", () => {
-    const comps = [
-      obs({ model: "CX-5" }),
-      obs({ model: "CX-9" }), // different model
-      obs({ make: "Toyota" }), // different make
-      obs({ year: 2004 }), // outside the widest year window
-      obs({ price_cents: null }), // no price
-    ];
-    expect(countUsable(target, comps)).toBe(1);
+  it("matches the listing's own city against the metro table", () => {
+    expect(metroFromLocationText("Tulsa, OK")?.slug).toBe("tulsa");
   });
 
-  it("treats spelling variants as the same model", () => {
-    expect(looksUsable(target, obs({ model: "CX5" }))).toBe(true);
-    expect(looksUsable(target, obs({ model: "Cx-5" }))).toBe(true);
+  it("tolerates the punctuation listings actually use", () => {
+    // The table says "St. Louis"; Marketplace writes "St Louis".
+    expect(metroFromLocationText("St Louis, MO")?.slug).toBe("stlouis");
+    expect(metroFromLocationText("St. Louis, MO")?.slug).toBe("stlouis");
   });
 
-  it("keeps widening while comps are short", () => {
-    const few = Array.from({ length: 8 }, () => obs({}));
-    expect(shouldWiden(target, few, 3)).toBe(true);
+  it("matches a metro whose display name carries a disambiguating state", () => {
+    // The table entry is named "Springfield MO" so it is distinguishable in a
+    // peer list. Without stripping that suffix, the city it is named after
+    // failed to match it at all.
+    expect(metroFromLocationText("Springfield, MO")?.slug).toBe("springfieldmo");
   });
 
-  it("stops once the usable target is met", () => {
-    const many = Array.from({ length: 30 }, () => obs({}));
-    expect(shouldWiden(target, many, 3)).toBe(false);
+  it("does not match a same-named city in the wrong state", () => {
+    // Springfield IL is not this table's Springfield, and pairing them would
+    // draw peers from 200 miles away in the wrong market.
+    expect(metroFromLocationText("Springfield, IL")).toBeNull();
   });
 
-  it("stops when there are no peers left", () => {
-    expect(shouldWiden(target, [], 0)).toBe(false);
+  it("falls back to the metro named most often among the comps' cities", () => {
+    // A suburb has no entry of its own and never will. The comps came from a
+    // search scoped to the listing's own place id, so they are its market.
+    const metro = metroFromLocationText("Barnhart, MO", [
+      "St Louis, MO",
+      "Chesterfield, MO",
+      "St Louis, MO",
+      "Warrenton, MO",
+    ]);
+    expect(metro?.slug).toBe("stlouis");
   });
 
-  it("does not count raw results toward the target", () => {
-    // A Porsche 924 search returns fifteen rows of which one is a 924. Counting
-    // the fifteen would stop widening exactly where it is needed most.
-    const wrongModel = Array.from({ length: 30 }, () => obs({ model: "911" }));
-    expect(shouldWiden(target, wrongModel, 3)).toBe(true);
+  it("ignores comp cities from states the search never touched", () => {
+    const metro = metroFromLocationText("Barnhart, MO", [
+      "Phoenix, AZ",
+      "Phoenix, AZ",
+      "Tucson, AZ",
+    ]);
+    expect(metro).toBeNull();
   });
 
-  it("skips slugs already known not to resolve", () => {
-    const peers = peersFor(findMetro("tulsa")!, 4);
-    const filtered = pendingPeers(peers, [peers[0]!.slug]);
-    expect(filtered.map((m) => m.slug)).not.toContain(peers[0]!.slug);
-  });
-});
-
-describe("widening for trim, not just count", () => {
-  const target = obs({ role: "target", trim_text: "Grand Touring" });
-
-  it("counts a comp with the same trim word as similar", () => {
-    expect(trimLooksSimilar(target, obs({ trim_text: "Grand Touring" }))).toBe(true);
-    expect(trimLooksSimilar(target, obs({ trim_text: "Touring" }))).toBe(true);
-  });
-
-  it("does not count a genuinely different trim as similar", () => {
-    expect(trimLooksSimilar(target, obs({ trim_text: "Sport" }))).toBe(false);
-  });
-
-  it("does not count as similar when either side has no trim at all", () => {
-    expect(trimLooksSimilar(target, obs({ trim_text: null }))).toBe(false);
-    expect(trimLooksSimilar(obs({ role: "target", trim_text: null }), obs({ trim_text: "Sport" }))).toBe(
-      false,
-    );
-  });
-
-  it("does not let a model name repeated inside the trim cause a false match", () => {
-    // Some listings write the model into the trim text too ("CX-5 Touring").
-    // Without stripping it, every comp of the same model would share that
-    // token and register as similar regardless of their real trim.
-    const repeated = obs({ role: "target", model: "CX-5", trim_text: "CX-5 Grand Touring" });
-    expect(trimLooksSimilar(repeated, obs({ model: "CX-5", trim_text: "CX-5 Sport" }))).toBe(
-      false,
-    );
+  it(`requires at least ${MIN_COMP_CITY_HITS} comps to name the same metro`, () => {
+    // One listing from a city 100 miles out is normal spill on a 40-mile
+    // radius, not evidence about where the listing is.
+    expect(metroFromLocationText("Barnhart, MO", ["St Louis, MO"])).toBeNull();
     expect(
-      trimLooksSimilar(repeated, obs({ model: "CX-5", trim_text: "CX-5 Grand Touring" })),
-    ).toBe(true);
+      metroFromLocationText("Barnhart, MO", ["St Louis, MO", "St Louis, MO"])?.slug,
+    ).toBe("stlouis");
   });
 
-  it("KNOWN GAP: a model name split across model+trim can still false-match", () => {
-    // Documented limitation, not a passing guarantee -- see the docstring on
-    // `trimTokens`. Facebook's own structured data has put model="Grand" and
-    // trim_text="Cherokee Limited..." on a real Jeep Grand Cherokee capture,
-    // and this function only knows to strip what `model` actually contains,
-    // so it cannot recover "Cherokee" as part of the model here. The failure
-    // mode is benign: it just means less widening for this specific vehicle,
-    // not an incorrect score -- this function only ever gates a search.
-    const leaked = obs({ role: "target", model: "Grand", trim_text: "Cherokee Limited" });
-    const differentRealTrim = obs({ model: "Grand", trim_text: "Cherokee Altitude" });
-    expect(trimLooksSimilar(leaked, differentRealTrim)).toBe(true);
+  it("declines a tie rather than guessing between two markets", () => {
+    const metro = metroFromLocationText("Quincy, IL", [
+      "St Louis, MO",
+      "St Louis, MO",
+      "Chicago, IL",
+      "Chicago, IL",
+    ]);
+    expect(metro).toBeNull();
   });
 
-  it("ignores body-style and drivetrain noise words", () => {
-    const noisyTarget = obs({ role: "target", trim_text: "Touring Sport Utility 4D" });
-    expect(trimLooksSimilar(noisyTarget, obs({ trim_text: "Touring AWD" }))).toBe(true);
+  it("declines when there is nothing to go on", () => {
+    expect(metroFromLocationText(null)).toBeNull();
+    expect(metroFromLocationText("")).toBeNull();
+    // No comma means no state, so a bare city cannot be state-checked.
+    expect(metroFromLocationText("Tulsa")).toBeNull();
+    expect(metroFromLocationText("Barnhart, MO", [])).toBeNull();
   });
 
-  it("counts trim-matched comps among the usable ones", () => {
-    const comps = [
-      obs({ trim_text: "Grand Touring" }),
-      obs({ trim_text: "Touring" }),
-      obs({ trim_text: "Sport" }),
-      obs({ model: "CX-9", trim_text: "Grand Touring" }), // wrong model
-    ];
-    expect(countTrimMatched(target, comps)).toBe(2);
-  });
-
-  it("keeps widening on a full usable count when too few share the trim", () => {
-    const comps = [
-      ...Array.from({ length: 29 }, () => obs({ trim_text: "Sport" })),
-      obs({ trim_text: "Grand Touring" }),
-    ];
-    expect(countUsable(target, comps)).toBe(30);
-    expect(shouldWiden(target, comps, 3)).toBe(true);
-  });
-
-  it("stops once both the usable count and the trim count are met", () => {
-    const comps = [
-      ...Array.from({ length: 24 }, () => obs({ trim_text: "Sport" })),
-      ...Array.from({ length: 6 }, () => obs({ trim_text: "Grand Touring" })),
-    ];
-    expect(countUsable(target, comps)).toBe(30);
-    expect(countTrimMatched(target, comps)).toBe(6);
-    expect(shouldWiden(target, comps, 3)).toBe(false);
-  });
-
-  it("does not widen for trim when the target's own trim is unknown", () => {
-    // Nothing to widen FOR: there is no basis to judge whether a comp matches
-    // a trim we do not know. The usable-count check still applies on its own.
-    const noTrimTarget = obs({ role: "target", trim_text: null });
-    const many = Array.from({ length: 30 }, () => obs({ trim_text: "Sport" }));
-    expect(shouldWiden(noTrimTarget, many, 3)).toBe(false);
-  });
-
-  it("stops widening for trim once the peer list runs out, regardless of count", () => {
-    const thin = [obs({ trim_text: "Sport" })];
-    expect(shouldWiden(target, thin, 0)).toBe(false);
-  });
-});
-
-describe("widening counts unique comps, not raw results", () => {
-  const target = obs({ role: "target", source_listing_id: "t" });
-
-  it("does not let a duplicate listing count as progress twice", () => {
-    // Neighbouring metros overlap heavily: a St. Louis search and a Springfield
-    // search return many of the same cars. Counting raw results made widening
-    // stop two peers in, believing 32 raw results were 32 comps when only 27
-    // were unique.
-    const same = Array.from({ length: 30 }, () => obs({ source_listing_id: "dup" }));
-    const unique = new Map(same.map((c) => [c.source_listing_id, c]));
-    expect(unique.size).toBe(1);
-    expect(countUsable(target, [...unique.values()])).toBe(1);
-  });
-
-  it("keeps widening when the unique count is short", () => {
-    const unique = Array.from({ length: 20 }, (_, i) =>
-      obs({ source_listing_id: `c${i}` }),
-    );
-    expect(shouldWiden(target, unique, 4)).toBe(true);
-  });
-
-  it("stops once thirty unique usable comps exist", () => {
-    const unique = Array.from({ length: 30 }, (_, i) =>
-      obs({ source_listing_id: `c${i}` }),
-    );
-    expect(shouldWiden(target, unique, 4)).toBe(false);
+  it("does not count one comp city twice when two metros claim its state", () => {
+    // "Hammond, IN" is not a metro name, but if it were listed under two
+    // entries a single comp must still cast a single vote -- otherwise two
+    // listings could clear a threshold meant to need two distinct ones.
+    const metro = metroFromLocationText("Ballwin, MO", ["St Louis, MO", "St Louis, MO"]);
+    expect(metro?.slug).toBe("stlouis");
   });
 });

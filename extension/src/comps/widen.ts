@@ -32,6 +32,7 @@
 import { normalizeModel } from "../shared/parse";
 import type { ObservationPayload } from "../shared/types";
 import type { Metro } from "./metros";
+import { trimLevelTokens, trimLevelsMatch } from "./trim-level";
 
 /** Enough comps to stop widening. Matches the target the operator set. */
 export const USABLE_COMP_TARGET = 30;
@@ -41,6 +42,24 @@ export const USABLE_COMP_TARGET = 30;
  * (`pricing/params.MIN_COMPS_FOR_SLOPE`; see `CompSet.preferred_fit_points`).
  * Below this the backend fits on the full mixed-trim set regardless of how
  * hard the extension looked, so there is nothing for widening past it to buy.
+ *
+ * 6 IS ALSO WHERE THE MEASURED HARM STOPS, which is the better reason to keep
+ * it. `python -m app.cli.backtest --trim-bias` scores how far a target's own
+ * trim sits from the average trim of the comps it was priced against, by how
+ * many same-trim comps it had (117 unique target listings):
+ *
+ *     same-trim comps    median |trim-mix gap|
+ *     0-2                       14.2%
+ *     3-5                        5.5%
+ *     6-8                        3.3%
+ *     9-11                       3.4%
+ *     12+                        2.5%
+ *
+ * The gap collapses by 6 and is flat past it, so widening further buys little.
+ *
+ * This target was previously unreachable in practice rather than merely
+ * generous: `countTrimMatched` over-counted by 3.76x and satisfied it on 91% of
+ * comp sets before widening could request anything. See `trim-level.ts`.
  */
 export const TRIM_MATCH_TARGET = 6;
 
@@ -71,63 +90,27 @@ export function countUsable(
 }
 
 /**
- * A loose, client-side stand-in for the backend's trim comparison
- * (`pricing/comps.trims_agree`), in the same spirit as `looksUsable`: not an
- * attempt at fidelity, just enough signal to decide whether widening for trim
- * is still worth a request.
+ * Whether a comp is the same trim as the target, as far as the client can tell.
  *
- * Token OVERLAP rather than the backend's exact set equality -- this only
- * gates an extra search, not a scoring decision, so "probably the same trim"
- * is the right bar, not "provably the same trim".
+ * Delegates to `trim-level.ts`, which mirrors the backend's notion of a trim
+ * level -- body style, drivetrain and engine designator removed, compared as
+ * token sets. That module's docstring records what this used to do instead and
+ * what the difference measured, because the old version was not merely loose: it
+ * counted 3.76x what the backend counts, agreed with it on only 61% of comps,
+ * and reported the trim target as already met on 84% of comp sets where the
+ * backend put it at 27%.
  *
- * THE MODEL NAME IS STRIPPED BEFORE COMPARING. Some listings repeat the model
- * inside the trim string ("CX-5 Touring"), and without stripping it, every
- * comp of the same model would share that token and register as trim-similar
- * regardless of their real trim -- the overlap check would stop meaning
- * anything for exactly the comps it exists to distinguish.
- *
- * KNOWN GAP, LEFT OPEN ON PURPOSE: this only strips what `model` actually
- * contains. Facebook's own structured data does not always agree with itself
- * about where the model ends and the trim begins -- a two-word model like
- * "Grand Cherokee" has shown up with model="Grand" and
- * trim_text="Cherokee Limited...", and stripping "grand" does not remove the
- * leaked "cherokee". Recovering the true model name for that case belongs to
- * the extraction pipeline that produced the split, not to a widening
- * heuristic with no way to know a better model name exists. The failure mode
- * here is benign either way: a false "similar" just means this widens less
- * than it ideally would for that specific vehicle, which is the same
- * shortfall widening already accepts everywhere else (see the module
- * docstring) -- it does not corrupt anything downstream, since this function
- * only ever gates an extra search.
+ * Still an approximation, in the same spirit as `looksUsable` -- the backend
+ * dedupes on content, drops parts listings and applies price sanity before any
+ * of its comps are counted, and none of that runs here. But on the comps that do
+ * survive, it now agrees with the backend on 98.6% of them and reaches the same
+ * "6 comps or not" verdict on 98% of comp sets.
  */
-const TRIM_STOPWORDS = new Set(["4d", "4dr", "2d", "2dr", "awd", "fwd", "rwd", "4wd", "suv"]);
-
-/** Same split as the trim text itself, so "CX-5" strips as {"cx","5"} on both
- * sides rather than leaving a bare "cx-5" that a hyphen-split trim token can
- * never equal. */
-function splitTokens(text: string): string[] {
-  return text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-}
-
-function trimTokens(text: string | null, model: string | null): Set<string> {
-  if (!text) return new Set();
-  const modelWords = new Set(splitTokens(model ?? ""));
-  return new Set(
-    splitTokens(text).filter(
-      (token) => !modelWords.has(token) && !TRIM_STOPWORDS.has(token) && !/^\d+$/.test(token),
-    ),
-  );
-}
-
-/** Whether a comp's trim looks like it could be the same as the target's. */
 export function trimLooksSimilar(target: ObservationPayload, comp: ObservationPayload): boolean {
-  const targetTokens = trimTokens(target.trim_text, target.model);
-  if (targetTokens.size === 0) return false;
-  const compTokens = trimTokens(comp.trim_text, comp.model);
-  for (const token of compTokens) {
-    if (targetTokens.has(token)) return true;
-  }
-  return false;
+  return trimLevelsMatch(
+    trimLevelTokens(target.trim_text, target.model),
+    trimLevelTokens(comp.trim_text, comp.model),
+  );
 }
 
 export function countTrimMatched(
@@ -168,9 +151,16 @@ export function pendingPeers(peers: Metro[], knownBadSlugs: Iterable<string>): M
  * not enough usable comps yet, or -- once that is satisfied -- not enough of
  * them share the target's trim (spec 4.3: trim never EXCLUDES a comp, but a
  * fit restricted to matching trim is materially tighter when there is enough
- * of it to restrict to, per `CompSet.preferred_fit_points`). The trim check
- * only runs once the target's own trim is known; when it is not, there is
- * nothing to widen FOR, and the usable-count check alone still applies.
+ * of it to restrict to, per `CompSet.preferred_fit_points`).
+ *
+ * THE TRIM CHECK IS GATED ON A KNOWN TRIM LEVEL, not on `trim_text` being
+ * populated, and the difference is load-bearing. 11% of stored targets carry a
+ * `trim_text` that reduces to nothing but a body style -- "Sedan 4D",
+ * "Coupe 2D" -- which the backend records as no trim at all. Gating on the raw
+ * string would send every one of those chasing a target `countTrimMatched` can
+ * never reach, spending the entire peer budget to find comps matching a trim
+ * the listing never stated. When the trim is genuinely unknown there is nothing
+ * to widen FOR, and the usable-count check alone still applies.
  */
 export function shouldWiden(
   target: ObservationPayload,
@@ -181,6 +171,7 @@ export function shouldWiden(
 ): boolean {
   if (remainingPeers <= 0) return false;
   if (countUsable(target, comps) < usableTarget) return true;
-  if (target.trim_text && countTrimMatched(target, comps) < trimTarget) return true;
+  const trimKnown = trimLevelTokens(target.trim_text, target.model).size > 0;
+  if (trimKnown && countTrimMatched(target, comps) < trimTarget) return true;
   return false;
 }

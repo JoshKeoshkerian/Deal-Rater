@@ -244,3 +244,159 @@ export function nearestMetro(
   }
   return bestMiles <= MAX_HOME_METRO_MILES ? best : null;
 }
+
+/**
+ * The metro a listing sits in, located by city name when coordinates are absent.
+ *
+ * WHY THIS EXISTS: NO COORDINATES MEANT NO WIDENING AT ALL, EVER.
+ * ---------------------------------------------------------------
+ * `latitude` has one extraction tier and no fallback (`extract/fields/place.ts`),
+ * so a listing page that does not publish a location object yields null. That
+ * null then removed comp widening entirely: `nearestMetro` returned null,
+ * `autoPeers` became `[]`, and `shouldWiden` saw zero remaining peers and
+ * returned false before its loop body ever ran.
+ *
+ * It was not a rare edge. Of 237 captures taken after the payload-key fix, 205
+ * had coordinates and 200 of those widened -- while all 32 without coordinates
+ * widened zero times, and finished with a median of ~10 usable comps against
+ * ~34 for the rest. A silent 14% of captures were being priced off a third of
+ * the evidence.
+ *
+ * `location_text` is present on 408 of 413 stored targets, and comp cards carry
+ * it on 16,572 of 16,575 while carrying coordinates on NONE of them. So city
+ * names are the only signal available here, and they are enough.
+ *
+ * TWO RULES, IN ORDER
+ * -------------------
+ *   1. The listing's own city IS a metro in the table. Requires the state to
+ *      agree, because names collide: "Springfield, MO" is this table's
+ *      `springfieldmo` and "Springfield, IL" is not.
+ *   2. Otherwise, the most frequent metro name among the CITIES OF THE COMPS
+ *      ALREADY IN HAND, restricted to states seen in those same cities. A
+ *      suburb has no entry of its own -- "Barnhart, MO" never will -- but the
+ *      search that returned those comps was scoped to the listing's own place
+ *      id, so they are its market by construction.
+ *
+ * RULE 2 MUST ONLY EVER SEE THE FIRST SEARCH'S RESULTS, and the caller is
+ * responsible for that. Given comps pooled across peer metros it votes for
+ * whichever peer returned the most listings, which is circular -- widening's
+ * output deciding widening's input. Measured that way it put "Festus, MO" in
+ * Louisville and "East St Louis, IL" in Kansas City.
+ *
+ * MEASURED ACCURACY. Checked against `nearestMetro` on the 69 stored captures
+ * that have coordinates AND searched no peers (the only ones where every comp
+ * came from the home search, so the input matches production): agrees on 87%,
+ * declines on 10%, disagrees on 1%. The single disagreement is Poplar Bluff MO
+ * -- guessed St. Louis at 131 miles where the nearest metro is Memphis at 112 --
+ * a listing far enough from everything that `MAX_HOME_METRO_MILES` barely admits
+ * an answer either way. On the captures this actually fixes it resolves 88%.
+ *
+ * A wrong metro here costs a peer list drawn from a neighbouring market of the
+ * same rust and price tier. No widening at all costs two thirds of the comps.
+ */
+
+/**
+ * Comp cities that must name the same metro before rule 2 believes them.
+ *
+ * One is not evidence: a single listing from a city 100 miles away is normal on
+ * a 40-mile-radius search that spills over. Requiring two, and requiring a
+ * strict plurality over the runner-up, took the disagreement rate against
+ * coordinates from 4% to 1% at a cost of 4 points of resolution (92% -> 88%).
+ * UNCALIBRATED beyond that one comparison.
+ */
+export const MIN_COMP_CITY_HITS = 2;
+
+/** A trailing state code in a metro's display name: "Springfield MO". */
+const NAME_STATE_SUFFIX = / [a-z]{2}$/;
+
+function normalizeCity(value: string): string {
+  // Periods and apostrophes only: "St. Louis" is written "St Louis" on listings
+  // and "O'Fallon" as both. Not a general slug -- collapsing to alphanumerics
+  // would join "West Plains" into "westplains" and lose the word boundary that
+  // makes a two-word city name comparable.
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** "Barnhart, MO" -> ["barnhart", "MO"]. Null city when there is no comma. */
+function splitCityState(text: string | null | undefined): [string | null, string | null] {
+  if (!text || !text.includes(",")) return [null, null];
+  const comma = text.lastIndexOf(",");
+  const city = normalizeCity(text.slice(0, comma));
+  const state = text.slice(comma + 1).trim().toUpperCase();
+  return [city || null, state || null];
+}
+
+/**
+ * Metros indexed by every spelling of their name worth matching.
+ *
+ * A metro is registered under its normalised name AND, when that name carries a
+ * trailing state code to disambiguate it, under the bare city as well. Both
+ * spellings are needed: without the bare form "Springfield, MO" fails to match
+ * `springfieldmo` at all, and without the state requirement below it would also
+ * match "Springfield, IL".
+ */
+const BY_CITY_NAME = new Map<string, Metro[]>();
+for (const metro of METROS) {
+  const full = normalizeCity(metro.name);
+  const bare = full.replace(NAME_STATE_SUFFIX, "");
+  for (const key of bare === full ? [full] : [full, bare]) {
+    const existing = BY_CITY_NAME.get(key);
+    if (existing) existing.push(metro);
+    else BY_CITY_NAME.set(key, [metro]);
+  }
+}
+
+function metroNamed(city: string | null, state: string | null): Metro | null {
+  if (!city) return null;
+  for (const metro of BY_CITY_NAME.get(city) ?? []) {
+    if (state === null || metro.states.includes(state)) return metro;
+  }
+  return null;
+}
+
+export function metroFromLocationText(
+  targetLocationText: string | null | undefined,
+  compLocationTexts: readonly (string | null | undefined)[] = [],
+): Metro | null {
+  const [targetCity, targetState] = splitCityState(targetLocationText);
+
+  const named = metroNamed(targetCity, targetState);
+  if (named) return named;
+
+  // A candidate metro must claim the TARGET's state, and only the target's.
+  // Letting the comps' own states qualify metros too was tried and is wrong: it
+  // lets a cluster of out-of-region results relocate the listing, which is not
+  // hypothetical. `buildCompSearch` retries unscoped when a scoped search
+  // returns nothing, and an unscoped search returns the USER's metro -- so the
+  // permissive version would place a Missouri listing in Phoenix on the
+  // strength of a Phoenix user's own feed, reintroducing exactly the
+  // wrong-market defect this module exists to prevent. It cost 2 points of
+  // resolution (88% -> 86%) at identical measured accuracy.
+  if (targetState === null) return null;
+
+  const hits = new Map<string, { metro: Metro; count: number }>();
+  for (const text of compLocationTexts) {
+    const [city] = splitCityState(text);
+    if (!city) continue;
+    for (const metro of BY_CITY_NAME.get(city) ?? []) {
+      if (!metro.states.includes(targetState)) continue;
+      const entry = hits.get(metro.slug);
+      if (entry) entry.count += 1;
+      else hits.set(metro.slug, { metro, count: 1 });
+      // One vote per comp, to the first metro whose state fits. A city listed
+      // under two metros must not count twice.
+      break;
+    }
+  }
+
+  const [best, runnerUp] = [...hits.values()].sort((a, b) => b.count - a.count);
+  if (!best || best.count < MIN_COMP_CITY_HITS) return null;
+  // A tie is a coin flip between two markets, and guessing costs a peer list
+  // drawn from the wrong one. Decline instead.
+  if (runnerUp && runnerUp.count === best.count) return null;
+  return best.metro;
+}

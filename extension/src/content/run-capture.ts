@@ -8,7 +8,12 @@
 
 import type { CaptureStage } from "./capture-stages";
 import { buildCompSearch, buildMetroSearch } from "../comps/build-query";
-import { nearestMetro, peersFor, verifyMetroResults } from "../comps/metros";
+import {
+  metroFromLocationText,
+  nearestMetro,
+  peersFor,
+  verifyMetroResults,
+} from "../comps/metros";
 import { countUsable, pendingPeers, shouldWiden } from "../comps/widen";
 import { loadBadMetroSlugs, rememberBadMetroSlug } from "../shared/metro-health";
 import { fetchDocument, runCompSearch } from "../comps/fetch-search";
@@ -146,6 +151,12 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   const settings = await loadSettings();
   const metrosSearched: string[] = [];
   const metrosFailed: string[] = [];
+  // Which metro the peer list was drawn from, and how it was identified.
+  // Recorded because "no peers were available" and "the listing's market could
+  // not be identified" are different failures that used to look identical in
+  // the data -- both appeared as an empty `extra_metros_searched`.
+  let homeMetro: string | null = null;
+  let homeMetroSource: "coordinates" | "location_text" | null = null;
   const search = buildCompSearch(target.observation, target.locationId);
   let comps: CapturePayload["comps"] = [];
   let compSource = "none";
@@ -207,7 +218,32 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     // whole peer list. Every peer is another request on a single user click,
     // and spec 8.1 makes that budget a binding constraint rather than a
     // preference.
-    const home = nearestMetro(target.observation.latitude, target.observation.longitude);
+    // Coordinates first, city names second. The fallback is not a nicety: a
+    // listing page that publishes no location object yields a null latitude,
+    // and that null used to remove widening entirely -- 32 of 237 post-fix
+    // captures searched zero peers for this reason alone and finished on a
+    // median of ~10 usable comps against ~34 for the rest. See
+    // `metroFromLocationText`.
+    //
+    // It is handed ONLY the comps from the listing's own market. `observations`
+    // holds exactly the home search's results at this point, which is required
+    // rather than incidental: given comps pooled across peer metros the
+    // fallback votes for whichever peer returned the most listings, and that is
+    // widening's output choosing widening's input.
+    let home = nearestMetro(target.observation.latitude, target.observation.longitude);
+    if (home) {
+      homeMetroSource = "coordinates";
+    } else {
+      // Reached with coordinates too, not only without them: `nearestMetro`
+      // also declines beyond `MAX_HOME_METRO_MILES`, so recording the source
+      // from `latitude !== null` would mislabel a rural listing.
+      home = metroFromLocationText(
+        target.observation.location_text,
+        observations.map((o) => o.location_text),
+      );
+      if (home) homeMetroSource = "location_text";
+    }
+    homeMetro = home?.slug ?? null;
     const badSlugs = await loadBadMetroSlugs();
     const manual = settings.extraMetroIds;
     const autoPeers = home ? pendingPeers(peersFor(home), badSlugs) : [];
@@ -277,6 +313,12 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
           // so recording it is the only way a comp set's geographic scope is
           // ever knowable after the fact.
           search_radius_km: target.searchRadiusKm,
+          // The market the peer list came from, and whether it was identified
+          // from coordinates or from city names. Distinguishes "this listing's
+          // market could not be identified" from "its peers were all searched",
+          // which both used to read as an empty `extra_metros_searched`.
+          home_metro: homeMetro,
+          home_metro_source: homeMetroSource,
           // Which metros were searched, so a comp set spanning several markets
           // is visible in the data rather than inferred from city names.
           extra_metros_searched: metrosSearched,

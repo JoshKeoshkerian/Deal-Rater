@@ -52,6 +52,47 @@ not to. Estimator kind is broken out because a median fallback and a fitted
 regression are different models, and averaging them together hides which one
 moved.
 
+BASELINE, 2026-07-29: trim-mix bias, and why this file could not see it
+-----------------------------------------------------------------------
+413 captures stored, 393 contributing, 9,116 predictions. MedAPE 15.5%.
+
+That headline is unchanged by the day's work and will stay unchanged, because
+the work was client-side: `widen.ts` was over-counting trim matches by 3.76x and
+`nearestMetro` was silently disabling comp widening on every listing without
+coordinates. Neither can move a number computed from captures already stored.
+Both change what FUTURE captures contain, which is the only place the effect can
+appear -- so re-run this once post-fix captures accumulate, and expect the
+`trim not comparable` stratum (16.8%, still the worst by a wide margin) to shrink
+rather than the headline to move.
+
+WHAT THE NEW `--trim-bias` MODE FOUND, and why it needed a new mode at all:
+
+    target's trim rank    n   median gap   median same-trim comps   reach >=6
+    bottom quartile      29        -9.0%                        6       15/29
+    middle half          58        +1.1%                        6       29/58
+    top quartile         30       +10.1%                        3        6/30
+
+A target whose trim sits in the upper quartile of its own model is priced
+against a comp mix ~10% cheaper than itself, so it reads as overpriced for
+reasons that are not its price. Bottom-quartile trims get the mirror image and
+read as bargains. THE TWO SIGNS CANCEL, which is exactly why `--trim-premium`
+reports a precise null ($61, CI -$154..$275) and why the run below moved by
+0.000 of a percentage point. Both of those measure the comp set's INTERIOR,
+where the trim mix is balanced by construction. Neither was wrong; neither was
+asking this question. See `run_trim_bias`.
+
+And the harm is a function of supply, which is what makes it actionable:
+
+    same-trim comps    n    median |gap|
+    0-2               33          14.2%
+    3-5               34           5.5%
+    6-8               23           3.3%
+    9-11              10           3.4%
+    12+               17           2.5%
+
+Flat past 6, which is where `MIN_COMPS_FOR_SLOPE` already sits. So the
+thresholds were right and the acquisition was broken.
+
 CALIBRATION RUN, 2026-07-28: vehicle capture reorganisation
 -----------------------------------------------------------
 233 captures stored, 219 contributing, 4,540 predictions. Before and after the
@@ -132,6 +173,7 @@ the extraction of it is still weak.
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from argparse import ArgumentParser
 from dataclasses import dataclass
@@ -140,10 +182,11 @@ from sqlalchemy.orm import Session
 
 from ..db import session_scope
 from ..pricing import params
-from ..pricing.comps import CompSet
+from ..pricing.comps import CompCandidate, CompSet, normalize_key
 from ..pricing.loader import StoredCapture, load_captures
 from ..pricing.model import _filter_with_progressive_widening, assess_listing
 from ..pricing.regression import EstimatorKind, _fit_multi, estimate_expected_asking_price
+from ..services.vehicle_facts import decompose
 
 # ---------------------------------------------------------------------------
 # Empirical interval coverage (spec 9.5)
@@ -628,6 +671,336 @@ def run_trim_premium(session: Session, capture_ids: list[int] | None, as_json: b
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Trim-mix bias, conditional on the TARGET's trim (spec 4.3)
+# ---------------------------------------------------------------------------
+#
+# WHY THIS MODE EXISTS, AND WHY EVERY OTHER MEASUREMENT IN THIS FILE IS BLIND
+# TO WHAT IT FINDS.
+#
+# `run` predicts held-out COMPS. `run_trim_premium` pools a trim coefficient
+# fitted inside comp sets. Both are measurements about the comp set's interior,
+# and inside a comp set the trim mix is balanced BY CONSTRUCTION -- the mean
+# comp sits at the mean trim, so a trim effect has nothing to bias. That is why
+# both came back null, and both nulls are real answers to the question they
+# asked.
+#
+# The question neither one asks is whether the comp set is centred on the
+# TARGET. A target whose trim sits above its model's average is benchmarked
+# against a mix that is mostly cheaper trims, and the resulting error has a
+# SIGN that depends on the target's trim rank. Averaged over targets the two
+# signs cancel, which is precisely how a real bias hides inside a precise null.
+#
+# THE MEASUREMENT. No ground truth is needed, because the comparison is
+# internal: build a price index per (make, model, trim level) from the stored
+# observations themselves, then ask how far the target's own trim sits from the
+# mean trim of the comps it was scored against. That distance is in log
+# dollars, so it converts straight to a percentage of price.
+#
+# WHAT IT IS NOT. Not a claim about what the vehicle is worth (spec 4.5 --
+# these are asking prices), and not an accuracy figure comparable to MedAPE
+# above. It measures the CENTRING of the comp set, which no interval width can
+# fix: spec 9.5 argues an interval that is systematically too narrow
+# manufactures false confidence, and an interval whose centre is systematically
+# wrong manufactures a false verdict the same way.
+
+#: A (make, model, year) cell needs at least this many observations, and at
+#: least two distinct trim levels, before it can say anything about what a trim
+#: is worth relative to its neighbours. UNCALIBRATED, and chosen to be
+#: conservative: a cell of 3 rows spanning 2 trims would produce an index entry
+#: built on a single price each.
+_MIN_CELL_SIZE = 6
+
+#: A (make, model, trim level) index entry needs this many contributing cells
+#: before it is trusted. Same reasoning; one observation is not an index.
+_MIN_TRIM_SUPPORT = 3
+
+#: Comps a target must have, and indexed comps among them, before its trim-mix
+#: gap is meaningful. The first mirrors `MIN_COMPS_FOR_REGRESSION` so this
+#: reports on the comp sets that actually get priced.
+_MIN_COMPS_FOR_GAP = params.MIN_COMPS_FOR_REGRESSION
+_MIN_INDEXED_COMPS_FOR_GAP = 4
+
+
+def _trim_key(candidate: CompCandidate) -> tuple[str, str, str] | None:
+    """(make, model, trim level) for the index, or None when trim is unstated.
+
+    Derived through `decompose` rather than read off a column so that a
+    candidate built by hand -- a test, a fixture -- keys the same way an
+    ingested row does. `trim_level` and not `trim_text`: the verbatim string
+    also encodes body style and engine, and `Premium Sport Utility 4D` is not a
+    different trim from `2.0i Premium Sport Utility 4D`.
+    """
+    level = decompose(candidate.trim_text).trim_level
+    if not level:
+        return None
+    model = normalize_key(candidate.model)
+    if not model:
+        return None
+    return normalize_key(candidate.make), model, level
+
+
+def build_trim_index(
+    observations: list[CompCandidate],
+) -> tuple[dict[tuple[str, str, str], float], dict[tuple[str, str, str], int]]:
+    """A price index per (make, model, trim level), in log dollars.
+
+    Each observation's log price minus the median log price of its own
+    (make, model, year) cell, averaged per trim level. Differencing against the
+    cell removes model and vintage, which are the two things that dominate
+    price and would otherwise swamp the trim signal. Mileage is the residual
+    confounder and is assumed roughly independent of trim within a cell -- it is
+    not, quite, but nothing in the data suggests sellers of one trim
+    systematically drive further.
+
+    Returns (index, support) where support is the contributing observation count
+    per entry, so a caller can report how thin an entry is.
+    """
+    cells: dict[tuple[str, str, int], list[CompCandidate]] = {}
+    for obs in observations:
+        if obs.year is None or not obs.price_cents or obs.price_cents <= 0:
+            continue
+        model = normalize_key(obs.model)
+        if not model:
+            continue
+        cells.setdefault((normalize_key(obs.make), model, obs.year), []).append(obs)
+
+    deviations: dict[tuple[str, str, str], list[float]] = {}
+    for cell in cells.values():
+        if len(cell) < _MIN_CELL_SIZE:
+            continue
+        keys = [_trim_key(obs) for obs in cell]
+        if len({k for k in keys if k is not None}) < 2:
+            continue
+        median_log = statistics.median(math.log(obs.price_cents) for obs in cell)  # type: ignore[arg-type]
+        for obs, key in zip(cell, keys, strict=True):
+            if key is not None:
+                deviations.setdefault(key, []).append(
+                    math.log(obs.price_cents) - median_log  # type: ignore[arg-type]
+                )
+
+    index = {
+        key: statistics.mean(values)
+        for key, values in deviations.items()
+        if len(values) >= _MIN_TRIM_SUPPORT
+    }
+    support = {key: len(deviations[key]) for key in index}
+    return index, support
+
+
+@dataclass(frozen=True)
+class TrimGap:
+    """One target, and how far its trim sits from its comp set's average trim."""
+
+    capture_id: int
+    label: str
+    #: The target's own trim index, in log dollars relative to its model's
+    #: average trim. Positive means an upper trim.
+    target_index: float
+    #: Mean index of the indexed comps it was scored against.
+    comp_index: float
+    n_comps: int
+    n_indexed: int
+    n_same_trim: int
+
+    @property
+    def gap(self) -> float:
+        """Log-dollar distance from the comp set's centre to the target's trim.
+
+        Positive means the comps are, in trim terms, CHEAPER cars than the
+        target -- so the expected asking price they support is too low and the
+        target reads as overpriced for reasons that are not its price.
+        """
+        return self.target_index - self.comp_index
+
+    @property
+    def gap_pct(self) -> float:
+        return math.exp(self.gap) - 1.0
+
+
+def trim_gaps(captures: list[StoredCapture]) -> list[TrimGap]:
+    """The trim-mix gap for every capture that can support one.
+
+    DEDUPLICATED BY TARGET LISTING, unlike every other mode in this file. The
+    same listing evaluated five times is one fact about one comp set, and
+    leaving the repeats in would let a handful of re-clicked listings decide
+    which quartile the distribution's edges fall in. The index is deduplicated
+    the same way and for the same reason: a listing that recurs across thirty
+    captures would otherwise dominate its own cell.
+    """
+    latest: dict[str, StoredCapture] = {}
+    for capture in captures:
+        key = capture.target.source_listing_id
+        previous = latest.get(key)
+        if previous is None or capture.capture_id > previous.capture_id:
+            latest[key] = capture
+    unique = sorted(latest.values(), key=lambda c: c.capture_id)
+
+    pool: dict[str, CompCandidate] = {}
+    for capture in captures:
+        pool.setdefault(capture.target.source_listing_id, capture.target)
+        for candidate in capture.candidates:
+            pool.setdefault(candidate.source_listing_id, candidate)
+    index, _support = build_trim_index(list(pool.values()))
+
+    out: list[TrimGap] = []
+    for capture in unique:
+        target_key = _trim_key(capture.target)
+        if target_key is None or target_key not in index:
+            continue
+
+        comp_set = _filter_with_progressive_widening(
+            capture.target,
+            capture.candidates,
+            year_window=params.YEAR_WINDOW,
+            location_scoped=capture.location_scoped,
+        )
+        included = [d.candidate for d in comp_set.included]
+        if len(included) < _MIN_COMPS_FOR_GAP:
+            continue
+        indexed = [index[k] for c in included if (k := _trim_key(c)) is not None and k in index]
+        if len(indexed) < _MIN_INDEXED_COMPS_FOR_GAP:
+            continue
+
+        target = capture.target
+        out.append(
+            TrimGap(
+                capture_id=capture.capture_id,
+                label=f"{target.year} {target.make} {target.model} "
+                f"[{decompose(target.trim_text).trim_level}]",
+                target_index=index[target_key],
+                comp_index=statistics.mean(indexed),
+                n_comps=len(included),
+                n_indexed=len(indexed),
+                n_same_trim=sum(1 for c in included if _trim_key(c) == target_key),
+            )
+        )
+    return out
+
+
+def _quartiles(gaps: list[TrimGap]) -> list[tuple[str, list[TrimGap]]]:
+    """Targets split by where their own trim sits within their model's range.
+
+    The split that matters, and the one no other mode here makes. Reported as
+    thirds-by-count rather than by an absolute index cutoff because the index
+    is model-relative already: what "an upper trim" means in dollars differs
+    between a Civic and an X5, but "above most trims of its own model" does not.
+    """
+    ranked = sorted(gaps, key=lambda g: g.target_index)
+    n = len(ranked)
+    return [
+        ("bottom quartile trim", ranked[: n // 4]),
+        ("middle half", ranked[n // 4 : 3 * n // 4]),
+        ("top quartile trim", ranked[3 * n // 4 :]),
+    ]
+
+
+def _gap_row(label: str, sample: list[TrimGap]) -> str:
+    if not sample:
+        return f"{label:<24}{0:>6}{'n/a':>12}{'n/a':>10}{'n/a':>10}"
+    median_gap = statistics.median(g.gap_pct for g in sample)
+    median_same = statistics.median(g.n_same_trim for g in sample)
+    reach = sum(1 for g in sample if g.n_same_trim >= params.MIN_COMPS_FOR_SLOPE)
+    return (
+        f"{label:<24}{len(sample):>6}{median_gap:>11.1%}{median_same:>10.0f}"
+        f"{f'{reach}/{len(sample)}':>10}"
+    )
+
+
+def run_trim_bias(session: Session, capture_ids: list[int] | None, as_json: bool) -> int:
+    captures = load_captures(session, capture_ids)
+    if not captures:
+        print("No captures stored.")
+        return 1
+
+    gaps = trim_gaps(captures)
+    if not gaps:
+        print(
+            f"{len(captures)} captures stored, none scoreable. A capture needs a target "
+            f"whose trim level appears in the index (>= {_MIN_TRIM_SUPPORT} observations "
+            f"in cells of >= {_MIN_CELL_SIZE} spanning >= 2 trims), at least "
+            f"{_MIN_COMPS_FOR_GAP} included comps, and at least "
+            f"{_MIN_INDEXED_COMPS_FOR_GAP} of them indexed."
+        )
+        return 1
+
+    # Buckets of three, which is the resolution the sample supports; the
+    # question is where the gap stops shrinking, not its exact shape.
+    by_same: dict[int, list[TrimGap]] = {}
+    for gap in gaps:
+        by_same.setdefault(min(gap.n_same_trim // 3 * 3, 12), []).append(gap)
+
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "captures_loaded": len(captures),
+                    "targets_scored": len(gaps),
+                    "median_gap": statistics.median(g.gap_pct for g in gaps),
+                    "mean_gap": statistics.mean(g.gap_pct for g in gaps),
+                    "by_trim_rank": {
+                        label: {
+                            "n": len(sample),
+                            "median_gap": statistics.median(g.gap_pct for g in sample),
+                            "median_same_trim_comps": statistics.median(
+                                g.n_same_trim for g in sample
+                            ),
+                        }
+                        for label, sample in _quartiles(gaps)
+                        if sample
+                    },
+                    "by_same_trim_count": {
+                        str(bucket): {
+                            "n": len(sample),
+                            "median_abs_gap": statistics.median(abs(g.gap_pct) for g in sample),
+                        }
+                        for bucket, sample in sorted(by_same.items())
+                    },
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"\nCaptures loaded:  {len(captures)}")
+    print(f"Targets scored:   {len(gaps)}  (deduplicated by target listing)")
+    print(
+        f"\n{'trim rank of target':<24}{'n':>6}{'median gap':>11}"
+        f"{'same-trim':>10}{f'>= {params.MIN_COMPS_FOR_SLOPE}':>10}"
+    )
+    print("-" * 61)
+    print(_gap_row("ALL", gaps))
+    print("-" * 61)
+    for label, sample in _quartiles(gaps):
+        print(_gap_row(label, sample))
+
+    print(f"\n{'same-trim comps':<24}{'n':>6}{'median |gap|':>14}")
+    print("-" * 44)
+    for bucket, sample in sorted(by_same.items()):
+        span = f"{bucket}-{bucket + 2}" if bucket < 12 else "12+"
+        median_abs = statistics.median(abs(g.gap_pct) for g in sample)
+        print(f"{span:<24}{len(sample):>6}{median_abs:>13.1%}")
+
+    print("\n--- 10 largest gaps ---")
+    for gap in sorted(gaps, key=lambda g: -abs(g.gap))[:10]:
+        print(
+            f"{gap.gap_pct:>+7.1%}  {gap.n_comps:>3} comps, {gap.n_same_trim:>2} same trim  "
+            f"{gap.label}"
+        )
+
+    print(
+        "\nGAP is how far the target's own trim sits above the average trim of the comps "
+        "it was scored against, as a fraction of price. POSITIVE means the comp set is "
+        "made of cheaper trims than the target, so the expected asking price it supports "
+        "is too low and the target reads as overpriced for reasons that are not its "
+        "price. NEGATIVE is the mirror image and reads as a bargain.\n"
+        "Read the quartile rows, not the ALL row. The two signs cancel when averaged "
+        "over targets, which is exactly how this bias hides inside the precise null "
+        "that --trim-premium reports."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = ArgumentParser(description="Leave-one-out CV of the expected-asking-price model.")
     parser.add_argument(
@@ -651,6 +1024,13 @@ def main(argv: list[str] | None = None) -> int:
         "'Trim as a regressor' finding across every fittable capture instead of only "
         "the ones the narrowest-interval rule happened to select",
     )
+    parser.add_argument(
+        "--trim-bias",
+        action="store_true",
+        help="how far each target's own trim sits from the average trim of its comp set, "
+        "split by the target's trim rank -- the target-side measurement the other modes "
+        "are structurally blind to",
+    )
     args = parser.parse_args(argv)
 
     with session_scope() as session:
@@ -658,6 +1038,8 @@ def main(argv: list[str] | None = None) -> int:
             return run_coverage(session, args.captures, args.json)
         if args.trim_premium:
             return run_trim_premium(session, args.captures, args.json)
+        if args.trim_bias:
+            return run_trim_bias(session, args.captures, args.json)
         return run(session, args.captures, args.json)
 
 
