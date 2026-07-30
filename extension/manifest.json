@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Deal Rater — Marketplace listing capture",
+  "name": "Curbside — Marketplace car deals, checked.",
   "version": "0.1.0",
-  "description": "Captures the Marketplace vehicle listing you are looking at, on request, when you click Capture.",
+  "description": "Check any Facebook Marketplace car listing in one click — fair price, vehicle risk, and the questions a savvy buyer would ask.",
   "minimum_chrome_version": "116",
 
   "icons": {
