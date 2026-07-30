@@ -16,7 +16,6 @@
   "host_permissions": [
     "https://www.facebook.com/marketplace/*",
     "https://web.facebook.com/marketplace/*",
-    "http://localhost:8000/*",
     "https://deal-rater-production.up.railway.app/*"
   ],
 
