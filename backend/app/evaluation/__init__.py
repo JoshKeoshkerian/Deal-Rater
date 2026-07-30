@@ -149,6 +149,7 @@ def evaluate_capture(
         observed_at=capture.target_observed_at,
         description=capture.target_description,
         price_residual=residual,
+        stated_seller_type=capture.target.seller_type,
     )
     title = read_title_status(capture.target_title_status)
     completeness = assess_completeness(

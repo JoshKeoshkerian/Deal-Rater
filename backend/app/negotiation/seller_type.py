@@ -19,18 +19,30 @@ assumes a person: "moving", "inherited", "wife says sell". A dealer writes
 "Priced to Move!" as marketing copy, and reading it as urgency would invert the
 signal -- treating a sales pitch as a negotiating advantage.
 
+SUPERSEDED BY `vehicle_seller_type`, 2026-07-30
+------------------------------------------------
+This was the only signal available at step 4. It no longer is: spec 4.3's
+2026-07-28 correction found that Facebook states seller type outright on the
+listing node (`vehicle_seller_type`, "PRIVATE_SELLER" / "DEALER") and the
+extractor simply had not been reading it. `pricing/comps.py` picked that field
+up for comp-set exclusion the same day, but this module -- which decides
+`is_dealer` for the TARGET listing, read by the red-flags bullet, negotiation
+strength, and the offer stance -- kept running on text boilerplate alone. That
+under-detects badly: a dealer who does not happen to write "financing" or
+"dealership" into the description reads as a private seller everywhere
+downstream, even on a listing Facebook itself labels DEALER.
+
+`detect_seller_type` now takes the stated field as its first, decisive input.
+Text boilerplate is still scanned -- both to populate `markers` for a stated
+DEALER, and as the only signal left for the FB field's own ~19% unstated rate
+(`vehicle_details.seller_type`'s "common enough" comment in `headline.ts`).
+
 WHAT THIS DOES NOT SOLVE
 ------------------------
 Spec 6.3: "The more valuable use of this signal is comp hygiene, filtering
 dealers out of the comp set, which matters more to accuracy than the trust
-penalty on the target listing."
-
-That remains BLOCKED. Comp cards carry no description and no seller listing
-count, so there is nothing to run this against. This detects a dealer on the
-TARGET only, which is the less valuable half. See `app/pricing/comps.py`.
-
-Full seller-type handling, including the hashed-profile listing count, is spec
-6.3 and build step 5.
+penalty on the target listing." That is `pricing/comps.py`'s `DealerSignal`
+and runs independently of this module.
 """
 
 from __future__ import annotations
@@ -98,25 +110,55 @@ class SellerTypeReading:
         return self.seller_type is SellerType.DEALER
 
 
-def detect_seller_type(description: str | None) -> SellerTypeReading:
-    """Classify the seller from description boilerplate.
+#: Synthetic marker recorded when Facebook's own field, not text boilerplate,
+#: is what decided DEALER. Kept in `markers` (rather than a bare boolean)
+#: because `strength.py`'s dealer-language message and the red-flags bullet
+#: both surface `markers`, and "Facebook lists this as a dealer" is a stronger,
+#: more legible reason than an empty tuple would give a user.
+STATED_DEALER_MARKER = "Facebook lists this listing as a dealer"
 
-    One decisive marker, or two supporting ones. The asymmetry is deliberate:
-    false positives cost a real private-party listing -- the case the product
-    exists for -- while false negatives only mean a dealer's marketing copy is
-    read as if a person wrote it.
+
+def detect_seller_type(description: str | None, stated: str | None = None) -> SellerTypeReading:
+    """Classify the seller, preferring Facebook's own `vehicle_seller_type`.
+
+    `stated` is that field's raw value ("PRIVATE_SELLER" / "DEALER"), read off
+    the listing node -- see the module docstring. It is decisive when present:
+
+      DEALER          -> always DEALER, regardless of description boilerplate.
+      PRIVATE_SELLER   -> never DEALER. Facebook's own classification of its
+                          account outranks a heuristic built to guess at what
+                          this field turned out to already say.
+      unstated/unknown -> falls through to the text heuristic below, which
+                          remains the only signal for the ~1 in 5 listings
+                          where Facebook does not state it.
+
+    The text heuristic itself is unchanged: one decisive marker, or two
+    supporting ones. The asymmetry is deliberate: false positives cost a real
+    private-party listing -- the case the product exists for -- while false
+    negatives only mean a dealer's marketing copy is read as if a person wrote
+    it.
     """
-    if not description or not description.strip():
-        return SellerTypeReading(SellerType.UNKNOWN, ())
-
-    decisive = tuple(
-        label for label, pattern in _DECISIVE_MARKERS if pattern.search(description)
+    has_description = bool(description and description.strip())
+    decisive = (
+        tuple(label for label, pattern in _DECISIVE_MARKERS if pattern.search(description))
+        if has_description
+        else ()
     )
-    supporting = tuple(
-        label for label, pattern in _SUPPORTING_MARKERS if pattern.search(description)
+    supporting = (
+        tuple(label for label, pattern in _SUPPORTING_MARKERS if pattern.search(description))
+        if has_description
+        else ()
     )
     found = decisive + supporting
 
+    normalized_stated = stated.strip().upper() if stated else None
+    if normalized_stated == "DEALER":
+        return SellerTypeReading(SellerType.DEALER, (STATED_DEALER_MARKER, *found))
+    if normalized_stated == "PRIVATE_SELLER":
+        return SellerTypeReading(SellerType.NO_DEALER_MARKERS, found)
+
+    if not has_description:
+        return SellerTypeReading(SellerType.UNKNOWN, ())
     if decisive or len(supporting) >= 2:
         return SellerTypeReading(SellerType.DEALER, found)
     return SellerTypeReading(SellerType.NO_DEALER_MARKERS, found)

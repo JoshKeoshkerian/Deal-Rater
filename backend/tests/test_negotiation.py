@@ -34,12 +34,13 @@ def posted(days_ago: float) -> datetime:
     return NOW - timedelta(days=days_ago)
 
 
-def assess(days_ago: float | None = 10, description=None, residual=None):
+def assess(days_ago: float | None = 10, description=None, residual=None, stated_seller_type=None):
     return assess_negotiation(
         posted_at=None if days_ago is None else posted(days_ago),
         observed_at=NOW,
         description=description,
         price_residual=residual,
+        stated_seller_type=stated_seller_type,
     )
 
 
@@ -209,6 +210,50 @@ class TestDealerDetection:
         assert stale.strength > fresh.strength
 
 
+class TestStatedSellerTypeOverridesText:
+    """Facebook's own `vehicle_seller_type` is decisive over description
+    boilerplate (2026-07-30 fix). Before this, a dealer with a plain
+    description -- no "financing", no "dealership" -- was scored as a private
+    seller everywhere downstream of `is_dealer`, even when Facebook's own
+    field on the same listing already said DEALER."""
+
+    def test_a_bare_description_dealer_is_still_caught_when_facebook_says_so(self):
+        # The exact failure this fixes: no boilerplate at all in the text.
+        reading = detect_seller_type("Clean car, low miles, call or text.", stated="DEALER")
+        assert reading.is_dealer
+        assert reading.seller_type is SellerType.DEALER
+
+    def test_the_stated_reason_is_recorded_as_a_marker(self):
+        reading = detect_seller_type("Clean car, low miles.", stated="DEALER")
+        assert "Facebook lists this listing as a dealer" in reading.markers
+
+    def test_stated_private_seller_overrides_boilerplate_sounding_text(self):
+        # A private seller mentioning a warranty or financing should not be
+        # relabeled a dealer when Facebook's own field says otherwise.
+        reading = detect_seller_type(
+            "Still has factory warranty, financing may be available through my bank.",
+            stated="PRIVATE_SELLER",
+        )
+        assert not reading.is_dealer
+
+    def test_unstated_falls_back_to_the_text_heuristic(self):
+        with_text = detect_seller_type("Dealership: DriveNation. Financing Available.", stated=None)
+        assert with_text.is_dealer
+        without_markers = detect_seller_type("Clean car, low miles.", stated=None)
+        assert not without_markers.is_dealer
+
+    def test_unrecognised_stated_value_falls_back_to_text(self):
+        reading = detect_seller_type("Dealership: DriveNation.", stated="")
+        assert reading.is_dealer
+
+    def test_flows_through_assess_negotiation(self):
+        # End to end: the field that decides the red-flags bullet and the
+        # offer's dealer gating (`negotiation.seller.is_dealer`) must reflect
+        # Facebook's field, not just the description.
+        result = assess(description="Great car, priced fair.", stated_seller_type="DEALER")
+        assert result.seller.is_dealer
+
+
 class TestPhaseThreeStaysOut:
     def test_price_drop_history_is_not_implemented(self):
         # Spec 6.4 calls it "the strongest version of this signal" and spec 12
@@ -231,6 +276,7 @@ class TestPhaseThreeStaysOut:
             "observed_at",
             "description",
             "price_residual",
+            "stated_seller_type",
         }
 
 

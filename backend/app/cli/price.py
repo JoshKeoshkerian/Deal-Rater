@@ -341,6 +341,7 @@ def print_assessment(
             observed_at=capture.target_observed_at,
             description=capture.target_description,
             price_residual=assessment.residual_fraction,
+            stated_seller_type=capture.target.seller_type,
         ),
         assessment,
     )
@@ -388,6 +389,7 @@ def to_dict(capture: StoredCapture, a: PricingAssessment) -> dict:
         observed_at=capture.target_observed_at,
         description=capture.target_description,
         price_residual=a.residual_fraction,
+        stated_seller_type=capture.target.seller_type,
     )
     return {
         "capture_id": capture.capture_id,

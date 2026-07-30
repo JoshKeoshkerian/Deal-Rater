@@ -197,17 +197,24 @@ def assess_negotiation(
     observed_at: datetime | None,
     description: str | None,
     price_residual: float | None,
+    stated_seller_type: str | None = None,
 ) -> NegotiationAssessment:
     """Assess negotiating position for one listing.
 
     `price_residual` is the target's signed residual against the expected ASKING
     price, from the pricing model. It is an input to the interaction term only;
     nothing here feeds back into the price.
+
+    `stated_seller_type` is Facebook's own `vehicle_seller_type` for the
+    target ("PRIVATE_SELLER" / "DEALER"), the same field `pricing/comps.py`
+    uses to exclude dealers from the comp set. It decides `is_dealer` here too
+    when present -- see `seller_type.py`'s module docstring for why the text
+    heuristic alone under-detects.
     """
     days = days_on_market(posted_at, observed_at)
     reading = read_seller_language(description)
 
-    seller = detect_seller_type(description)
+    seller = detect_seller_type(description, stated=stated_seller_type)
     time_score, time_points = _time_component(days)
     bonus, bonus_points = _interaction_bonus(days, price_residual)
     language_score, language_points = _language_component(reading, seller)
