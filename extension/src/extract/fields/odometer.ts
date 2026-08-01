@@ -40,6 +40,7 @@ export function resolveMileage(
   block: Element | null,
   descBlock: Element | null = null,
   titleText: string | null = null,
+  aboutBlock: Element | null = null,
 ): ResolvedMileage {
   let unit: MileageUnit | null = null;
   let text: string | null = null;
@@ -111,6 +112,24 @@ export function resolveMileage(
         // description, not the header block the tier above checks.
         if (!descBlock) return null;
         const matched = matchDeepest(descBlock, MILEAGE_RE);
+        if (!matched) return null;
+        const parsed = parseMileage(matched);
+        if (!parsed) return null;
+        unit = parsed.unit;
+        text = matched;
+        return parsed.value;
+      },
+    ],
+    [
+      "text_pattern",
+      () => {
+        // When a listing has BOTH "Seller's description" and "About this
+        // vehicle", descBlock above resolves to the former only (see
+        // dom-blocks.ts), so mileage typed into the "About this vehicle" grid
+        // instead of Facebook's structured odometer field was never scanned.
+        // Most sellers put it here rather than in free-text prose.
+        if (!aboutBlock) return null;
+        const matched = matchDeepest(aboutBlock, MILEAGE_RE);
         if (!matched) return null;
         const parsed = parseMileage(matched);
         if (!parsed) return null;

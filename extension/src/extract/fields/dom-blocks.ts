@@ -62,3 +62,17 @@ export function descriptionBlock(main: Element): Element | null {
     sectionByHeading(main, /^description$|^details$|about this vehicle/i)
   );
 }
+
+/**
+ * The "About this vehicle" facts grid specifically, independent of whichever
+ * section `descriptionBlock` picked.
+ *
+ * When a listing has both "Seller's description" and "About this vehicle",
+ * `descriptionBlock` returns only the former (see above), so a fact typed
+ * into the grid rather than filled into Facebook's structured fields --
+ * mileage most commonly -- was never scanned by any text-pattern tier. This
+ * gives those tiers a second, dedicated block to fall back to.
+ */
+export function aboutVehicleBlock(main: Element): Element | null {
+  return sectionByHeading(main, /about this vehicle/i);
+}

@@ -26,6 +26,12 @@ export interface ListingSpec {
   mileageUnit?: string;
   mileageText?: string | null;
   description?: string | null;
+  /**
+   * Free text rendered in its own "About this vehicle" section, separate from
+   * `description`'s "Seller's description" section -- models a seller who
+   * types the odometer into the structured facts grid instead of prose.
+   */
+  aboutVehicleText?: string | null;
   photoCount?: number | null;
   photoUrls?: number;
   location?: string | null;
@@ -161,9 +167,19 @@ function headerMarkup(spec: ListingSpec, mode: RenderMode): string {
 function bodyMarkup(spec: ListingSpec, mode: RenderMode): string {
   const blocks: string[] = [headerMarkup(spec, mode)];
 
+  if (mode === "dom" && spec.aboutVehicleText) {
+    // Real pages render this section before "Seller's description" (see
+    // dom-blocks.ts), so it appears first here too.
+    blocks.push(
+      `<div class="about"><h2>About this vehicle</h2><div><span>${escapeHtml(
+        spec.aboutVehicleText,
+      )}</span></div></div>`,
+    );
+  }
+
   if (mode === "dom" && spec.description) {
     blocks.push(
-      `<div class="desc"><h2>Description</h2><div><span>${escapeHtml(
+      `<div class="desc"><h2>Seller's description</h2><div><span>${escapeHtml(
         spec.description,
       )}</span></div></div>`,
     );

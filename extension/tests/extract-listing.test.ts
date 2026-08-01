@@ -132,6 +132,23 @@ const scenarios: Scenario[] = [
     expected: { mileage: 120_000, mileage_unit: "mi", price_cents: 1_290_000 },
   },
   {
+    name: "07c mileage typed into 'About this vehicle', not the structured field",
+    // The common real-world shape: a "Seller's description" with no mileage
+    // in it, plus a separate "About this vehicle" facts grid where the seller
+    // typed the odometer as free text instead of filling in Facebook's own
+    // field. Only resolves if the extractor scans the About block
+    // independently of whichever section `descriptionBlock` picked.
+    spec: {
+      ...BASE,
+      mileage: null,
+      mileageText: null,
+      description: "Runs great, cold AC, clean title in hand.",
+      aboutVehicleText: "Mileage: 83,000 mi",
+    },
+    mode: "dom",
+    expected: { mileage: 83_000, mileage_unit: "mi", price_cents: 1_290_000 },
+  },
+  {
     name: "08 empty description",
     spec: { ...BASE, description: "" },
     mode: "payload",

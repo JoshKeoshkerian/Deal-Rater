@@ -10,7 +10,7 @@ import { listingIdFromUrl } from "../shared/parse";
 import type { ExtractionIssue, ObservationPayload } from "../shared/types";
 import { ExtractionContext } from "./context";
 import { FB_KEYS } from "./fb-keys";
-import { descriptionBlock, listingHeaderBlock } from "./fields/dom-blocks";
+import { aboutVehicleBlock, descriptionBlock, listingHeaderBlock } from "./fields/dom-blocks";
 import { findListingPhotosNode, findTargetListingNode } from "./fields/listing-node";
 import { resolveMileage } from "./fields/odometer";
 import { resolvePhotoCount } from "./fields/media";
@@ -95,6 +95,7 @@ export async function extractTargetListing(
   const main = ctx.main;
   const headerBlock = listingHeaderBlock(main);
   const descBlock = descriptionBlock(main);
+  const aboutBlock = aboutVehicleBlock(main);
 
   const price = resolvePrice(recorder, node, headerBlock);
   const priceChanged = resolvePriceChanged(recorder, headerBlock);
@@ -102,7 +103,14 @@ export async function extractTargetListing(
   const vehicle = resolveVehicle(recorder, { node, doc, block: headerBlock, description });
   // After the vehicle, so its title can serve as a mileage source of last
   // resort for sellers who type the odometer into the title instead.
-  const mileage = resolveMileage(recorder, node, headerBlock, descBlock, vehicle.title);
+  const mileage = resolveMileage(
+    recorder,
+    node,
+    headerBlock,
+    descBlock,
+    vehicle.title,
+    aboutBlock,
+  );
   const vin = resolveVin(recorder, node, description, vehicle.title);
   // Only trust the id-less photos lookup once `node` has confirmed the payload
   // set is fresh for THIS listing (see `findListingPhotosNode`'s docstring) --
