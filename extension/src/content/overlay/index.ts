@@ -45,6 +45,7 @@
 
 import { loadSettings, saveSettings } from "../../shared/settings";
 import type { EvaluationResponse } from "../../shared/types";
+import { buildBookmark } from "./bookmark";
 import { buildBreakdown } from "./breakdown";
 import { animateFills, disclosure, el, section } from "./elements";
 import { buildHeader } from "./headline";
@@ -274,7 +275,15 @@ export function renderEvaluation(data: EvaluationResponse): void {
   window.addEventListener("keydown", onKeydown, true);
 
   // 1. Headline, in whichever state the evidence supports.
-  sheet.append(buildHeader(data, close, buildThemeControl(host)));
+  //
+  // The bookmark is two pieces built together: a star in the header, and the
+  // sign-in panel it opens when clicked by somebody without an account. The
+  // panel goes directly under the header rather than floating over the sheet,
+  // so it pushes the evaluation down instead of covering it -- the user is
+  // still reading the thing they are about to save.
+  const bookmark = buildBookmark(data.capture_id);
+  sheet.append(buildHeader(data, close, buildThemeControl(host), bookmark.button));
+  sheet.append(bookmark.panel);
 
   // The breakdown belongs with the headline (spec 5.2) and is the section
   // closest to it for that reason -- nothing else renders between them.

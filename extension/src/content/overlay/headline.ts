@@ -233,15 +233,17 @@ function buildUnreliable(data: EvaluationResponse): HTMLElement[] {
 }
 
 /**
- * `themeControl` is built by `index.ts` rather than here: choosing a theme
- * means reading and writing settings, and this module renders an evaluation. It
- * is optional so the preview harness can call `buildHeader` with two arguments
- * and get a header with no control it cannot wire up.
+ * `themeControl` and `saveControl` are built by `index.ts` rather than here:
+ * one reads and writes settings and the other talks to the backend, and this
+ * module renders an evaluation. Both are optional so the preview harness can
+ * call `buildHeader` with two arguments and get a header with no control it
+ * cannot wire up.
  */
 export function buildHeader(
   data: EvaluationResponse,
   onClose: () => void,
   themeControl?: HTMLElement,
+  saveControl?: HTMLElement,
 ): HTMLElement {
   const state = headlineState(data);
   const header = el("header");
@@ -259,6 +261,10 @@ export function buildHeader(
   const actions = el("div", "header-actions");
   const sellerTypeBadge = buildSellerTypeBadge(data);
   if (sellerTypeBadge) actions.append(sellerTypeBadge);
+  // Left of the theme toggle: save is about this evaluation, theme is about
+  // the panel, and the one that acts on the content sits closer to it. Close
+  // stays last, where a close button belongs.
+  if (saveControl) actions.append(saveControl);
   if (themeControl) actions.append(themeControl);
   actions.append(close);
 

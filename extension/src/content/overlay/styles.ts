@@ -6,6 +6,7 @@
  * so a section cannot be added without its styles arriving with it.
  */
 
+import { BOOKMARK_STYLES } from "./bookmark";
 import { BREAKDOWN_STYLES } from "./breakdown";
 import { ELEMENT_STYLES } from "./elements";
 import { HEADER_STYLES } from "./headline";
@@ -100,6 +101,7 @@ ${themeVariables(selector)}
 ${SHELL}
 ${ELEMENT_STYLES}
 ${HEADER_STYLES}
+${BOOKMARK_STYLES}
 ${BREAKDOWN_STYLES}
 ${SECTION_STYLES}
 ${TRAILING}

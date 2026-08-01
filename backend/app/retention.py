@@ -14,6 +14,16 @@ remaining observations is a bare hash with nothing attached, so it goes too.
 which means the identity of a listing survives exactly as long as the evidence
 that it existed. That is the intended behaviour: retention should not leave
 orphaned identifiers behind.
+
+SAVED EVALUATIONS ARE NOT DELETED HERE, and that is deliberate rather than an
+oversight. `saved_evaluations.capture_id` and `.listing_id` are ON DELETE SET
+NULL -- the only capture foreign keys in this schema that are not CASCADE -- so
+this pass nulls them and leaves the row. The stored snapshot is the payload and
+a user's bookmark is their data, not observation data; emptying someone's saved
+list on a retention schedule they never saw would be a surprising thing for a
+privacy control to do. What the NULL costs is the ability to re-run the
+assessment from stored observations, which the wire contract reports as
+`snapshot_only` (see `schemas.SavedEvaluationOut`).
 """
 
 from __future__ import annotations

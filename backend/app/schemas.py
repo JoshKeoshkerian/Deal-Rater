@@ -506,3 +506,110 @@ class EvaluationOut(BaseModel):
     #: Beta, asking-price and liability notices. Spec 7 requires the liability
     #: framing "in the UI, not just the terms", so it travels with the payload.
     notices: list[str]
+
+
+# --- Accounts and saved evaluations -----------------------------------------
+
+
+class SignInRequestIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Pydantic's `EmailStr` needs `email-validator`, and this does not need a
+    #: dependency to reject `not-an-email`. Anything that gets past this and is
+    #: not deliverable fails at the mail provider, which is the only component
+    #: that actually knows.
+    email: Annotated[
+        str, Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    ]
+
+
+class SignInRequestOut(BaseModel):
+    """Identical whether or not an account exists.
+
+    This endpoint is unauthenticated and anyone can post any address to it, so a
+    response that differed would be an account-existence oracle: type an
+    address, read the answer, learn whether that person uses this product. The
+    message is phrased to be true either way -- no account is created until a
+    code is proved (`auth/service.py`), so "if that address can receive mail,
+    a code is on its way" is exactly what happened.
+    """
+
+    message: str
+    expires_in_minutes: int
+
+
+class VerifyCodeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: Annotated[str, Field(min_length=3, max_length=320)]
+    #: Hyphens, spaces and lower case are all fine; `tokens.canonicalize_code`
+    #: strips them before comparison. The bound is generous for that reason.
+    code: Annotated[str, Field(min_length=4, max_length=32)]
+    #: Observability only. Nothing branches on it -- see `AuthSession.client`.
+    client: Literal["extension", "web"] = "extension"
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+
+
+class SessionOut(BaseModel):
+    """What a successful verification hands back.
+
+    The extension stores `token` in `chrome.storage.local`. The website will
+    receive the same session as an httpOnly cookie once the API and the app
+    share a registrable domain, and `token` is then omitted rather than being
+    handed to page JavaScript that has no reason to hold it.
+    """
+
+    token: str | None
+    expires_at: datetime
+    user: UserOut
+
+
+class SavedStateOut(BaseModel):
+    """Whether the signed-in user has this evaluation saved.
+
+    Its own endpoint rather than a field on `EvaluationOut`, because that
+    payload is unauthenticated and shared: two users evaluating the same listing
+    get the same response, and hanging a per-user fact on it would make it
+    per-user and uncacheable.
+    """
+
+    capture_id: int
+    saved: bool
+    saved_at: datetime | None
+
+
+class SavedEvaluationOut(BaseModel):
+    """One bookmarked evaluation, as it read when it was saved.
+
+    `evaluation` is a verbatim `EvaluationOut` and is typed as one, so the card
+    on the website renders from the same contract the overlay does rather than
+    from a second, thinner serialization that would drift.
+    """
+
+    id: int
+    capture_id: int
+    saved_at: datetime
+    #: When the snapshot was computed. This is what the UI states as "checked",
+    #: and it is not the same as `saved_at` once a re-evaluate has happened.
+    evaluated_at: datetime
+    vehicle: str | None
+    listing_url: str | None
+    #: True once retention has deleted the underlying capture (spec 8.2). The
+    #: snapshot still renders in full; what is gone is the ability to re-run the
+    #: assessment from stored observations, so a refresh needs a fresh capture.
+    #:
+    #: NOT a claim about the car. Whether the vehicle is still for sale is
+    #: unknowable here: Marketplace does not reliably mark listings sold (spec
+    #: 4.3) and finding out would mean polling saved listings, which spec 8.1
+    #: rules out. Hence a checked-date and a re-evaluate action, not a status.
+    snapshot_only: bool
+    evaluation: EvaluationOut
+
+
+class SavedListOut(BaseModel):
+    items: list[SavedEvaluationOut]

@@ -473,6 +473,184 @@ class KnownIssuesEntry(Base):
     )
 
 
+class User(Base):
+    """An account. Deliberately three columns.
+
+    This table is the anchor a quota system attaches to later: free-eval
+    counters, plan state and subscription ids all hang off `users.id` as new
+    columns or new tables, and nothing here has to change to accommodate them.
+    That is the only reason accounts exist this early -- the saved-evaluations
+    feature needs somewhere to hang a user_id, and inventing a second identity
+    concept later is the expensive mistake.
+
+    Email is the identity. There is no password column and there should never
+    be one: `magic_link_tokens` below is the whole authentication story.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    #: Lower-cased and stripped before it reaches here (`auth/identity.py`), so
+    #: the unique constraint is doing case-insensitive work without a functional
+    #: index. 320 is the RFC 5321 maximum.
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+
+class MagicLinkToken(Base):
+    """A pending sign-in challenge (one emailed code).
+
+    Keyed by EMAIL RATHER THAN user_id, and no `users` row is created when one
+    is issued. Anyone can post any address to the request endpoint, so creating
+    an account at that point would let an unauthenticated caller fill the users
+    table with addresses that never consented to one. The account is created
+    when a code is actually proved (`auth/service.py`).
+
+    Only the hash is stored. A database dump should not be a set of live
+    sign-in codes, and this table is short-lived by construction: rows are
+    single-use, expire in minutes, and `attempts` caps guessing at a handful of
+    tries against a code that is already only valid for one address.
+    """
+
+    __tablename__ = "magic_link_tokens"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    #: SHA-256 hex of the emailed code. Never the code itself.
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+    #: Failed verifications against this row. Capped in `auth/service.py`.
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        Index("ix_magic_link_email", "email"),
+        Index("ix_magic_link_code_hash", "code_hash"),
+    )
+
+
+class AuthSession(Base):
+    """One signed-in client: an extension install or a browser.
+
+    Both surfaces store a token issued here -- the extension in
+    `chrome.storage.local`, the website in an httpOnly cookie -- and both are
+    validated by the same `auth/dependencies.py` lookup. The transport differs;
+    the session does not. Duplicating this check client-side is what the single
+    dependency exists to prevent.
+
+    As with magic-link codes, only the hash is stored.
+    """
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    #: SHA-256 hex of the bearer/cookie token.
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    #: Updated at most once a day, not on every request -- a write on every
+    #: authenticated read would make this table the busiest one in the database
+    #: to record something nothing reads more precisely than "recently".
+    last_seen_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+
+    #: 'extension' | 'web'. Observability only. NOTHING BRANCHES ON THIS, and
+    #: nothing should: it is a claim made by the caller at sign-in, so treating
+    #: it as a permission would be trusting an unauthenticated string.
+    client: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+
+    __table_args__ = (Index("ix_auth_sessions_user", "user_id"),)
+
+
+class SavedEvaluation(Base):
+    """One evaluation a user bookmarked, stored AS IT READ WHEN THEY SAVED IT.
+
+    WHY A SNAPSHOT AND NOT A FOREIGN KEY
+    ------------------------------------
+    There is no evaluations table to point at. `GET /v1/evaluations/{id}`
+    recomputes the whole assessment from a capture on every call -- comp
+    regression, VIN decode, NHTSA recalls, and spec 6.6's LLM call -- and
+    persists none of it. So a "saved evaluation" that stored only an id would
+    have to re-run all of that to render a list, which is live re-scoring (out
+    of scope by decision) and would bill an Anthropic call per card per page
+    load.
+
+    `evaluation` is therefore the serialized `EvaluationOut` verbatim, and it is
+    the payload. Everything else on this row is identity or provenance.
+
+    The snapshot is also the honest artifact. The saved card is a record of what
+    this tool said on a date, not a live quote; spec 4.5 already insists on that
+    distinction for asking prices, and it applies twice over to a number that is
+    now weeks old. `evaluated_at` is what the UI renders as "checked".
+
+    WHY TWO CAPTURE COLUMNS
+    -----------------------
+    `source_capture_id` is a plain integer and is the permanent identity: it is
+    what `POST/DELETE /v1/evaluations/{id}/save` matches on, and what makes the
+    unique constraint below work forever.
+
+    `capture_id` is the real foreign key and is NULLABLE with ON DELETE SET
+    NULL. `app/retention.py` deletes captures past the retention window, and
+    every other capture FK in this schema is ON DELETE CASCADE -- so a plain FK
+    here would mean a user's saved list silently emptying itself at the
+    retention boundary, with no record that anything was ever there. The
+    snapshot outlives its source on purpose. A NULL here is the read-time signal
+    that the source is gone (see `snapshot_only` on the wire), which is the
+    honest version of "not every saved id still resolves"; the same applies to
+    `listing_id`.
+
+    Note what a non-NULL `capture_id` does NOT mean: that the car is still for
+    sale. Marketplace does not reliably mark vehicles sold (spec 4.3), and
+    finding out would require polling saved listings, which spec 8.1 forbids
+    outright. Hence a date and a re-evaluate affordance rather than a status
+    field this product has no way to populate.
+    """
+
+    __tablename__ = "saved_evaluations"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    #: Permanent. Survives retention deleting the capture itself.
+    source_capture_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: Referential integrity only. NULL once the capture ages out.
+    capture_id: Mapped[int | None] = mapped_column(
+        ForeignKey("captures.id", ondelete="SET NULL")
+    )
+    listing_id: Mapped[int | None] = mapped_column(
+        ForeignKey("listings.id", ondelete="SET NULL")
+    )
+
+    saved_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    #: When the snapshot was computed, which is what "checked <date>" states.
+    #: Equal to `saved_at` on first save and updated by a re-evaluate.
+    evaluated_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    #: A serialized `schemas.EvaluationOut`. The card renders from this alone.
+    evaluation: Mapped[dict] = mapped_column(JsonCol, nullable=False)
+
+    #: Denormalised out of the snapshot so a list can render a heading and a
+    #: link without every row's JSON being parsed first.
+    vehicle: Mapped[str | None] = mapped_column(String(255))
+    listing_url: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        # Spec: "idempotent (saving twice doesn't create duplicates)". Enforced
+        # here rather than only in the endpoint, so a double-click that races
+        # itself cannot write two rows.
+        UniqueConstraint("user_id", "source_capture_id", name="uq_saved_user_capture"),
+        Index("ix_saved_user_time", "user_id", "saved_at"),
+    )
+
+
 class ExtractionReport(Base):
     """Scraper self-check output (spec 4.6).
 

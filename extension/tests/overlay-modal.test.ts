@@ -152,12 +152,19 @@ beforeEach(() => {
   // The theme control reads and writes the appearance setting. It renders at
   // its default and corrects itself when storage answers, so a stub that
   // simply echoes the defaults is enough for everything under test here.
+  // The bookmark control asks the service worker whether this evaluation is
+  // saved as soon as it mounts. Answering "nobody is signed in" is the state
+  // every one of these tests renders in, and it is the honest default: these
+  // assertions are about the panel, not about an account.
   (globalThis as unknown as { chrome: unknown }).chrome = {
     storage: {
       sync: {
         get: async (defaults: unknown) => defaults,
         set: async () => undefined,
       },
+    },
+    runtime: {
+      sendMessage: async () => ({ ok: true, signedIn: false }),
     },
   };
 });

@@ -1,23 +1,47 @@
 /**
  * Service worker.
  *
- * Four jobs, and no others: post captures to the backend, fetch the resulting
- * evaluation, and drive the background-tab fallback for the comp search and for
- * a stale target listing. It holds no timers, registers no alarms, and does
- * nothing at all unless a content script asks it to — the user-initiated
- * constraint in spec 8.1 is a property of this file's structure.
+ * Post captures to the backend, fetch the resulting evaluation, drive the
+ * background-tab fallback for the comp search and for a stale target listing,
+ * and carry sign-in and save/unsave for the bookmark button.
+ *
+ * It holds no timers, registers no alarms, and does nothing at all unless a
+ * content script asks it to — the user-initiated constraint in spec 8.1 is a
+ * property of this file's structure, and the saved-evaluations work does not
+ * change that. Nothing here polls a saved listing or refreshes a stored
+ * evaluation in the background; a saved card is a snapshot, and refreshing one
+ * is a click the user makes.
+ *
+ * It is also the only place the session token exists in this extension. The
+ * content script runs on facebook.com and asks for outcomes, never for the
+ * token — see `shared/session.ts`.
  */
 
 import type {
+  AuthActionResult,
+  AuthStateResult,
+  AuthVerifyResult,
   BackgroundToContent,
   ContentToBackground,
   EvaluationResult,
   HarvestResult,
   HarvestTargetResult,
+  SavedStateResult,
   SubmitCaptureResult,
 } from "../shared/messages";
+import { clearSession, loadSession, saveSession } from "../shared/session";
 import { loadSettings } from "../shared/settings";
-import { fetchEvaluationWithRetry, postCapture } from "./api-client";
+import {
+  fetchEvaluationWithRetry,
+  fetchSavedState,
+  postCapture,
+  requestSignInCode,
+  saveEvaluation,
+  signOut,
+  UnauthorizedError,
+  unsaveEvaluation,
+  verifySignInCode,
+} from "./api-client";
 
 const TAB_LOAD_TIMEOUT_MS = 30_000;
 
@@ -64,6 +88,38 @@ chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, send
       .catch((error: unknown) =>
         sendResponse({ ok: false, error: describe(error) } satisfies HarvestTargetResult),
       );
+    return true;
+  }
+
+  if (message?.type === "AUTH_STATE") {
+    handleAuthState().then(sendResponse).catch(failed(sendResponse));
+    return true;
+  }
+
+  if (message?.type === "AUTH_REQUEST_CODE") {
+    handleRequestCode(message.email).then(sendResponse).catch(failed(sendResponse));
+    return true;
+  }
+
+  if (message?.type === "AUTH_VERIFY_CODE") {
+    handleVerifyCode(message.email, message.code).then(sendResponse).catch(failed(sendResponse));
+    return true;
+  }
+
+  if (message?.type === "AUTH_SIGN_OUT") {
+    handleSignOut().then(sendResponse).catch(failed(sendResponse));
+    return true;
+  }
+
+  if (message?.type === "SAVED_STATE") {
+    handleSavedState(message.captureId).then(sendResponse).catch(failed(sendResponse));
+    return true;
+  }
+
+  if (message?.type === "SAVE_EVALUATION" || message?.type === "UNSAVE_EVALUATION") {
+    handleSaveToggle(message.captureId, message.type === "SAVE_EVALUATION")
+      .then(sendResponse)
+      .catch(failed(sendResponse));
     return true;
   }
 
@@ -165,4 +221,95 @@ function waitForContentScript(tabId: number): Promise<void> {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Shared rejection handler for the message listeners above. */
+function failed(sendResponse: (result: { ok: false; error: string }) => void) {
+  return (error: unknown) => sendResponse({ ok: false, error: describe(error) });
+}
+
+// --- accounts and saved evaluations ------------------------------------------
+
+async function handleAuthState(): Promise<AuthStateResult> {
+  const session = await loadSession();
+  return session ? { ok: true, signedIn: true, email: session.email } : { ok: true, signedIn: false };
+}
+
+async function handleRequestCode(email: string): Promise<AuthActionResult> {
+  const settings = await loadSettings();
+  try {
+    await requestSignInCode(settings.apiBaseUrl, email);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: describe(error) };
+  }
+}
+
+async function handleVerifyCode(email: string, code: string): Promise<AuthVerifyResult> {
+  const settings = await loadSettings();
+  try {
+    const result = await verifySignInCode(settings.apiBaseUrl, email, code);
+    if (!result?.token) return { ok: false, error: "The server did not return a session." };
+    await saveSession({ token: result.token, email: result.user?.email ?? email });
+    return { ok: true, email: result.user?.email ?? email };
+  } catch (error) {
+    // A 401 here means the CODE was wrong, not that a session expired -- there
+    // is no session yet. `UnauthorizedError` carries no detail for that reason,
+    // so the message is written here where the context is known.
+    if (error instanceof UnauthorizedError) {
+      return { ok: false, error: "That code is not right, or it has expired." };
+    }
+    return { ok: false, error: describe(error) };
+  }
+}
+
+async function handleSignOut(): Promise<AuthActionResult> {
+  const settings = await loadSettings();
+  const session = await loadSession();
+  // Cleared locally FIRST and regardless of what the server says. A sign-out
+  // that leaves the token on the machine because the network was down is the
+  // one failure mode this must not have.
+  await clearSession();
+  if (session) {
+    await signOut(settings.apiBaseUrl, session.token).catch(() => undefined);
+  }
+  return { ok: true };
+}
+
+async function handleSavedState(captureId: number): Promise<SavedStateResult> {
+  const session = await loadSession();
+  if (!session) return { ok: true, signedIn: false };
+
+  const settings = await loadSettings();
+  try {
+    const state = await fetchSavedState(settings.apiBaseUrl, session.token, captureId);
+    return { ok: true, signedIn: true, saved: state?.saved ?? false };
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      // The stored token no longer resolves: expired, or revoked elsewhere.
+      // Drop it and report the honest state rather than an error the user
+      // cannot act on.
+      await clearSession();
+      return { ok: true, signedIn: false };
+    }
+    return { ok: false, error: describe(error) };
+  }
+}
+
+async function handleSaveToggle(captureId: number, save: boolean): Promise<SavedStateResult> {
+  const session = await loadSession();
+  if (!session) return { ok: true, signedIn: false };
+
+  const settings = await loadSettings();
+  try {
+    if (save) await saveEvaluation(settings.apiBaseUrl, session.token, captureId);
+    else await unsaveEvaluation(settings.apiBaseUrl, session.token, captureId);
+    return { ok: true, signedIn: true, saved: save };
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      await clearSession();
+      return { ok: true, signedIn: false };
+    }
+    return { ok: false, error: describe(error) };
+  }
 }

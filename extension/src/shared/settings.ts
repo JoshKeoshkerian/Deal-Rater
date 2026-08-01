@@ -33,8 +33,24 @@ export interface Settings {
   extraMetroIds: string[];
 }
 
+/**
+ * Hosts this extension used to talk to, and no longer has permission for.
+ *
+ * `options.ts` WRITES `apiBaseUrl` to `chrome.storage.sync` whenever the
+ * options page is saved, so changing the default below does not reach anyone
+ * who has ever opened it -- their stored value wins, and after the manifest's
+ * `host_permissions` moved to api.curbsidescore.com, that stored value is a
+ * host the extension can no longer reach. The symptom is every capture failing
+ * with a network error, on the machines of the users most engaged with the
+ * product, for a reason nothing in the UI explains.
+ *
+ * `loadSettings` rewrites them on read instead. Keyed on the host alone so a
+ * stored URL with a trailing slash or a path is still matched.
+ */
+const RETIRED_API_HOSTS = ["deal-rater-production.up.railway.app"];
+
 export const DEFAULT_SETTINGS: Settings = {
-  apiBaseUrl: "https://deal-rater-production.up.railway.app",
+  apiBaseUrl: "https://api.curbsidescore.com",
   theme: "auto",
   enabled: true,
   devMode: false,
@@ -45,9 +61,30 @@ export const DEFAULT_SETTINGS: Settings = {
   extraMetroIds: [],
 };
 
+/** True when `url`'s host is one this extension can no longer reach. */
+function isRetiredApiUrl(url: string): boolean {
+  try {
+    return RETIRED_API_HOSTS.includes(new URL(url).host);
+  } catch {
+    // Not a parseable URL, so not a retired host either. `apiBaseUrl` is
+    // free text on the options page and can be anything.
+    return false;
+  }
+}
+
 export async function loadSettings(): Promise<Settings> {
   const stored = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-  return { ...DEFAULT_SETTINGS, ...stored } as Settings;
+  const settings = { ...DEFAULT_SETTINGS, ...stored } as Settings;
+
+  if (isRetiredApiUrl(settings.apiBaseUrl)) {
+    settings.apiBaseUrl = DEFAULT_SETTINGS.apiBaseUrl;
+    // Written back, not just corrected in memory, so the options page shows
+    // the URL actually in use rather than the dead one it would otherwise
+    // keep displaying and re-saving.
+    void chrome.storage.sync.set({ apiBaseUrl: settings.apiBaseUrl }).catch(() => undefined);
+  }
+
+  return settings;
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {

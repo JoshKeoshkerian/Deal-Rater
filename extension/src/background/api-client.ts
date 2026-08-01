@@ -88,3 +88,118 @@ export async function fetchEvaluationWithRetry(
     return fetchEvaluation(apiBaseUrl, captureId);
   }
 }
+
+// --- accounts and saved evaluations -----------------------------------------
+
+/**
+ * Raised when the backend says 401.
+ *
+ * Distinguished from every other failure because it is the one the UI can act
+ * on: a stored token that no longer resolves means the session expired or was
+ * revoked, and the right response is to clear it and offer sign-in again rather
+ * than to show "API 401" to somebody who thought they were signed in.
+ */
+export class UnauthorizedError extends Error {}
+
+/**
+ * One JSON request against the API, with the session token if there is one.
+ *
+ * `Authorization: Bearer` rather than a cookie, because a chrome-extension://
+ * origin cannot usefully carry one. The website will send the same session as
+ * an httpOnly cookie; the backend resolves both through one dependency
+ * (`app/auth/dependencies.py`), so the two surfaces cannot drift apart on what
+ * counts as a valid session.
+ */
+async function apiRequest<T>(
+  apiBaseUrl: string,
+  path: string,
+  options: { method?: string; token?: string | null; body?: unknown } = {},
+): Promise<T | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const headers: Record<string, string> = {};
+    if (options.body !== undefined) headers["Content-Type"] = "application/json";
+    if (options.token) headers["Authorization"] = `Bearer ${options.token}`;
+
+    const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal,
+    });
+
+    if (response.status === 401) throw new UnauthorizedError("Not signed in.");
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      // FastAPI puts the human-readable reason in `detail`, and for this set of
+      // endpoints it is written to be read by a user ("That code is not
+      // right."). Falling back to the raw body keeps unexpected shapes
+      // debuggable rather than collapsing them to "request failed".
+      let detail = text.slice(0, 300);
+      try {
+        const parsed = JSON.parse(text) as { detail?: unknown };
+        if (typeof parsed.detail === "string") detail = parsed.detail;
+      } catch {
+        /* not JSON; the raw body is the best available message */
+      }
+      throw new Error(detail || `API ${response.status}`);
+    }
+
+    return text ? (JSON.parse(text) as T) : null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function requestSignInCode(apiBaseUrl: string, email: string): Promise<unknown> {
+  return apiRequest(apiBaseUrl, "/v1/auth/sign-in", { method: "POST", body: { email } });
+}
+
+export function verifySignInCode(
+  apiBaseUrl: string,
+  email: string,
+  code: string,
+): Promise<{ token: string; user: { email: string } } | null> {
+  return apiRequest(apiBaseUrl, "/v1/auth/verify", {
+    method: "POST",
+    body: { email, code, client: "extension" },
+  });
+}
+
+export function signOut(apiBaseUrl: string, token: string): Promise<unknown> {
+  return apiRequest(apiBaseUrl, "/v1/auth/sign-out", { method: "POST", token });
+}
+
+export function fetchSavedState(
+  apiBaseUrl: string,
+  token: string,
+  captureId: number,
+): Promise<{ saved: boolean } | null> {
+  return apiRequest(apiBaseUrl, `/v1/evaluations/${captureId}/save`, { token });
+}
+
+export function saveEvaluation(
+  apiBaseUrl: string,
+  token: string,
+  captureId: number,
+): Promise<unknown> {
+  return apiRequest(apiBaseUrl, `/v1/evaluations/${captureId}/save`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function unsaveEvaluation(
+  apiBaseUrl: string,
+  token: string,
+  captureId: number,
+): Promise<unknown> {
+  return apiRequest(apiBaseUrl, `/v1/evaluations/${captureId}/save`, {
+    method: "DELETE",
+    token,
+  });
+}

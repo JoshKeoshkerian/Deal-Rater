@@ -57,6 +57,63 @@ class Settings(BaseSettings):
     # deployment without removing credentials from it.
     known_issues_enabled: bool = True
 
+    # --- Accounts and saved evaluations -------------------------------------
+    #
+    # Auth is magic-link only: an emailed code is exchanged for a session token.
+    # There is no password anywhere in this system and there should not be one.
+
+    # Resend, chosen over Postmark purely for setup friction: an API key and a
+    # single POST, with no per-domain approval step before the first send.
+    # Unset means sign-in is DISABLED rather than silently broken -- the
+    # magic-link endpoint returns 503 and says so, because an endpoint that
+    # accepts an address and sends nothing is indistinguishable from a working
+    # one that lost the mail.
+    resend_api_key: str | None = None
+
+    # Must be on a domain verified in Resend. The default is deliberately
+    # invalid-looking so an unconfigured deployment fails at Resend rather than
+    # sending from somewhere plausible.
+    auth_from_email: str = "Curbside <login@example.invalid>"
+
+    # Where the website lives, used to build the link in the email. The
+    # extension's paste-a-code flow does not need it; the emailed link does.
+    app_base_url: str = "https://app.curbsidescore.com"
+
+    # Short by design: the code is in an inbox, and the whole flow is a person
+    # switching to their mail app and back.
+    magic_link_ttl_minutes: int = 15
+    # How many wrong codes one challenge tolerates before it is dead.
+    magic_link_max_attempts: int = 5
+
+    # Long by design on the other side: re-authenticating a browser extension
+    # is disproportionately annoying, and the token is revocable server-side.
+    session_ttl_days: int = 90
+
+    # --- Cookie transport (website) -----------------------------------------
+    #
+    # The website's session. `api.curbsidescore.com` and `app.curbsidescore.com`
+    # share the registrable domain `curbsidescore.com`, which is what makes this
+    # work at all -- the earlier *.up.railway.app host is on the Public Suffix
+    # List, so a cookie scoped there was refused by the browser outright.
+    #
+    # Sharing an eTLD+1 also makes the two subdomains SAME-SITE, so `SameSite=Lax`
+    # is sent on the website's fetches to the API. Lax restricts cross-SITE
+    # requests, not cross-ORIGIN ones. `None` would work too and is strictly
+    # weaker, so it is not used.
+    session_cookie_name: str = "curbside_session"
+
+    #: Leading dot: the cookie must be readable by `app.` while being SET by
+    #: `api.`, which a host-only cookie is not.
+    #:
+    #: DEFAULTED TO PRODUCTION ON PURPOSE. Empty is a legal value that yields a
+    #: host-only cookie -- correct for local development, and a silent, total
+    #: sign-in failure on the website in production, visible only as "signed out
+    #: immediately after signing in". A default that is wrong for dev fails
+    #: loudly on one machine; a default that is wrong for production fails
+    #: quietly for every user. `main.py` logs whichever value is in force at
+    #: startup so this is never something to guess at.
+    session_cookie_domain: str = ".curbsidescore.com"
+
 
 @lru_cache
 def get_settings() -> Settings:

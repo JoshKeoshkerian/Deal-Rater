@@ -20,7 +20,17 @@ export type ContentToBackground =
   | { type: "HARVEST_COMPS_VIA_TAB"; url: string }
   | { type: "HARVEST_TARGET_VIA_TAB"; url: string }
   | { type: "CONTENT_READY"; url: string }
-  | { type: "FETCH_EVALUATION"; captureId: number };
+  | { type: "FETCH_EVALUATION"; captureId: number }
+  // --- accounts and saved evaluations --------------------------------------
+  // The content script never holds the session token; it asks for an outcome.
+  // See `shared/session.ts`.
+  | { type: "AUTH_STATE" }
+  | { type: "AUTH_REQUEST_CODE"; email: string }
+  | { type: "AUTH_VERIFY_CODE"; email: string; code: string }
+  | { type: "AUTH_SIGN_OUT" }
+  | { type: "SAVED_STATE"; captureId: number }
+  | { type: "SAVE_EVALUATION"; captureId: number }
+  | { type: "UNSAVE_EVALUATION"; captureId: number };
 
 export type BackgroundToContent = { type: "HARVEST_COMPS" } | { type: "HARVEST_TARGET" };
 
@@ -54,6 +64,31 @@ export interface HarvestedTarget {
 }
 
 export type HarvestTargetResult = ({ ok: true } & HarvestedTarget) | { ok: false; error: string };
+
+/** Who is signed in on this install, if anyone. */
+export type AuthStateResult =
+  | { ok: true; signedIn: false }
+  | { ok: true; signedIn: true; email: string }
+  | { ok: false; error: string };
+
+export type AuthActionResult = { ok: true } | { ok: false; error: string };
+
+export type AuthVerifyResult =
+  | { ok: true; email: string }
+  | { ok: false; error: string };
+
+/**
+ * Whether this evaluation is saved.
+ *
+ * `signedIn: false` is a successful answer rather than an error: "nobody is
+ * signed in" is the state the button renders as its default, and treating it as
+ * a failure would put an error message in front of every user who has not made
+ * an account yet -- which is all of them, on first run.
+ */
+export type SavedStateResult =
+  | { ok: true; signedIn: false }
+  | { ok: true; signedIn: true; saved: boolean }
+  | { ok: false; error: string };
 
 export function sendToBackground<T>(message: ContentToBackground): Promise<T> {
   return chrome.runtime.sendMessage(message) as Promise<T>;

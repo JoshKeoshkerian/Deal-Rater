@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import captures, evaluations, health, telemetry
+from app.api import auth, captures, evaluations, health, saved, telemetry
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -25,9 +25,17 @@ if settings.cors_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=False,
-        allow_methods=["POST", "GET"],
-        allow_headers=["Content-Type"],
+        # Required for the website's httpOnly session cookie to be sent at all.
+        # Legal here only because `allow_origins` is an explicit list: the spec
+        # forbids credentials alongside a `*` origin, and Starlette will emit
+        # the literal "*" -- silently breaking every credentialed request -- if
+        # one is ever added to that setting. Keep it a list of exact origins.
+        allow_credentials=True,
+        # DELETE for unsaving. OPTIONS is handled by the middleware itself.
+        allow_methods=["GET", "POST", "DELETE"],
+        # Authorization for the extension's bearer token; the cookie needs no
+        # header entry, since browsers attach it themselves.
+        allow_headers=["Content-Type", "Authorization"],
     )
 else:
     # An empty origin list registers no middleware at all, so every browser
@@ -63,7 +71,36 @@ elif not settings.anthropic_api_key:
 else:
     logger.info("Known-issues LLM call (spec 6.6): ENABLED (model=%s)", settings.known_issues_model)
 
+if not settings.resend_api_key:
+    logger.info(
+        "Sign-in (magic link): DISABLED (no DEAL_RATER_RESEND_API_KEY). "
+        "/v1/auth/sign-in returns 503; saving an evaluation is unreachable."
+    )
+else:
+    logger.info("Sign-in (magic link): ENABLED (from=%s)", settings.auth_from_email)
+
+# The website's session cookie fails in exactly one visible way -- the user
+# signs in, and is immediately signed out again -- and the cause is almost
+# always this value. An empty domain yields a host-only cookie that `app.`
+# cannot read when `api.` set it, which is correct locally and fatal in
+# production. One line at startup beats deducing it from a browser's cookie jar.
+if settings.session_cookie_domain:
+    logger.info(
+        "Website session cookie: %s scoped to %s",
+        settings.session_cookie_name,
+        settings.session_cookie_domain,
+    )
+else:
+    logger.warning(
+        "Website session cookie: %s is HOST-ONLY (DEAL_RATER_SESSION_COOKIE_DOMAIN is "
+        "empty). Correct for local development. In production this means the website "
+        "cannot read the cookie the API sets, and every web sign-in appears to fail.",
+        settings.session_cookie_name,
+    )
+
 app.include_router(health.router)
 app.include_router(captures.router)
 app.include_router(telemetry.router)
 app.include_router(evaluations.router)
+app.include_router(auth.router)
+app.include_router(saved.router)
