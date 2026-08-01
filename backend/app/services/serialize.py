@@ -17,6 +17,7 @@ from ..schemas import (
     CompletenessOut,
     DealScoreOut,
     EvaluationOut,
+    HelpfulLinkOut,
     KnownIssuesOut,
     NegotiationOut,
     OfferOut,
@@ -246,5 +247,9 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
         known_issues=known_issues,
         known_issues_unavailable_reason=known.unavailable_reason,
         known_issues_unavailable_code=known.skip_code,
+        helpful_links=[
+            HelpfulLinkOut(label=link.label, url=link.url, note=link.note)
+            for link in evaluation.helpful_links
+        ],
         notices=list(evaluation.notices),
     )

@@ -48,7 +48,14 @@ import type { EvaluationResponse } from "../../shared/types";
 import { buildBreakdown } from "./breakdown";
 import { animateFills, disclosure, el, section } from "./elements";
 import { buildHeader } from "./headline";
-import { alternativesSummary, buildAlternatives, buildNegotiation, negotiationSummary } from "./sections";
+import {
+  alternativesSummary,
+  buildAlternatives,
+  buildHelpfulLinks,
+  buildNegotiation,
+  helpfulLinksSummary,
+  negotiationSummary,
+} from "./sections";
 import { stylesheet } from "./styles";
 import {
   isThemePreference,
@@ -286,6 +293,12 @@ export function renderEvaluation(data: EvaluationResponse): void {
   // 3. Alternatives.
   sheet.append(
     disclosure("Alternatives", alternativesSummary(data), buildAlternatives(data)),
+  );
+
+  // 4. Helpful links. Additive (app/links/builder.py): independent of pricing
+  // and comps, so it renders regardless of what the sections above found.
+  sheet.append(
+    disclosure("Helpful Links", helpfulLinksSummary(data), buildHelpfulLinks(data)),
   );
 
   sheet.append(buildNotices(data));

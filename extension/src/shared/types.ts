@@ -337,5 +337,18 @@ export interface EvaluationResponse {
    * gate returning a VERDICT about the car, which is a finding.
    */
   known_issues_unavailable_code: string | null;
+  /**
+   * KBB and Consumer Reports jumping-off points (`app/links/builder.py`).
+   * Additive, not part of spec 7's numbered order: no minimum-comp or
+   * confidence gate, always exactly two entries. `note` reads the same
+   * whether `url` landed on a direct model page or a site's general
+   * fallback page -- nothing here flags which happened, so render both the
+   * same way.
+   */
+  helpful_links: Array<{
+    label: string;
+    url: string;
+    note: string | null;
+  }>;
   notices: string[];
 }

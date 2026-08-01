@@ -432,6 +432,20 @@ class AlternativesOut(BaseModel):
     different_trim: list[AlternativeOut]
 
 
+class HelpfulLinkOut(BaseModel):
+    """A KBB or Consumer Reports jumping-off point (`app/links/builder.py`).
+
+    Pure URL templating from year/make/model -- no network call, no scraping.
+    `note` is the same text whether `url` landed on a direct model page or a
+    site's general fallback page: nothing here flags which happened, so a UI
+    cannot single one out even if it wanted to.
+    """
+
+    label: str
+    url: str
+    note: str | None
+
+
 class KnownIssuesOut(BaseModel):
     """Spec 6.6/7.7: "what to check on this specific car".
 
@@ -485,6 +499,10 @@ class EvaluationOut(BaseModel):
     #: which are about this server, not about the car, and should not be shown
     #: to a buyer at all). None when the section is present.
     known_issues_unavailable_code: str | None
+    #: Additive, not part of spec 7's numbered order (build step 12): KBB and
+    #: Consumer Reports links. Always exactly two entries -- no minimum-comp
+    #: or confidence gate, since this reads only year/make/model.
+    helpful_links: list[HelpfulLinkOut]
     #: Beta, asking-price and liability notices. Spec 7 requires the liability
     #: framing "in the UI, not just the terms", so it travels with the payload.
     notices: list[str]

@@ -24,6 +24,7 @@ from ..flags import (
     read_title_status,
 )
 from ..known_issues import KnownIssuesReading, evaluate_gate, fetch_known_issues
+from ..links import build_helpful_links
 from ..negotiation import (
     NegotiationAssessment,
     OfferPlan,
@@ -129,6 +130,18 @@ def evaluate_capture(
     as an input. Nothing flows back the other way.
     """
     settings = settings or get_settings()
+
+    # Independent of every other dimension: no comp set, no pricing, no
+    # confidence gate. Computed here rather than in `build_evaluation` so it
+    # is obvious at a glance that nothing below feeds it and it feeds
+    # nothing below (see `app/links/builder.py`).
+    helpful_links = build_helpful_links(
+        year=capture.target.year,
+        make=capture.target.make,
+        model=capture.target.model,
+        trim=capture.target.trim_text,
+    )
+
     vehicle_risk = assess_vehicle(
         session,
         vin=capture.target_vin,
@@ -208,6 +221,7 @@ def evaluate_capture(
         alternatives=alternatives,
         deal_score=deal_score,
         known_issues=known_issues,
+        helpful_links=helpful_links,
         seller_rating_average=capture.target_seller_rating_average,
         seller_rating_count=capture.target_seller_rating_count,
         extra_notices=_title_explains_discount_notice(pricing, title),

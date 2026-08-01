@@ -69,6 +69,28 @@ def test_evaluation_surfaces_a_low_seller_rating(client):
     assert any("2.4/5 star rating from 7 reviews" in m for m in seller_risk["messages"])
 
 
+def test_evaluation_always_carries_helpful_links(client):
+    # Additive (app/links/builder.py, build step 12): no minimum-comp or
+    # confidence gate, so this is present even with zero comps -- unlike
+    # every other section in this payload.
+    post = client.post("/v1/captures", json=capture_payload(comps=[]))
+    capture_id = post.json()["capture_id"]
+
+    response = client.get(f"/v1/evaluations/{capture_id}?offline=true")
+    assert response.status_code == 200
+    links = response.json()["helpful_links"]
+    by_label = {link["label"]: link for link in links}
+    assert by_label.keys() == {"Kelley Blue Book", "Consumer Reports"}
+    # The default fixture target is a clean 2014 Toyota Camry, so both should
+    # resolve to a direct model page rather than a fallback landing page.
+    assert by_label["Kelley Blue Book"]["url"] == "https://www.kbb.com/toyota/camry/2014/"
+    assert (
+        by_label["Consumer Reports"]["url"]
+        == "https://www.consumerreports.org/cars/toyota/camry/2014/overview/"
+    )
+    assert all(link["note"] for link in links)
+
+
 def test_api_has_no_client_specific_behaviour(client):
     """Spec 8.1.4: the backend stays independent of the extension. A different
     client name must be handled identically."""

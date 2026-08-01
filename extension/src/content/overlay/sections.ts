@@ -884,6 +884,37 @@ export function buildAlternatives(data: EvaluationResponse): HTMLElement[] {
 }
 
 /* -------------------------------------------------------------------------- */
+/* helpful links (additive; app/links/builder.py)                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Always exactly two entries (KBB, Consumer Reports) with no minimum-comp or
+ * confidence gate, so there is nothing here worth summarising in the
+ * disclosure's collapsed row -- "2 outside references" is true on every
+ * evaluation and says nothing. Empty string renders no summary at all, same
+ * as "Recalls" and "Red flags" elsewhere in this file.
+ */
+export function helpfulLinksSummary(_data: EvaluationResponse): string {
+  return "";
+}
+
+/**
+ * KBB and Consumer Reports, opened in a new tab. Deliberately identical
+ * treatment whether the backend built a direct model-year page or fell back
+ * to a site's general landing page: the payload carries no flag saying which
+ * happened, and this renders `note` as a plain caveat pill either way rather
+ * than a judgement about what the user will find there.
+ */
+export function buildHelpfulLinks(data: EvaluationResponse): HTMLElement[] {
+  return data.helpful_links.map((link) => {
+    const node = el("div", "helpful-link");
+    node.append(listingLink(link.url, link.label));
+    if (link.note) node.append(notePill(link.note));
+    return node;
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 
 export const SECTION_STYLES = `
   .summary-inline {
@@ -1147,4 +1178,11 @@ export const SECTION_STYLES = `
   .known-summary {
     margin: 0 0 var(--sp-2); font-size: var(--fs-base); line-height: 1.55; color: var(--text-muted);
   }
+
+  /* helpful links -------------------------------------------------------- */
+  .helpful-link {
+    padding: var(--sp-4) 0; border-top: 1px solid var(--border-faint);
+    font-size: var(--fs-sm); line-height: 1.5;
+  }
+  .helpful-link:first-child { border-top: 0; padding-top: var(--sp-1); }
 `;

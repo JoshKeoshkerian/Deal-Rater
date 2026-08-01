@@ -38,6 +38,7 @@ from ..alternatives import AlternativesResult
 from ..flags import CompletenessReading, ScamAssessment, TitleReading
 from ..known_issues import KnownIssuesReading
 from ..known_issues.client import NOT_REQUESTED_CODE, NOT_REQUESTED_REASON
+from ..links import HelpfulLink
 from ..negotiation import NegotiationAssessment, OfferPlan
 from ..nhtsa import VehicleRiskAssessment
 from ..pricing import PricingAssessment
@@ -105,6 +106,12 @@ class Evaluation:
         )
     )
 
+    # Additive, not part of spec 7's numbered order (build step 12): KBB and
+    # Consumer Reports links, always populated from year/make/model alone.
+    # Unlike every dimension above, this never reads pricing, comps or
+    # confidence -- see `app/links/builder.py`.
+    helpful_links: tuple[HelpfulLink, ...] = ()
+
     notices: tuple[str, ...] = field(
         default_factory=lambda: (BETA_NOTICE, ASKING_PRICE_NOTICE, DISCLAIMER)
     )
@@ -159,6 +166,7 @@ def build_evaluation(
     alternatives: AlternativesResult,
     deal_score: DealScore,
     known_issues: KnownIssuesReading | None = None,
+    helpful_links: tuple[HelpfulLink, ...] = (),
     seller_rating_average: float | None = None,
     seller_rating_count: int | None = None,
     extra_notices: tuple[str, ...] = (),
@@ -184,6 +192,7 @@ def build_evaluation(
         offer=offer,
         opening_message=opening_message,
         known_issues=known_issues or KnownIssuesReading(),
+        helpful_links=helpful_links,
         seller_rating_average=seller_rating_average,
         seller_rating_count=seller_rating_count,
         notices=(*extra_notices, BETA_NOTICE, ASKING_PRICE_NOTICE, DISCLAIMER),

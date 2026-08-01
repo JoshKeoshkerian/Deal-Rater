@@ -123,6 +123,18 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
     known_issues: null,
     known_issues_unavailable_reason: null,
     known_issues_unavailable_code: null,
+    helpful_links: [
+      {
+        label: "Kelley Blue Book",
+        url: "https://www.kbb.com/mazda/cx-5/2016/",
+        note: "Independent pricing reference.",
+      },
+      {
+        label: "Consumer Reports",
+        url: "https://www.consumerreports.org/cars/mazda/cx-5/2016/overview/",
+        note: "Reliability history and owner satisfaction for this model.",
+      },
+    ],
     notices: ["Marketplace shows asking prices, not sale prices."],
     ...over,
   };
