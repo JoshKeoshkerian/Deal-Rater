@@ -99,14 +99,19 @@ class TestBetterMeansValueNotPrice:
         assert result.has_alternatives
         assert all(a.advantage < alt_params.MIN_RESIDUAL_ADVANTAGE for a in result.alternatives)
 
-    def test_a_meaningfully_worse_comp_is_never_shown(self):
-        # Beyond EQUALISH_TOLERANCE, a same-trim comp is genuinely worse value
-        # than the target and must not appear in `alternatives`.
+    def test_a_meaningfully_worse_comp_is_shown_only_as_a_fill_not_a_recommendation(self):
+        # Beyond EQUALISH_TOLERANCE a same-trim comp is genuinely worse value
+        # than the target. 2026-08-01's MIN_ALTERNATIVES fill means it no
+        # longer disqualifies the comp from `alternatives` outright -- it
+        # surfaces when nothing better exists -- but it must never be
+        # described as a better deal.
         comps = line()
         estimate = estimate_expected_asking_price(filter_comps(target(), comps))
         expected = estimate.expected_asking_cents
         result = run(target(price=int(expected * 0.80), mileage=120_000), comps)
-        assert not result.has_alternatives
+        assert result.has_alternatives
+        assert all(a.advantage < alt_params.MIN_RESIDUAL_ADVANTAGE for a in result.alternatives)
+        assert all("better value by" not in a.describe() for a in result.alternatives)
 
 
 class TestAdverseSelectionExclusion:
@@ -133,13 +138,17 @@ class TestAdverseSelectionExclusion:
 
 
 class TestSuppression:
-    def test_the_target_being_best_is_stated_not_silent(self):
-        # Spec 6.5: "Suppress when the target is already the best available, and
-        # say so, since that is also useful."
+    def test_the_target_being_best_still_surfaces_comparison_alternatives(self):
+        # Spec 6.5 originally paired "target is best" with an EMPTY
+        # alternatives list. 2026-08-01: that read as "nothing else exists"
+        # rather than "nothing beats this, here is what else is out there," so
+        # `alternatives` now fills toward MIN_ALTERNATIVES for comparison even
+        # here -- worded so none of them are claimed to be a better deal.
         result = run(target(price=400_000, mileage=120_000), line())
         assert result.target_is_best
-        assert not result.has_alternatives
-        assert "best of them" in result.message()
+        assert result.has_alternatives
+        assert "best-priced listing in this comp set" in result.message()
+        assert all(a.advantage < alt_params.MIN_RESIDUAL_ADVANTAGE for a in result.alternatives)
 
     def test_a_target_priced_better_than_half_its_comps_still_shows_them(self):
         # 2026-07-30 (later same day): a prior version suppressed
@@ -171,8 +180,10 @@ class TestSuppression:
         assert result.has_alternatives
         assert "well priced" not in result.message()
 
-    def test_target_is_best_stays_truthful_even_when_display_is_gated(self):
-        # The comparison still runs; only the display is suppressed.
+    def test_target_is_best_stays_truthful_even_though_alternatives_still_render(self):
+        # target_is_best answers "did anything beat this," a market-wide fact
+        # that is unaffected by whether MIN_ALTERNATIVES fill (2026-08-01)
+        # populates `alternatives` for comparison.
         result = run(target(price=400_000, mileage=120_000), line())
         assert result.target_is_best is True
 
@@ -284,6 +295,62 @@ class TestTrimRestriction:
         ]
         result = run(target(price=1_600_000, mileage=100_000), [*line(), *comps])
         assert len(result.different_trim) <= alt_params.MAX_DIFFERENT_TRIM_ALTERNATIVES
+
+
+class TestMinimumAlternatives:
+    """2026-08-01: `alternatives` fills toward MIN_ALTERNATIVES from worse
+    same-trim comps rather than reporting a short or empty list just because
+    the target is hard to beat -- including target_is_best, which is exactly
+    the case spec 6.5 originally paired with an empty list.
+    """
+
+    def test_target_is_best_still_surfaces_up_to_the_minimum(self):
+        result = run(target(price=400_000, mileage=120_000), line())
+        assert result.target_is_best
+        assert len(result.alternatives) == alt_params.MIN_ALTERNATIVES
+
+    def test_filled_comps_are_never_described_as_a_better_deal(self):
+        comps = line()
+        estimate = estimate_expected_asking_price(filter_comps(target(), comps))
+        expected = estimate.expected_asking_cents
+        result = run(target(price=int(expected * 0.80), mileage=120_000), comps)
+        assert result.has_alternatives
+        assert all("better value by" not in a.describe() for a in result.alternatives)
+
+    def test_withheld_comps_are_never_pulled_in_as_fill(self):
+        # `eligible` already contains every same-trim comp that clears
+        # -EQUALISH_TOLERANCE, including the ones later routed to `withheld`
+        # for being too cheap -- so the fill pool (same_trim minus eligible)
+        # can never contain a withheld comp. The adverse-selection floor
+        # (spec 2) is not worth reopening just to pad the list to three.
+        comps = [*line(9), comp(50, price=200_000, mileage=100_000)]
+        result = run(target(price=1_600_000, mileage=100_000), comps)
+        withheld_ids = {w.candidate.source_listing_id for w in result.withheld}
+        alt_ids = {a.candidate.source_listing_id for a in result.alternatives}
+        assert not (withheld_ids & alt_ids)
+
+    def test_a_thin_pool_shows_fewer_than_the_minimum_rather_than_fabricating(self):
+        # Only two same-trim comps exist at all; two different-trim comps pad
+        # the total up to the regression's minimum so an estimate is even
+        # possible. There is nothing to fill a third same-trim slot with, so
+        # the list is honestly short rather than padded with a different car.
+        same_trim = [
+            comp(1, price=1_000_000, mileage=90_000),
+            comp(2, price=1_050_000, mileage=110_000),
+        ]
+        different_trim = [
+            comp(3, price=900_000, mileage=100_000, trim_text="EX-L"),
+            comp(4, price=950_000, mileage=105_000, trim_text="EX-L"),
+        ]
+        result = run(target(price=1_600_000, mileage=100_000), [*same_trim, *different_trim])
+        assert len(result.alternatives) <= 2
+
+    def test_a_pool_already_at_the_minimum_is_left_alone(self):
+        # No fill needed: plenty of genuinely better-priced same-trim comps
+        # already clear the bar, so message() should not mention a fill.
+        result = run(target(price=1_600_000, mileage=100_000), line())
+        assert len(result.alternatives) >= alt_params.MIN_ALTERNATIVES
+        assert "not as better deals" not in result.message()
 
 
 class TestUnknownTargetTrim:

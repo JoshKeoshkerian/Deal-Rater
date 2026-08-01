@@ -292,6 +292,35 @@ the rename:
    ordering nothing here can verify. It is titled **Different trim** and
    rendered as its own dropdown inside the Alternatives section instead.
 
+**Minimum of three, 2026-08-01.** This section's opening line said "suppress
+when the target is already the best available, and say so" and the
+implementation took that literally: `target_is_best` paired the correct
+message with an *empty* alternatives list. That reads as "nothing else
+exists," when the honest content was "nothing else beats this, here is what
+else is out there" -- exactly the kind of unhelpful silence the rest of this
+section exists to avoid. The same gap showed up any time a same-trim pool had
+one or two comps clear the equalish tolerance and nothing else: a short list
+looked identical to "we checked and there's nothing," which was usually
+false.
+
+`alternatives` now fills toward a floor of three whenever a same-trim comp
+exists to fill it with, taking the least-worse remaining same-trim comps once
+the genuinely better-or-tied ones run out -- including when the target is the
+best-priced vehicle in the entire comp set. Two things this does not relax:
+
+- **The adverse-selection floor stays put.** A comp withheld for being
+  implausibly cheap (this section's own "shown, not counted" case) is never
+  pulled in to pad the count. Reopening that door to hit a round number would
+  undo the thing spec 2 exists to prevent.
+- **Nothing is invented.** A same-trim pool with fewer than three comps in
+  total is shown short, not padded with a different trim or a fabricated
+  entry. "Best possible" means best of what exists.
+
+A filled-in comp is, by construction, not a better deal than the target --
+each one now says so plainly rather than reading like a recommendation, and
+the summary line distinguishes "these are better priced" from "this is the
+best one, here are some others for comparison."
+
 ### 6.7 The opening message, drafted
 
 **Added 2026-07-29. Not in the original spec, and the same argument as 6.5: nearly free, because every fact in it is already computed.**

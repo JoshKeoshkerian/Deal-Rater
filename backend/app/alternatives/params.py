@@ -50,6 +50,18 @@ MAX_ALTERNATIVES = 4
 # cap keeps that dropdown from turning into a second search-results page.
 MAX_DIFFERENT_TRIM_ALTERNATIVES = 4
 
+# Fewest same-trim comps `alternatives` tries to surface, added 2026-08-01.
+# Below this, `find_alternatives` fills remaining slots from same-trim comps
+# that missed EQUALISH_TOLERANCE -- best (least-worse) residual first -- rather
+# than reporting a short or empty list, including when the target is the
+# outright best in the whole comp set. This relaxes the price/tie gate on the
+# WORSE side only: TOO_CHEAP_TO_RECOMMEND stays a hard floor regardless of how
+# short the list is, and a same-trim pool with fewer than MIN_ALTERNATIVES
+# comps in total is shown short rather than padded with anything invented.
+# `describe()` and `message()` both know a filled-in comp is not a
+# recommendation and say so. UNCALIBRATED.
+MIN_ALTERNATIVES = 3
+
 # ---------------------------------------------------------------------------
 # What disqualifies a comp from being recommended
 # ---------------------------------------------------------------------------

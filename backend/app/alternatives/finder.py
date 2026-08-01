@@ -90,6 +90,37 @@ pricing signal from exactly the buyer who most needs it, on the exact
 listings (trim unstated) spec 4.3 already flags as lower-confidence. The
 message says so, so the comparison is not presented as more certain than it
 is.
+
+MINIMUM OF THREE, 2026-08-01
+-----------------------------
+Product decision: `alternatives` should read as "here are the best options
+nearby," not "here are the ones that happened to clear a threshold" -- and an
+empty or one-item list looked identical to "we checked and there is nothing
+to show," which was often false. This applied hardest to `target_is_best`:
+the target being the best-priced vehicle in the set is real information, but
+the previous behaviour paired it with an EMPTY alternatives list, which reads
+as "nothing else exists" rather than "nothing else beats this, here is what
+else is out there."
+
+So when fewer than `MIN_ALTERNATIVES` same-trim comps clear
+EQUALISH_TOLERANCE, the remaining slots are filled from the same-trim comps
+that missed it, best (least-worse) residual first. Two things this does NOT
+relax:
+
+- `TOO_CHEAP_TO_RECOMMEND` stays a hard floor. The fill pool is drawn from
+  comps that already cleared EQUALISH_TOLERANCE-or-worse on the EXPENSIVE
+  side; a comp already routed to `withheld` for being implausibly cheap is
+  never eligible, no matter how short the list is. Filling the list is not
+  worth reopening the adverse-selection door spec 2 exists to keep shut.
+- Nothing is fabricated. A same-trim pool with fewer than `MIN_ALTERNATIVES`
+  comps in total is shown short. "Best possible" means best of what exists,
+  not padded to a round number.
+
+A filled-in comp is, by construction, not better priced than the target --
+if it were, it would already be in `eligible`. `describe()` marks it
+accordingly instead of letting it read as "comparable value," and `message()`
+distinguishes "these are better priced" from "this is the best one, here are
+some others for comparison" rather than reusing the old phrasing for both.
 """
 
 from __future__ import annotations
@@ -145,11 +176,19 @@ class Alternative:
         line = f"{vehicle} - {price}, {miles}, {c.location_text or 'location unknown'}"
         # Below MIN_RESIDUAL_ADVANTAGE the comp only cleared the EQUALISH_TOLERANCE
         # band, not a meaningful advantage -- "better value by 1%" overstates a
-        # near-tie, so it reads as a tie instead.
+        # near-tie, so it reads as a tie instead. Below -EQUALISH_TOLERANCE the
+        # comp only appears at all because MIN_ALTERNATIVES needed filling
+        # (2026-08-01) -- it is worse than the target, and saying so beats
+        # letting it pass as "comparable."
         if self.advantage >= params.MIN_RESIDUAL_ADVANTAGE:
             line += f"  [better value by {self.advantage:.0%} of expected price]"
-        else:
+        elif self.advantage >= -params.EQUALISH_TOLERANCE:
             line += "  [comparable value for what it is]"
+        else:
+            line += (
+                "  [priced higher than expected for what it is -- "
+                "shown for comparison, not a better deal]"
+            )
         if self.mileage_tradeoff:
             line += "  (higher mileage - a trade-off, not a straight win)"
         return line
@@ -190,14 +229,18 @@ class WithheldAlternative:
 @dataclass(frozen=True)
 class AlternativesResult:
     #: Same-trim comps only (`TrimMatch.EXACT` or `TRIM_ONLY`), better or
-    #: equalish against the target's own residual. See "TRIM-RESTRICTED" in the
-    #: module docstring.
+    #: equalish against the target's own residual, filled toward
+    #: `params.MIN_ALTERNATIVES` with the least-worse remaining same-trim comps
+    #: when fewer than that clear the tolerance band outright (2026-08-01, see
+    #: "MINIMUM OF THREE" in the module docstring). Check each entry's own
+    #: `advantage` rather than assuming everything here is a better deal.
     alternatives: tuple[Alternative, ...]
     #: True when the target is the best-priced vehicle in its own comp set,
     #: across ALL trims -- this is a market-wide fact and stays unrestricted
-    #: even though `alternatives` itself is trim-scoped. Spec 6.5: "Suppress
-    #: when the target is already the best available, and say so, since that
-    #: is also useful."
+    #: even though `alternatives` itself is trim-scoped. Spec 6.5 originally
+    #: had this suppress `alternatives` outright; as of 2026-08-01 it instead
+    #: only changes `message()`'s wording, since `alternatives` now fills for
+    #: comparison even when nothing beat the target.
     target_is_best: bool
     #: Why nothing is shown, when nothing is shown.
     suppressed_reason: str | None = None
@@ -231,15 +274,50 @@ class AlternativesResult:
     def message(self) -> str:
         if self.alternatives:
             n = len(self.alternatives)
-            base = (
-                f"{n} comparable listing{'s' if n != 1 else ''} in this search "
-                f"{'are' if n != 1 else 'is'} better priced for what "
-                f"{'they are' if n != 1 else 'it is'}."
+            # A filled-in comp (2026-08-01, MIN_ALTERNATIVES) is worse than the
+            # target's own residual by construction -- it only appears because
+            # nothing better cleared EQUALISH_TOLERANCE. Counting it as
+            # "better priced" would be the exact overclaim `describe()` avoids
+            # per-comp; the summary line needs the same honesty.
+            better_or_tied = sum(
+                1 for a in self.alternatives if a.advantage >= -params.EQUALISH_TOLERANCE
             )
+            filled = n - better_or_tied
+            if self.target_is_best:
+                # target_is_best means NOTHING anywhere beat this listing, so
+                # every entry here is a tie or a fill -- never phrase this as
+                # "these are better priced."
+                base = (
+                    f"This is the best-priced listing in this comp set. Shown for "
+                    f"comparison: {n} other same-trim listing{'s' if n != 1 else ''} nearby."
+                )
+            elif filled:
+                base = (
+                    f"{better_or_tied} of {n} comparable listings here "
+                    f"{'is' if better_or_tied == 1 else 'are'} better priced for what "
+                    f"{'it is' if better_or_tied == 1 else 'they are'}; the rest are shown "
+                    f"for comparison, not as better deals."
+                )
+            else:
+                base = (
+                    f"{n} comparable listing{'s' if n != 1 else ''} in this search "
+                    f"{'are' if n != 1 else 'is'} better priced for what "
+                    f"{'they are' if n != 1 else 'it is'}."
+                )
             if not self.trim_known:
                 base += " This listing's own trim wasn't stated, so these aren't trim-matched."
             return base
         if self.target_is_best:
+            # `alternatives` is empty here only when the same-trim pool had
+            # nothing at all to fill from (see MINIMUM OF THREE in the module
+            # docstring) -- a thin pool is reported short, not padded.
+            if self.different_trim:
+                n = len(self.different_trim)
+                return (
+                    "This is the best-priced listing among same-trim comps, though "
+                    f"{n} different-trim listing{'s' if n != 1 else ''} "
+                    f"{'are' if n != 1 else 'is'} priced lower -- see Different trim below."
+                )
             return "Nothing in this comp set is better priced. This is the best of them."
         if self.suppressed_reason:
             return self.suppressed_reason
@@ -274,9 +352,12 @@ def find_alternatives(
     so alternatives are not worth the distraction" instead of naming them.
     That reads as "there might be something better, and this tool is
     choosing not to tell you," which is worse than either showing the
-    comps or saying nothing. Spec 6.5's own suppression case is narrower and
-    stays: `target_is_best` (the target beats EVERY comp, not just half of
-    them) still suppresses `alternatives` and says so in `message()`.
+    comps or saying nothing. Spec 6.5's own suppression case was narrower --
+    `target_is_best` (the target beats EVERY comp, not just half of them) --
+    and as of 2026-08-01 (see "MINIMUM OF THREE" in the module docstring)
+    even that no longer suppresses `alternatives` outright: it still decides
+    the wording in `message()`, but the list itself fills toward
+    MIN_ALTERNATIVES for comparison rather than going empty.
     """
     # Each vehicle is priced at ITS OWN mileage (and year, when the published
     # fit uses one). Using the target's expected price as the denominator for
@@ -367,6 +448,25 @@ def find_alternatives(
             key=lambda pair: pair[1],
         )
     )
+
+    # MINIMUM OF THREE, 2026-08-01 (see module docstring): a same-trim pool
+    # that cleared EQUALISH_TOLERANCE for fewer than MIN_ALTERNATIVES comps --
+    # including the target_is_best case, where it can clear zero -- used to
+    # report a short or empty `alternatives`. Fill the remainder from the
+    # same-trim comps that missed the tolerance band, best (least-worse)
+    # residual first. `eligible` already contains every same-trim comp that
+    # cleared the tolerance -- including the ones just split into `withheld`
+    # for being too cheap -- so this pool can never contain a withheld comp;
+    # the adverse-selection floor is untouched regardless of how short the
+    # list runs.
+    if len(plausible) < params.MIN_ALTERNATIVES:
+        eligible_ids = {c.source_listing_id for c, _ in eligible}
+        leftover = sorted(
+            ((c, r) for c, r in same_trim if c.source_listing_id not in eligible_ids),
+            key=lambda pair: pair[1],
+        )
+        needed = params.MIN_ALTERNATIVES - len(plausible)
+        plausible = plausible + leftover[:needed]
 
     # Different-trim comps keep the stricter "meaningfully better" bar rather
     # than the equalish one -- a different trim priced about the same as the
