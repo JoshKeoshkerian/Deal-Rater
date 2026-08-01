@@ -97,6 +97,20 @@ function base() {
     known_issues: null,
     known_issues_unavailable_reason: null,
     known_issues_unavailable_code: null,
+    helpful_links: [
+      {
+        label: "Kelley Blue Book",
+        url: "https://www.kbb.com/mazda/cx-5/2016/",
+        note: "Independent pricing reference. KBB still needs your mileage, ZIP code and " +
+          "condition to produce a value -- this link only gets you to the right page, not a figure.",
+      },
+      {
+        label: "Consumer Reports",
+        url: "https://www.consumerreports.org/cars/mazda/cx-5/2016/overview/",
+        note: "Reliability history and owner satisfaction for this model. Consumer Reports " +
+          "paywalls most of the detail, but the overview is visible without a subscription.",
+      },
+    ],
     notices: [
       "Beta signal, not an authoritative rating. The scoring weights and the discount curve " +
         "are starting hypotheses that have not been checked against hand-evaluated listings yet.",
