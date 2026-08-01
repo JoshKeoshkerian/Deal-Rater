@@ -1,7 +1,7 @@
 import type { ThemePreference } from "../content/overlay/theme";
 
 export interface Settings {
-  /** Where captures are posted. No default production host is baked in. */
+  /** Where captures are posted. Defaults to production; override for local dev. */
   apiBaseUrl: string;
   /**
    * Panel appearance. "auto" follows the operating system and is the default;
@@ -34,7 +34,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  apiBaseUrl: "http://localhost:8000",
+  apiBaseUrl: "https://deal-rater-production.up.railway.app",
   theme: "auto",
   enabled: true,
   devMode: false,
