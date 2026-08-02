@@ -120,6 +120,15 @@ def send_sign_in_email(settings: Settings, *, to: str, code: str) -> None:
         headers={
             "Authorization": f"Bearer {settings.resend_api_key}",
             "Content-Type": "application/json",
+            # Resend's API sits behind Cloudflare, and `urllib`'s default
+            # User-Agent ("Python-urllib/3.x") is a well-known bot fingerprint
+            # that Cloudflare blocks outright -- a 403 with body "error code:
+            # 1010", which is Cloudflare's own block signature, not a Resend
+            # error. It has nothing to do with the API key, the sender domain,
+            # or CORS; every one of those was a red herring chased while this
+            # header was missing. Confirmed by sending the identical payload
+            # with and without this header: 403 without, 200 with.
+            "User-Agent": "curbside-backend/1.0 (+https://curbsidescore.com)",
         },
         method="POST",
     )
@@ -132,10 +141,33 @@ def send_sign_in_email(settings: Settings, *, to: str, code: str) -> None:
                 raise MailerError(f"email provider returned {response.status}")
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")[:300]
-        # The address is not logged: an unsent sign-in email is a support
+        # The RECIPIENT is not logged: an unsent sign-in email is a support
         # question, and the log line answering it does not need to be a record
         # of who tried to sign in and when.
-        logger.warning("Resend rejected a sign-in email: %s %s", error.code, detail)
+        #
+        # The SENDER is, because it is configuration rather than personal data.
+        # TWO DIFFERENT THINGS PRODUCE A 403 HERE, distinguishable only by
+        # `detail`, so both are stated rather than guessing one:
+        #
+        #   Resend's own validation_error, naming an unverified `from` domain --
+        #   including the deliberately-invalid default in config.py, which is
+        #   what an unconfigured deployment sends as.
+        #
+        #   Cloudflare's block page ("error code: 1010"), because Resend's API
+        #   sits behind it and `urllib`'s default User-Agent is a known bot
+        #   fingerprint -- this is why the request now sets one explicitly. If
+        #   this ever appears again, something is stripping or overriding that
+        #   header before the request leaves the process.
+        logger.error(
+            "Resend rejected a sign-in email: %s %s (from=%r). If `detail` names "
+            "an unverified domain, check DEAL_RATER_AUTH_FROM_EMAIL against "
+            "https://resend.com/domains. If it reads \"error code: 1010\", that is "
+            "Cloudflare blocking the request before it reaches Resend, not a "
+            "Resend rejection -- see the User-Agent header on this request.",
+            error.code,
+            detail,
+            settings.auth_from_email,
+        )
         raise MailerError(f"email provider returned {error.code}") from error
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         logger.warning("Could not reach the email provider: %s", error)

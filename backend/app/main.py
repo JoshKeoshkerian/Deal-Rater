@@ -76,6 +76,18 @@ if not settings.resend_api_key:
         "Sign-in (magic link): DISABLED (no DEAL_RATER_RESEND_API_KEY). "
         "/v1/auth/sign-in returns 503; saving an evaluation is unreachable."
     )
+elif "example.invalid" in settings.auth_from_email:
+    # A key without a sender is a deployment that looks configured and rejects
+    # every send with a 403 the moment somebody tries to sign in. Say so at
+    # boot, where it is one line in the deploy log, rather than leaving it to be
+    # discovered from a provider status code.
+    logger.error(
+        "Sign-in (magic link): MISCONFIGURED. An API key is set but "
+        "DEAL_RATER_AUTH_FROM_EMAIL is still the placeholder %r, so Resend will "
+        "reject every send (403). Set it to an address on a domain verified at "
+        "https://resend.com/domains.",
+        settings.auth_from_email,
+    )
 else:
     logger.info("Sign-in (magic link): ENABLED (from=%s)", settings.auth_from_email)
 

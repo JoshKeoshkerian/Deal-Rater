@@ -73,6 +73,20 @@ def test_posts_to_resend_with_the_api_key(settings, sent):
     assert request.get_header("Authorization") == "Bearer re_test_key"
 
 
+def test_the_request_does_not_use_urllibs_default_user_agent(settings, sent):
+    """Resend's API sits behind Cloudflare, and `urllib`'s default User-Agent
+    ("Python-urllib/3.x") is a known bot fingerprint that Cloudflare blocks --
+    a 403 that looks identical to an unverified-domain rejection until the
+    body is read. Confirmed live: the same payload gets a Cloudflare 403 with
+    the default header and a 200 with this one. See the comment in mailer.py.
+    """
+    send_sign_in_email(settings, to="buyer@example.com", code="ABCD2345")
+
+    user_agent = sent[0].get_header("User-agent")
+    assert user_agent is not None
+    assert "python-urllib" not in user_agent.lower()
+
+
 def test_the_email_goes_to_the_address_from_the_configured_sender(settings, sent):
     send_sign_in_email(settings, to="buyer@example.com", code="ABCD2345")
 
@@ -166,6 +180,65 @@ def test_a_non_2xx_status_becomes_a_mailer_error(settings, monkeypatch):
         send_sign_in_email(settings, to="buyer@example.com", code="ABCD2345")
 
 
+def test_a_rejection_logs_the_sender_and_where_to_check_it(settings, monkeypatch, caplog):
+    """A bare status code is not a diagnosis. The log names the configured
+    sender and includes Resend's own message text (here, an unverified-domain
+    rejection), so the two 403 causes below are distinguishable from the log
+    line alone -- the sender is configuration, not personal data."""
+
+    def fake_urlopen(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "https://api.resend.com/emails",
+            403,
+            "Forbidden",
+            {},
+            io.BytesIO(b'{"message":"The domain is not verified."}'),
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(MailerError):
+        send_sign_in_email(settings, to="buyer@example.com", code="ABCD2345")
+
+    logged = caplog.text
+    assert "login@curbsidescore.com" in logged
+    assert "DEAL_RATER_AUTH_FROM_EMAIL" in logged
+    assert "not verified" in logged
+
+
+def test_a_cloudflare_block_is_named_as_such_and_not_blamed_on_the_domain(
+    settings, monkeypatch, caplog
+):
+    """The 403 that actually hit production: Resend's API sits behind
+    Cloudflare, and `urllib`'s default User-Agent got the request blocked
+    there -- before it ever reached Resend's own validation. The body reads
+    "error code: 1010" (Cloudflare's own block signature), not anything
+    naming a domain, and every minute spent checking `DEAL_RATER_AUTH_FROM_EMAIL`
+    against that message was a minute spent on the wrong layer. The log must
+    point at the User-Agent header instead of repeating generic sender advice
+    that this specific body contradicts.
+    """
+
+    def fake_urlopen(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "https://api.resend.com/emails",
+            403,
+            "Forbidden",
+            {},
+            io.BytesIO(b"error code: 1010"),
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(MailerError):
+        send_sign_in_email(settings, to="buyer@example.com", code="ABCD2345")
+
+    logged = caplog.text
+    assert "1010" in logged
+    assert "Cloudflare" in logged
+    assert "User-Agent" in logged
+
+
 def test_a_failed_send_does_not_log_the_address_or_the_code(settings, monkeypatch, caplog):
     """An unsent sign-in email is a support question. The log line answering it
     does not need to be a record of who tried to sign in, or of a live code."""
@@ -177,7 +250,7 @@ def test_a_failed_send_does_not_log_the_address_or_the_code(settings, monkeypatc
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    with caplog.at_level(logging.WARNING), pytest.raises(MailerError):
+    with caplog.at_level(logging.ERROR), pytest.raises(MailerError):
         send_sign_in_email(settings, to="buyer@example.com", code="ABCD2345")
 
     logged = caplog.text
