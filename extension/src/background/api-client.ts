@@ -162,7 +162,16 @@ export class UnauthorizedError extends Error {}
 async function apiRequest<T>(
   apiBaseUrl: string,
   path: string,
-  options: { method?: string; token?: string | null; body?: unknown } = {},
+  options: {
+    method?: string;
+    token?: string | null;
+    body?: unknown;
+    // Undefined leaves fetch's default ("same-origin"), which is right for
+    // every one of these calls except `adoptWebSession` below -- that one
+    // needs "include" so the response's `Set-Cookie` actually lands in the
+    // browser's cookie jar rather than being discarded.
+    credentials?: RequestCredentials;
+  } = {},
 ): Promise<T | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -177,6 +186,7 @@ async function apiRequest<T>(
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: controller.signal,
+      credentials: options.credentials,
     });
 
     if (response.status === 401) throw new UnauthorizedError("Not signed in.");
@@ -216,6 +226,33 @@ export function verifySignInCode(
   return apiRequest(apiBaseUrl, "/v1/auth/verify", {
     method: "POST",
     body: { email, code, client: "extension" },
+  });
+}
+
+/**
+ * Hand this session to the website's cookie transport (`POST /v1/auth/adopt`,
+ * `backend/app/api/auth.py`), so someone who just verified a code in the
+ * extension does not have to verify a second one on app.curbsidescore.com.
+ *
+ * `credentials: "include"` is what lets the response's `Set-Cookie` land in
+ * the real browser cookie jar for `.curbsidescore.com` -- this request sends
+ * no cookie of its own, but it receives one. That works from here, with no
+ * open tab on the website and no content script involved, because
+ * `host_permissions` already covers `api.curbsidescore.com`: a privileged
+ * extension fetch can both send and receive cookies for an origin it has
+ * permission for, which is exactly what makes this a background-only fix.
+ *
+ * Called immediately after `saveSession` in `handleVerifyCode`, and always as
+ * a best-effort follow-up: the extension's own sign-in has already succeeded
+ * by the time this runs, and a failure here (network hiccup, cookie blocked)
+ * must fall back to the website asking for a code, not take back a sign-in
+ * the user is already looking at a success message for.
+ */
+export function adoptWebSession(apiBaseUrl: string, token: string): Promise<unknown> {
+  return apiRequest(apiBaseUrl, "/v1/auth/adopt", {
+    method: "POST",
+    token,
+    credentials: "include",
   });
 }
 

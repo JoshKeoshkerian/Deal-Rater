@@ -16,6 +16,7 @@
 
 const TOKEN_KEY = "sessionToken";
 const EMAIL_KEY = "sessionEmail";
+const ADOPTED_AT_KEY = "sessionWebAdoptedAt";
 
 export interface StoredSession {
   token: string;
@@ -39,5 +40,36 @@ export async function saveSession(session: StoredSession): Promise<void> {
 }
 
 export async function clearSession(): Promise<void> {
-  await chrome.storage.local.remove([TOKEN_KEY, EMAIL_KEY]);
+  // The adopt marker travels with the session it describes: a later sign-in
+  // (possibly a different address) must not inherit an old timestamp and be
+  // wrongly throttled out of adopting its own, new session.
+  await chrome.storage.local.remove([TOKEN_KEY, EMAIL_KEY, ADOPTED_AT_KEY]);
+}
+
+//: Once a day. `SAVED_STATE` fires on every overlay render
+//: (`background/index.ts`'s `handleSavedState`), and re-hitting
+//: `POST /v1/auth/adopt` on every one of those would turn an opportunistic
+//: sync into exactly the per-render network chatter this file's token
+//: handling is designed to avoid. A day is generous next to the cookie's
+//: actual lifetime (`session_ttl_days`, currently 90) -- this throttle exists
+//: to catch someone who was signed in before the adopt endpoint existed, or
+//: who updated the extension without ever re-verifying, not to keep the
+//: cookie fresh.
+const ADOPT_THROTTLE_MS = 24 * 60 * 60 * 1000;
+
+/** Whether an opportunistic `/v1/auth/adopt` attempt is due. */
+export async function shouldAttemptWebAdopt(now: number = Date.now()): Promise<boolean> {
+  const stored = await chrome.storage.local.get([ADOPTED_AT_KEY]);
+  const last = stored[ADOPTED_AT_KEY] as number | undefined;
+  return last === undefined || now - last > ADOPT_THROTTLE_MS;
+}
+
+/**
+ * Records an attempt, not a success. A failed adopt (network hiccup, server
+ * hiccup) should not be retried on literally the next render either -- it
+ * gets the same day-long throttle as a successful one, and the next real
+ * opportunity is the one after that.
+ */
+export async function markWebAdoptAttempted(now: number = Date.now()): Promise<void> {
+  await chrome.storage.local.set({ [ADOPTED_AT_KEY]: now });
 }

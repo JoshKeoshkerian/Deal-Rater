@@ -30,9 +30,16 @@ import type {
   SavedStateResult,
   SubmitCaptureResult,
 } from "../shared/messages";
-import { clearSession, loadSession, saveSession } from "../shared/session";
+import {
+  clearSession,
+  loadSession,
+  markWebAdoptAttempted,
+  saveSession,
+  shouldAttemptWebAdopt,
+} from "../shared/session";
 import { loadSettings } from "../shared/settings";
 import {
+  adoptWebSession,
   fetchEvaluationWithRetry,
   fetchKnownIssues,
   fetchSavedState,
@@ -247,6 +254,33 @@ function failed(sendResponse: (result: { ok: false; error: string }) => void) {
 
 // --- accounts and saved evaluations ------------------------------------------
 
+/**
+ * Hand this session to the website's cookie transport, unconditionally.
+ * Always called right after a fresh verify (`handleVerifyCode`): a sign-in
+ * that just happened is the clearest possible signal to sync, so it bypasses
+ * `shouldAttemptWebAdopt`'s throttle rather than checking it and then
+ * immediately satisfying it.
+ */
+async function syncWebSession(apiBaseUrl: string, token: string): Promise<void> {
+  await markWebAdoptAttempted();
+  await adoptWebSession(apiBaseUrl, token).catch(() => undefined);
+}
+
+/**
+ * The other way to reach `syncWebSession`: opportunistically, for a session
+ * that was already signed in before this call. Covers what `handleVerifyCode`
+ * cannot -- someone who verified before `/v1/auth/adopt` existed, or who
+ * updated the extension without ever signing in again -- by piggybacking on
+ * `SAVED_STATE`, which the overlay already sends on every render of an
+ * evaluated listing. That keeps this inside spec 8.1's user-initiated
+ * constraint (a side effect on an existing user-triggered message, not a new
+ * timer) while `shouldAttemptWebAdopt`'s throttle keeps a long overlay session
+ * across many listings from turning into an adopt call per render.
+ */
+async function maybeAdoptWebSession(apiBaseUrl: string, token: string): Promise<void> {
+  if (await shouldAttemptWebAdopt()) await syncWebSession(apiBaseUrl, token);
+}
+
 async function handleAuthState(): Promise<AuthStateResult> {
   const session = await loadSession();
   return session ? { ok: true, signedIn: true, email: session.email } : { ok: true, signedIn: false };
@@ -268,6 +302,10 @@ async function handleVerifyCode(email: string, code: string): Promise<AuthVerify
     const result = await verifySignInCode(settings.apiBaseUrl, email, code);
     if (!result?.token) return { ok: false, error: "The server did not return a session." };
     await saveSession({ token: result.token, email: result.user?.email ?? email });
+    // Best-effort: syncs this session to the website's cookie so
+    // app.curbsidescore.com does not ask for a second code. The sign-in above
+    // already succeeded and must be reported as such either way.
+    await syncWebSession(settings.apiBaseUrl, result.token);
     return { ok: true, email: result.user?.email ?? email };
   } catch (error) {
     // A 401 here means the CODE was wrong, not that a session expired -- there
@@ -298,6 +336,11 @@ async function handleSavedState(captureId: number): Promise<SavedStateResult> {
   if (!session) return { ok: true, signedIn: false };
 
   const settings = await loadSettings();
+  // Started alongside the real request rather than awaited before it, so an
+  // overdue sync never adds its own latency to the bookmark button's render.
+  // Awaited in `finally` so the worker stays alive to finish it either way --
+  // see `maybeAdoptWebSession`'s docstring for why this call exists at all.
+  const adopt = maybeAdoptWebSession(settings.apiBaseUrl, session.token);
   try {
     const state = await fetchSavedState(settings.apiBaseUrl, session.token, captureId);
     return { ok: true, signedIn: true, saved: state?.saved ?? false };
@@ -310,6 +353,8 @@ async function handleSavedState(captureId: number): Promise<SavedStateResult> {
       return { ok: true, signedIn: false };
     }
     return { ok: false, error: describe(error) };
+  } finally {
+    await adopt;
   }
 }
 

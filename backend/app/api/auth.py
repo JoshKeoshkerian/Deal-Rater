@@ -2,6 +2,7 @@
 
     POST /v1/auth/sign-in    request a code by email
     POST /v1/auth/verify     exchange the code for a session token
+    POST /v1/auth/adopt      hand an extension token to the cookie transport
     POST /v1/auth/sign-out   revoke the presented session
     GET  /v1/users/me        who the presented session belongs to
 
@@ -29,7 +30,15 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.auth import AuthError, request_sign_in, revoke_session, session_token, verify_code
+from app.auth import (
+    AuthError,
+    bearer_token,
+    request_sign_in,
+    resolve_session,
+    revoke_session,
+    session_token,
+    verify_code,
+)
 from app.auth.dependencies import require_user
 from app.auth.mailer import MailerError, send_sign_in_email
 from app.config import get_settings
@@ -143,6 +152,60 @@ def verify(
             id=issued.user.id, email=issued.user.email, created_at=issued.user.created_at
         ),
     )
+
+
+@router.post("/auth/adopt", response_model=UserOut)
+def adopt_session(
+    request: Request,
+    response: Response,
+    session: Session = Depends(get_session),
+) -> UserOut:
+    """Hand an already-verified extension session to the cookie transport.
+
+    The module docstring's "session behind both is identical" is what makes
+    this endpoint possible: a token minted with `client: "extension"` already
+    resolves through the exact same `resolve_session` a cookie does, so the
+    only reason a signed-in extension user still had to type a second emailed
+    code on the website was that nothing had ever handed that token to the
+    cookie transport. This is that handoff -- no new session, no code, the
+    same secret placed in the other place it already works.
+
+    Called by the extension's background service worker, `credentials:
+    "include"`, immediately after a successful `client: "extension"` verify --
+    never by a content script, matching `shared/session.ts`'s rule that only
+    the service worker ever touches the stored token. The extension's
+    `host_permissions` already covers `api.curbsidescore.com`, which is what
+    lets that background fetch both send and receive cookies for the origin
+    without a content script or a visit to the website ever being involved:
+    the `Set-Cookie` this handler returns lands in the ordinary browser cookie
+    jar for `.curbsidescore.com`, so it is already there the next time the
+    user opens `app.curbsidescore.com`.
+
+    Presenting a bearer token here proves nothing the token could not already
+    do against every other endpoint in this file -- this does not escalate
+    what the caller can act as, only which transport carries the proof. A web
+    page cannot forge this call: it would need the token value itself, which
+    never reaches anywhere a page script can read.
+    """
+    settings = get_settings()
+    token = bearer_token(request)
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sign in to do that.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = resolve_session(session, token)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sign in to do that.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    _set_session_cookie(response, settings, token)
+    return UserOut(id=user.id, email=user.email, created_at=user.created_at)
 
 
 @router.post("/auth/sign-out", status_code=status.HTTP_204_NO_CONTENT)

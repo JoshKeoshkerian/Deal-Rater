@@ -22,7 +22,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.auth.mailer import MailerError
-from app.auth.service import AuthError, request_sign_in, resolve_session, verify_code
+from app.auth.service import (
+    AuthError,
+    request_sign_in,
+    resolve_session,
+    revoke_session,
+    verify_code,
+)
 from app.auth.tokens import canonicalize_code, format_code, hash_secret, normalize_email
 from app.config import Settings
 from app.db import get_session
@@ -301,6 +307,72 @@ def test_a_host_only_cookie_is_still_issued_when_no_domain_is_configured(
     cookie = response.headers["set-cookie"]
     assert local.session_cookie_name in cookie
     assert "Domain=" not in cookie
+
+
+# --- POST /v1/auth/adopt -----------------------------------------------------
+#
+# The extension-to-website handoff: a token minted with client: "extension"
+# should authenticate the cookie transport too, without a second emailed code.
+
+
+def test_adopting_an_extension_token_authenticates_the_cookie_transport(web_client, session):
+    """The point of the endpoint: after adopting, the cookie alone -- no
+    Authorization header at all -- reaches /v1/users/me. This is the failure
+    mode the feature exists to remove: the user already proved who they are
+    once, in the extension, and should not have to do it again on the site."""
+    client, local = web_client
+    extension_login = _verify_via_api(
+        client, session, local, client_kind="extension", email="ext@example.com"
+    )
+    token = extension_login.json()["token"]
+
+    adopted = client.post("/v1/auth/adopt", headers={"Authorization": f"Bearer {token}"})
+    assert adopted.status_code == 200
+    assert adopted.json()["email"] == "ext@example.com"
+
+    me = client.get("/v1/users/me")
+    assert me.status_code == 200
+    assert me.json()["email"] == "ext@example.com"
+
+
+def test_adopt_sets_the_same_cookie_verify_does(client, session, settings, monkeypatch):
+    monkeypatch.setattr("app.api.auth.get_settings", lambda: settings)
+    extension_login = _verify_via_api(
+        client, session, settings, client_kind="extension", email="ext2@example.com"
+    )
+    token = extension_login.json()["token"]
+
+    adopted = client.post("/v1/auth/adopt", headers={"Authorization": f"Bearer {token}"})
+
+    cookie = adopted.headers["set-cookie"]
+    assert settings.session_cookie_name in cookie
+    assert "HttpOnly" in cookie
+    assert f"Domain={settings.session_cookie_domain}" in cookie
+
+
+def test_adopt_without_a_token_is_401(client):
+    response = client.post("/v1/auth/adopt")
+    assert response.status_code == 401
+    assert "set-cookie" not in response.headers
+
+
+def test_adopt_with_an_unresolvable_token_is_401(client):
+    response = client.post("/v1/auth/adopt", headers={"Authorization": "Bearer nope"})
+    assert response.status_code == 401
+    assert "set-cookie" not in response.headers
+
+
+def test_adopt_does_not_accept_a_revoked_token(client, session, settings, monkeypatch):
+    monkeypatch.setattr("app.api.auth.get_settings", lambda: settings)
+    extension_login = _verify_via_api(
+        client, session, settings, client_kind="extension", email="ext3@example.com"
+    )
+    token = extension_login.json()["token"]
+    revoke_session(session, token)
+    session.commit()
+
+    response = client.post("/v1/auth/adopt", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
 
 
 # --- POST /v1/auth/sign-in ----------------------------------------------------
