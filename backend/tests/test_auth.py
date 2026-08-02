@@ -1,8 +1,16 @@
 """Sign-in: the code exchange, and what it refuses.
 
-The mailer is patched out throughout. These tests are about the state machine
-in `auth/service.py`, not about Resend, and a suite that needs an API key to run
+These cover the state machine in `auth/service.py` and the two session
+transports. They deliberately do not need an API key, because a suite that does
 is a suite that stops being run.
+
+The final section covers `POST /v1/auth/sign-in` with the mailer stubbed at the
+endpoint's own import site. The Resend request that module builds is covered
+separately, in `test_mailer.py`, with `urlopen` stubbed.
+
+What remains untested by construction is the one thing a stub cannot check:
+that Resend accepts the message and delivers it. That needs a real key, a
+verified sender domain, and an inbox.
 """
 
 from __future__ import annotations
@@ -13,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.auth.mailer import MailerError
 from app.auth.service import AuthError, request_sign_in, resolve_session, verify_code
 from app.auth.tokens import canonicalize_code, format_code, hash_secret, normalize_email
 from app.config import Settings
@@ -292,3 +301,158 @@ def test_a_host_only_cookie_is_still_issued_when_no_domain_is_configured(
     cookie = response.headers["set-cookie"]
     assert local.session_cookie_name in cookie
     assert "Domain=" not in cookie
+
+
+# --- POST /v1/auth/sign-in ----------------------------------------------------
+#
+# The mailer is stubbed at `app.api.auth`'s import site rather than inside
+# `auth/mailer.py`, so these exercise the endpoint's own behaviour -- what it
+# commits, what it rolls back, what it tells the caller -- and leave the request
+# Resend receives to `test_mailer.py`.
+
+
+@pytest.fixture
+def outbox(monkeypatch) -> list[dict]:
+    """Capture sign-in emails instead of sending them."""
+    captured: list[dict] = []
+
+    def fake_send(_settings, *, to: str, code: str) -> None:
+        captured.append({"to": to, "code": code})
+
+    monkeypatch.setattr("app.api.auth.send_sign_in_email", fake_send)
+    return captured
+
+
+def _use(monkeypatch, settings: Settings) -> None:
+    monkeypatch.setattr("app.api.auth.get_settings", lambda: settings)
+
+
+def test_the_emailed_code_is_the_one_that_verifies(client, session, settings, monkeypatch, outbox):
+    """The whole flow, end to end, with only the network removed.
+
+    This is the test worth having: a code that is generated, hashed and stored
+    correctly but never reaches the message -- or reaches it in a different form
+    -- is a sign-in that fails for every user, and every unit test still passes.
+    """
+    _use(monkeypatch, settings)
+
+    requested = client.post("/v1/auth/sign-in", json={"email": "buyer@example.com"})
+    assert requested.status_code == 200
+    assert requested.json()["expires_in_minutes"] == settings.magic_link_ttl_minutes
+    assert len(outbox) == 1
+
+    verified = client.post(
+        "/v1/auth/verify",
+        json={"email": "buyer@example.com", "code": outbox[0]["code"], "client": "extension"},
+    )
+
+    assert verified.status_code == 200
+    assert verified.json()["user"]["email"] == "buyer@example.com"
+
+
+def test_the_hyphenated_form_from_the_email_also_verifies(
+    client, session, settings, monkeypatch, outbox
+):
+    """`mailer.py` prints `ABCD-2345`; people paste exactly what they see."""
+    _use(monkeypatch, settings)
+    client.post("/v1/auth/sign-in", json={"email": "buyer@example.com"})
+
+    verified = client.post(
+        "/v1/auth/verify",
+        json={"email": "buyer@example.com", "code": format_code(outbox[0]["code"]).lower()},
+    )
+
+    assert verified.status_code == 200
+
+
+def test_the_address_is_lowercased_before_it_is_emailed(
+    client, session, settings, monkeypatch, outbox
+):
+    """Case is normalised, so `Buyer@` and `buyer@` are one account rather than
+    two that cannot see each other's saved lists."""
+    _use(monkeypatch, settings)
+
+    client.post("/v1/auth/sign-in", json={"email": "Buyer@Example.COM"})
+
+    assert outbox[0]["to"] == "buyer@example.com"
+
+
+def test_surrounding_whitespace_is_rejected_rather_than_trimmed(
+    client, settings, monkeypatch, outbox
+):
+    """Pinning behaviour rather than endorsing it. `SignInRequestIn`'s pattern
+    excludes whitespace, so ` a@b.com ` is a 422 and never reaches the mailer.
+
+    Harmless today because both clients trim before sending (`bookmark.ts` and
+    `SignIn.tsx` both call `.trim()`). Worth a test so that if a third client
+    ever posts an untrimmed address, this is a documented refusal and not a
+    mystery."""
+    _use(monkeypatch, settings)
+
+    response = client.post("/v1/auth/sign-in", json={"email": " buyer@example.com "})
+
+    assert response.status_code == 422
+    assert outbox == []
+
+
+def test_no_provider_configured_is_503_and_writes_nothing(client, session, monkeypatch, outbox):
+    """An endpoint that accepts an address and sends nothing is, from the user's
+    side, indistinguishable from a working one whose mail was lost."""
+    _use(monkeypatch, Settings(resend_api_key=None))
+
+    response = client.post("/v1/auth/sign-in", json={"email": "buyer@example.com"})
+
+    assert response.status_code == 503
+    assert "no email provider" in response.json()["detail"]
+    assert outbox == []
+    assert session.scalars(select(MagicLinkToken)).all() == []
+
+
+def test_a_failed_send_is_502_and_leaves_no_orphaned_code(
+    client, session, settings, monkeypatch
+):
+    """The common production cause is a `from` address that is not on a domain
+    verified in Resend. The challenge must not survive it: a stored code that
+    was never delivered would silently consume the user's next attempt, because
+    requesting again expires the one they are holding."""
+    _use(monkeypatch, settings)
+
+    def explode(_settings, *, to: str, code: str) -> None:
+        raise MailerError("email provider returned 422")
+
+    monkeypatch.setattr("app.api.auth.send_sign_in_email", explode)
+
+    response = client.post("/v1/auth/sign-in", json={"email": "buyer@example.com"})
+
+    assert response.status_code == 502
+    assert "422" in response.json()["detail"]
+    assert session.scalars(select(MagicLinkToken)).all() == []
+
+
+def test_the_response_does_not_reveal_whether_an_account_exists(
+    client, session, settings, monkeypatch, outbox
+):
+    """This endpoint is unauthenticated and takes any address, so a response
+    that differed would be an account-existence oracle."""
+    _use(monkeypatch, settings)
+    client.post("/v1/auth/sign-in", json={"email": "buyer@example.com"})
+    verify_code(session, settings, email="buyer@example.com", code=outbox[0]["code"])
+    session.commit()
+
+    existing = client.post("/v1/auth/sign-in", json={"email": "buyer@example.com"})
+    unknown = client.post("/v1/auth/sign-in", json={"email": "nobody@example.com"})
+
+    assert existing.status_code == unknown.status_code == 200
+    assert existing.json() == unknown.json()
+
+
+@pytest.mark.parametrize("address", ["not-an-email", "", "no@domain", "a@b@c.com"])
+def test_a_malformed_address_is_rejected_before_any_send(
+    client, settings, monkeypatch, outbox, address
+):
+    _use(monkeypatch, settings)
+
+    response = client.post("/v1/auth/sign-in", json={"email": address})
+
+    assert response.status_code == 422
+    assert outbox == []
