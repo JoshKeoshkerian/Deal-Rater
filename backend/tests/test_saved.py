@@ -95,6 +95,21 @@ def test_save_then_read_it_back(client, session, settings):
     assert items[0]["evaluation"]["capture_id"] == capture_id
 
 
+def test_vehicle_label_does_not_repeat_a_trim_that_matches_the_model(client, session, settings):
+    """Some models (e.g. Subaru's WRX) get restated as their own catalog trim,
+    so `model` and `trim_text` can independently resolve to the identical
+    string. Saved as "2017 Subaru WRX WRX" before the fix in
+    `services/serialize.py`'s `_vehicle_label`."""
+    auth = sign_in(session, settings)
+    capture_id = ingest(
+        client,
+        target=observation(year=2017, make="Subaru", model="WRX", trim_text="WRX"),
+    )
+
+    saved = client.post(f"/v1/evaluations/{capture_id}/save?offline=true", headers=auth)
+    assert saved.json()["vehicle"] == "2017 Subaru WRX"
+
+
 def test_saving_twice_creates_one_row(client, session, settings):
     auth = sign_in(session, settings)
     capture_id = ingest(client)

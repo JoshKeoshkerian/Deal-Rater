@@ -31,8 +31,21 @@ from ..schemas import (
 
 
 def _vehicle_label(capture: StoredCapture) -> str:
+    """Year, make, model, and trim -- but not twice.
+
+    `model` and `trim_text` are recovered independently (see
+    `extension/src/extract/fields/vehicle.ts`), and for a model like Subaru's
+    WRX -- where Marketplace's own trim field sometimes just restates the
+    model name -- both land on the identical string, producing
+    "2017 Subaru WRX WRX". Dropped only on an exact case-insensitive match, so
+    a real trim that merely starts with the model name (e.g. model "Civic",
+    trim "Civic Si") is untouched.
+    """
     t = capture.target
-    parts = [str(t.year) if t.year else None, t.make, t.model, t.trim_text]
+    trim = t.trim_text
+    if trim and t.model and trim.strip().casefold() == t.model.strip().casefold():
+        trim = None
+    parts = [str(t.year) if t.year else None, t.make, t.model, trim]
     return " ".join(p for p in parts if p) or "Unidentified vehicle"
 
 
