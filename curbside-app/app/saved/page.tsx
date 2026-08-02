@@ -16,7 +16,7 @@
  * no code path that could do it by accident.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SavedCard } from "@/components/SavedCard";
 import { SignIn } from "@/components/SignIn";
@@ -25,12 +25,58 @@ import type { SavedEvaluation, User } from "@/lib/types";
 
 type Phase = "loading" | "signed-out" | "ready";
 
+type SortOrder = "recent" | "oldest" | "score_desc" | "score_asc";
+
+const SORT_LABELS: Record<SortOrder, string> = {
+  recent: "Most recent",
+  oldest: "Oldest first",
+  score_desc: "Score: high to low",
+  score_asc: "Score: low to high",
+};
+
+/**
+ * Sorted for display only -- never re-fetched, never re-scored. The server
+ * hands back the list newest-saved-first (see `backend/app/api/saved.py`);
+ * everything else is a client-side reordering of that same snapshot data.
+ *
+ * Unscored items (`score === null`, e.g. too few comps) have nothing to rank
+ * by, so a score sort sinks them to the bottom regardless of direction rather
+ * than arbitrarily treating "not scored" as better or worse than a number.
+ */
+function sortItems(items: SavedEvaluation[], order: SortOrder): SavedEvaluation[] {
+  const sorted = [...items];
+  switch (order) {
+    case "oldest":
+      return sorted.sort(
+        (a, b) => new Date(a.evaluated_at).getTime() - new Date(b.evaluated_at).getTime(),
+      );
+    case "score_desc":
+    case "score_asc":
+      return sorted.sort((a, b) => {
+        const scoreA = a.evaluation.deal_score.score;
+        const scoreB = b.evaluation.deal_score.score;
+        if (scoreA === null && scoreB === null) return 0;
+        if (scoreA === null) return 1;
+        if (scoreB === null) return -1;
+        return order === "score_desc" ? scoreB - scoreA : scoreA - scoreB;
+      });
+    case "recent":
+    default:
+      return sorted.sort(
+        (a, b) => new Date(b.evaluated_at).getTime() - new Date(a.evaluated_at).getTime(),
+      );
+  }
+}
+
 export default function SavedPage() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [items, setItems] = useState<SavedEvaluation[]>([]);
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<number | null>(null);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
+
+  const sortedItems = useMemo(() => sortItems(items, sortOrder), [items, sortOrder]);
 
   // The emailed link lands here as ?email=&code=. Read once, then stripped
   // from the address bar below so a single-use code is not left sitting in
@@ -155,16 +201,34 @@ export default function SavedPage() {
               </p>
             </div>
           ) : (
-            <ul className="cards">
-              {items.map((item) => (
-                <SavedCard
-                  key={item.id}
-                  item={item}
-                  busy={removing === item.id}
-                  onUnsave={onUnsave}
-                />
-              ))}
-            </ul>
+            <>
+              <div className="sort-row">
+                <label htmlFor="sort-order">Sort</label>
+                <select
+                  id="sort-order"
+                  className="sort-select"
+                  value={sortOrder}
+                  onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+                >
+                  {Object.entries(SORT_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <ul className="cards">
+                {sortedItems.map((item) => (
+                  <SavedCard
+                    key={item.id}
+                    item={item}
+                    busy={removing === item.id}
+                    onUnsave={onUnsave}
+                  />
+                ))}
+              </ul>
+            </>
           )}
 
           {/* Spec 7's liability framing and spec 9's beta caveat. Once, at the

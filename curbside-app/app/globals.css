@@ -244,6 +244,33 @@ a {
   display: none;
 }
 
+/* --- sort ------------------------------------------------------------------ */
+
+.sort-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.sort-select {
+  padding: 7px 30px 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background-color: var(--navy-deep);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23a9bcd0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+
 /* --- saved cards ---------------------------------------------------------- */
 
 .cards {
