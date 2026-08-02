@@ -23,6 +23,15 @@ export function checkedOn(iso: string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/**
+ * The composite score arrives as an unrounded float (a weighted sum of
+ * component scores, see `backend/app/evaluation/score.py`), so rendering it
+ * raw prints full floating-point precision. One decimal place.
+ */
+export function formatScore(value: number): string {
+  return value.toFixed(1);
+}
+
 /** 0-100 -> the overlay's five grade bands, for the score chip's colour. */
 export function scoreGrade(score: number): "poor" | "weak" | "fair" | "good" | "excellent" {
   if (score < 35) return "poor";

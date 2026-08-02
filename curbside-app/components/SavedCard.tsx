@@ -22,7 +22,7 @@
  * number that is also three weeks old earns the same care.
  */
 
-import { checkedOn, miles, money, scoreGrade } from "@/lib/format";
+import { checkedOn, formatScore, miles, money, scoreGrade } from "@/lib/format";
 import type { SavedEvaluation } from "@/lib/types";
 
 export function SavedCard({
@@ -61,7 +61,7 @@ export function SavedCard({
             <b>Not scored</b>
           ) : (
             <>
-              <b>{score}</b>
+              <b>{formatScore(score)}</b>
               <i>/100</i>
             </>
           )}
