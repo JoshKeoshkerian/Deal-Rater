@@ -522,7 +522,19 @@ class EvaluationOut(BaseModel):
     #: that click hits. Always False alongside a populated `known_issues` or a
     #: populated `known_issues_unavailable_reason`; the three are mutually
     #: exclusive.
-    known_issues_pending: bool
+    #:
+    #: Defaults to False rather than being required: `SavedEvaluationOut`
+    #: deserializes this same model from JSON snapshots stored in the database
+    #: (`app/api/saved.py`), and every snapshot saved before this field existed
+    #: is missing it outright. Making it required turned every pre-existing
+    #: saved evaluation into a response-validation error on `GET
+    #: /v1/users/me/saved` -- an unhandled 500 that Starlette's
+    #: ServerErrorMiddleware returns from OUTSIDE CORSMiddleware, so the
+    #: response carries no `Access-Control-Allow-Origin` header and the browser
+    #: reports it to the page as "Failed to fetch" rather than a normal error.
+    #: A missing value on an old snapshot correctly means "this evaluation
+    #: predates AI Insights being deferrable," i.e. not pending.
+    known_issues_pending: bool = False
     #: Additive, not part of spec 7's numbered order (build step 12): KBB and
     #: Consumer Reports links. Always exactly two entries -- no minimum-comp
     #: or confidence gate, since this reads only year/make/model.

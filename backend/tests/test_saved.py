@@ -143,6 +143,31 @@ def test_re_saving_does_not_overwrite_the_snapshot(client, session, settings):
     assert second["evaluation"]["headline"] == "a snapshot from before"
 
 
+def test_list_survives_a_snapshot_saved_before_known_issues_pending_existed(
+    client, session, settings
+):
+    """`known_issues_pending` was added to `EvaluationOut` after snapshots were
+    already being stored verbatim in `SavedEvaluation.evaluation` (spec 6.6's
+    on-demand AI Insights endpoint). A stored snapshot from before that field
+    existed has no key for it at all -- not `None`, absent -- and the field
+    must therefore default rather than be required, or every saved evaluation
+    predating the change turns `GET /v1/users/me/saved` into a response
+    validation error for every user who saved anything before the deploy."""
+    auth = sign_in(session, settings)
+    capture_id = ingest(client)
+    client.post(f"/v1/evaluations/{capture_id}/save?offline=true", headers=auth)
+
+    row = session.scalars(select(SavedEvaluation)).one()
+    stale = dict(row.evaluation)
+    del stale["known_issues_pending"]
+    row.evaluation = stale
+    session.commit()
+
+    listed = client.get("/v1/users/me/saved", headers=auth)
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["evaluation"]["known_issues_pending"] is False
+
+
 def test_saving_an_unknown_capture_is_404(client, session, settings):
     auth = sign_in(session, settings)
     assert client.post("/v1/evaluations/9999/save?offline=true", headers=auth).status_code == 404
