@@ -281,7 +281,7 @@ export const BREAKDOWN_STYLES = `
   .component-body { padding: 0 0 var(--sp-4); }
 
   /* Vehicle risk / seller and scam risk's own nested dropdowns (Recalls,
-     Complaints, Known issues, Red flags, Questions). Indented from "Vehicle
+     Complaints, Vehicle specification, Red flags). Indented from "Vehicle
      risk" / "Seller and scam risk" itself, with their own content indented a
      second step further from THEIR header -- two levels, not one. Overrides
      the shared .disclosure spacing, which is sized for a full-width top-level

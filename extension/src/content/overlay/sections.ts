@@ -35,7 +35,6 @@
 
 import type { EvaluationResponse } from "../../shared/types";
 import {
-  aiBadge,
   callout,
   chip,
   copyButton,
@@ -54,7 +53,6 @@ import {
 import {
   alternativeVehicle,
   confidenceTone,
-  knownIssuesReasonIsShowable,
   leverageTone,
   offerLadder,
   offerStanceChip,
@@ -431,121 +429,35 @@ function buildComplaints(data: EvaluationResponse): HTMLElement[] {
 }
 
 /**
- * What's known to be wrong with THIS model at THIS mileage: the cached LLM
- * read (spec 6.6), concise by construction -- the prompt already refuses to
- * pad an empty list (`known_issues/prompt.py`), so this renders what it's
- * given rather than imposing its own cap on top.
- *
- * Deliberately LLM-only. NHTSA complaint density (count and top components)
- * used to render here too, but it read as part of the model's finding when it
- * is gathered data with its own caveats. It now has its own "Complaints"
- * subsection alongside Recalls -- surfaced, just not beside the LLM prose.
- *
- * "Ask" is deliberately absent: those bullets are spec 7's own section now
- * (`buildQuestions`), not folded in here.
- */
-function buildKnownIssuesSubsection(data: EvaluationResponse): HTMLElement[] {
-  const nodes: HTMLElement[] = [];
-  const risk = data.vehicle_risk;
-  const known = data.known_issues;
-
-  if (known) {
-    nodes.push(el("p", "known-summary", known.summary));
-  } else if (
-    data.known_issues_unavailable_reason &&
-    knownIssuesReasonIsShowable(data.known_issues_unavailable_code)
-  ) {
-    nodes.push(el("p", "muted", data.known_issues_unavailable_reason));
-  }
-
-  if (risk.decoded_spec) nodes.push(rows([["VIN decode", risk.decoded_spec]]));
-
-  if (known) {
-    const groups: Array<[string, string[]]> = [
-      ["Known to go wrong", known.failure_modes],
-      ["Check on the viewing", known.inspect],
-      ["Living with it", known.ownership_notes],
-    ];
-    for (const [label, items] of groups) {
-      const ul = list(items);
-      if (!ul) continue;
-      nodes.push(el("p", "muted", label), ul);
-    }
-  }
-
-  if (nodes.length === 0) {
-    nodes.push(el("p", "muted", "No known-issue data available for this vehicle."));
-  }
-  return nodes;
-}
-
-/**
  * What goes inside the score breakdown's "vehicle risk" dropdown: open
- * recalls, plus what's known to go wrong with the CAR (NHTSA complaint
- * density and the cached LLM read, spec 6.6) -- each its own nested dropdown
- * rather than a plain heading, so a reader who only cares about recalls
- * never has to scroll past the known-issues prose to find them. Title
- * branding lives in `buildSellerScamRiskDetail` instead, alongside the rest
- * of what a buyer would call a "red flag" about the listing.
- *
- * The AI pill sits on "Known issues" specifically, not on the outer "vehicle
- * risk" bar -- recalls are deterministic NHTSA data, and the pill should mark
- * exactly the content that leans on the model, not everything near it.
+ * recalls, NHTSA complaint density, and -- only when a VIN was recovered --
+ * the decoded specification. The qualitative model read (spec 6.6, "Known
+ * issues" and "Questions to ask the seller") no longer lives here: both used
+ * to be one call rendered across two unrelated dropdowns, and now render
+ * together as their own top-level "AI Insights" section (`ai-insights.ts`),
+ * directly below the score breakdown rather than buried inside it.
  */
 export function buildVehicleRiskDetail(data: EvaluationResponse): HTMLElement[] {
-  return [
+  const nodes = [
     disclosure("Recalls", "", buildRecalls(data)),
     disclosure("Complaints", "", buildComplaints(data)),
-    disclosure("Known issues", "", buildKnownIssuesSubsection(data), aiBadge()),
   ];
+  const decoded = data.vehicle_risk.decoded_spec;
+  if (decoded) {
+    nodes.push(disclosure("Vehicle specification", "", [rows([["VIN decode", decoded]])]));
+  }
+  return nodes;
 }
 
 /**
  * What goes inside the score breakdown's "seller and scam risk" dropdown:
- * red flags about the LISTING (title status, the scam-pattern combination,
- * a dealer posing as private, a low star rating) plus the questions spec
- * 6.6's cached LLM call generated for the seller conversation, each its own
- * nested dropdown. "Questions" is only added when there is something under
- * it -- an empty dropdown over nothing is worse than no dropdown at all --
- * and carries the AI pill on its own, since red flags are deterministic.
+ * red flags about the LISTING (title status, the scam-pattern combination, a
+ * dealer posing as private, a low star rating). The seller-conversation
+ * questions spec 6.6's cached call used to add here now live in "AI Insights"
+ * instead (`ai-insights.ts`) alongside the rest of that same call's output.
  */
 export function buildSellerScamRiskDetail(data: EvaluationResponse): HTMLElement[] {
-  const nodes: HTMLElement[] = [disclosure("Red flags", "", buildRedFlags(data))];
-  const questions = buildQuestions(data);
-  if (questions.length) {
-    nodes.push(disclosure("Questions to ask the seller", "", questions, aiBadge()));
-  }
-  return nodes;
-}
-
-function buildQuestions(data: EvaluationResponse): HTMLElement[] {
-  const known = data.known_issues;
-  if (known) {
-    const ul = list(known.ask);
-    // These exist to be sent to a stranger, and a buyer who cannot copy them
-    // retypes them into Messenger one at a time or, more likely, asks none of
-    // them. Newline-joined rather than bulleted: the destination is a chat box.
-    if (ul) {
-      const actions = el("div", "questions-actions");
-      actions.append(copyButton(known.ask.join("\n"), "Copy all"));
-      return [actions, ul];
-    }
-    return [
-          el(
-            "p",
-            "muted",
-            "No vehicle-specific questions -- the standard checklist (title, service " +
-              "history, accident history) covers this one.",
-          ),
-        ];
-  }
-  if (
-    data.known_issues_unavailable_reason &&
-    knownIssuesReasonIsShowable(data.known_issues_unavailable_code)
-  ) {
-    return [el("p", "muted", data.known_issues_unavailable_reason)];
-  }
-  return [];
+  return [disclosure("Red flags", "", buildRedFlags(data))];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1147,8 +1059,6 @@ export const SECTION_STYLES = `
   }
   .draft-body:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
 
-  .questions-actions { display: flex; justify-content: flex-end; margin-bottom: var(--sp-1); }
-
   /* alternatives ------------------------------------------------------ */
   .alt {
     padding: var(--sp-4) 0; border-top: 1px solid var(--border-faint);
@@ -1174,10 +1084,6 @@ export const SECTION_STYLES = `
     font-size: var(--fs-sm); color: var(--text-dim);
   }
   .alt a { margin-top: var(--sp-2); }
-
-  .known-summary {
-    margin: 0 0 var(--sp-2); font-size: var(--fs-base); line-height: 1.55; color: var(--text-muted);
-  }
 
   /* helpful links -------------------------------------------------------- */
   .helpful-link {

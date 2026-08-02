@@ -106,6 +106,7 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
     known_issues: null,
     known_issues_unavailable_reason: null,
     known_issues_unavailable_code: null,
+    known_issues_pending: false,
     helpful_links: [],
     notices: [],
     ...over,

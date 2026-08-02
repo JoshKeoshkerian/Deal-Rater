@@ -25,9 +25,10 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
     capture_id: 1,
     headline: "A fair deal.",
     vehicle: "2016 Mazda CX-5",
-    // Pricing, recalls, complaints and the seller questions all render INSIDE
-    // the four breakdown bars, so a fixture with no components has none of
-    // them -- the panel correctly says "no dimension could be assessed".
+    // Pricing, recalls and complaints all render INSIDE the four breakdown
+    // bars, so a fixture with no components has none of them -- the panel
+    // correctly says "no dimension could be assessed". AI Insights is a
+    // sibling section instead (`known_issues*` below), not nested in a bar.
     deal_score: {
       score: 74,
       components: [
@@ -123,6 +124,7 @@ function evaluation(over: Partial<EvaluationResponse> = {}): EvaluationResponse 
     known_issues: null,
     known_issues_unavailable_reason: null,
     known_issues_unavailable_code: null,
+    known_issues_pending: false,
     helpful_links: [
       {
         label: "Kelley Blue Book",

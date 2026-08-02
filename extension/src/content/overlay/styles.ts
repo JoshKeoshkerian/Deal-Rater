@@ -6,6 +6,7 @@
  * so a section cannot be added without its styles arriving with it.
  */
 
+import { AI_INSIGHTS_STYLES } from "./ai-insights";
 import { BOOKMARK_STYLES } from "./bookmark";
 import { BREAKDOWN_STYLES } from "./breakdown";
 import { ELEMENT_STYLES } from "./elements";
@@ -104,6 +105,7 @@ ${HEADER_STYLES}
 ${BOOKMARK_STYLES}
 ${BREAKDOWN_STYLES}
 ${SECTION_STYLES}
+${AI_INSIGHTS_STYLES}
 ${TRAILING}
 `;
 }

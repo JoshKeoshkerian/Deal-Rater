@@ -22,20 +22,26 @@ from types import SimpleNamespace
 
 import pytest
 
+import app.evaluation as evaluation_module
 from app.config import Settings
+from app.evaluation import evaluate_capture
 from app.flags import read_title_status
 from app.known_issues import client as ki_client
 from app.known_issues import params
 from app.known_issues.client import (
     NOT_CONFIGURED_REASON,
     OFFLINE_REASON,
+    KnownIssuesReading,
     _Completion,
     fetch_known_issues,
 )
 from app.known_issues.gate import evaluate_gate, find_disqualifier
 from app.known_issues.guard import SUMMARY_WITHHELD, contains_currency, scrub_bullets
 from app.known_issues.prompt import SYSTEM_PROMPT, KnownIssuesReport, build_user_prompt
+from app.known_issues.service import known_issues_reading
 from app.models import KnownIssuesEntry
+from app.pricing.comps import CompCandidate
+from app.pricing.loader import StoredCapture
 
 
 def settings(**overrides) -> Settings:
@@ -532,6 +538,163 @@ class TestFailureDegradesNothingElse:
         )
         assert not reading.available
         assert session.query(KnownIssuesEntry).count() == 0
+
+
+class TestNetworkAllowed:
+    """`network_allowed=False`: the AI Insights click deferral (spec 10).
+
+    Distinct from every other reason in `TestFailureDegradesNothingElse` --
+    those are "this call can never happen here"; this is "it could happen,
+    just not without someone asking for it right now."
+    """
+
+    def test_a_cache_miss_is_deferred_rather_than_called(self, session, monkeypatch):
+        reading, calls = fetch(session, monkeypatch, network_allowed=False)
+        assert not reading.available
+        assert reading.unavailable_reason is None
+        assert reading.skip_code is None
+        assert reading.pending
+        assert calls == []
+        assert session.query(KnownIssuesEntry).count() == 0
+
+    def test_a_cache_hit_serves_regardless(self, session, monkeypatch):
+        # Warming the cache (network allowed), then a second read with the
+        # network switched off must still serve the stored answer for free --
+        # deferring only ever affects GENERATING, never SERVING.
+        fetch(session, monkeypatch)
+        reading, calls = fetch(session, monkeypatch, network_allowed=False)
+        assert reading.available and reading.cache_hit
+        assert not reading.pending
+        assert calls == []
+
+    def test_disabled_still_wins_over_pending(self, session, monkeypatch):
+        # Every other "this call can never happen" reason is checked before
+        # `network_allowed`, so a deployment that has switched the feature off
+        # must still say so -- clicking to generate would just fail again.
+        reading, calls = fetch(
+            session, monkeypatch, network_allowed=False, cfg=settings(known_issues_enabled=False)
+        )
+        assert reading.unavailable_reason
+        assert not reading.pending
+        assert calls == []
+
+    def test_no_api_key_still_wins_over_pending(self, session, monkeypatch):
+        reading, calls = fetch(
+            session, monkeypatch, network_allowed=False, cfg=settings(anthropic_api_key=None)
+        )
+        assert reading.unavailable_reason == NOT_CONFIGURED_REASON
+        assert not reading.pending
+        assert calls == []
+
+    def test_offline_still_wins_over_pending(self, session, monkeypatch):
+        # `offline` is a blanket "no network in this test/dev run" flag;
+        # `network_allowed=False` is a narrower "not right now, from this
+        # caller" one. Offline is checked first, so it still reports its own
+        # reason rather than reading as clickable.
+        reading, calls = fetch(session, monkeypatch, network_allowed=False, offline=True)
+        assert reading.unavailable_reason == OFFLINE_REASON
+        assert not reading.pending
+        assert calls == []
+
+
+def _capture(target: CompCandidate, **overrides) -> StoredCapture:
+    base = {
+        "capture_id": 1,
+        "client_capture_id": "11111111-1111-4111-8111-111111111111",
+        "captured_at": None,
+        "target": target,
+        "target_observation_id": 1,
+        "candidates": [],
+        "location_scoped": True,
+        "search_query": None,
+    }
+    base.update(overrides)
+    return StoredCapture(**base)
+
+
+def _target(**overrides) -> CompCandidate:
+    base = {
+        "listing_id": 1,
+        "source_listing_id": "abc123",
+        "year": 2013,
+        "make": "Ford",
+        "model": "Focus",
+        "trim_text": "SE",
+        "price_cents": 900_000,
+        "mileage": 90_000,
+        "location_text": "Tulsa, OK",
+    }
+    base.update(overrides)
+    return CompCandidate(**base)
+
+
+class TestKnownIssuesReadingOrchestration:
+    """`known_issues_reading` (`service.py`): the gate-then-fetch seam both
+    the eager evaluation and the on-demand endpoint call, so they cannot
+    diverge on when a call is allowed."""
+
+    def args(self, **overrides):
+        base = {
+            "title": read_title_status("clean"),
+            "description": "Runs great, well maintained.",
+            "year": 2013,
+            "make": "Ford",
+            "model": "Focus",
+            "trim": "SE",
+            "mileage": 90_000,
+            "pricing_band": "fair",
+        }
+        base.update(overrides)
+        return base
+
+    def test_a_gate_decline_never_reaches_fetch(self, session, monkeypatch):
+        calls: list = []
+        monkeypatch.setattr(ki_client, "_call_model", fake_call(completion(), calls))
+        reading = known_issues_reading(
+            session, settings(), **self.args(title=read_title_status("salvage"))
+        )
+        assert not reading.available
+        assert reading.skip_code == "title_disqualifier"
+        assert calls == []
+
+    def test_a_gate_allow_reaches_fetch_with_network_allowed_true(self, session, monkeypatch):
+        calls: list = []
+        monkeypatch.setattr(ki_client, "_call_model", fake_call(completion(), calls))
+        reading = known_issues_reading(session, settings(), **self.args(), network_allowed=True)
+        assert reading.available
+        assert len(calls) == 1
+
+    def test_a_gate_allow_reaches_fetch_with_network_allowed_false(self, session, monkeypatch):
+        calls: list = []
+        monkeypatch.setattr(ki_client, "_call_model", fake_call(completion(), calls))
+        reading = known_issues_reading(session, settings(), **self.args(), network_allowed=False)
+        assert not reading.available
+        assert reading.pending
+        assert calls == []
+
+
+class TestEvaluateCaptureDefersKnownIssues:
+    """`evaluate_capture`'s call site (`evaluation/__init__.py`) must never
+    let a plain evaluation pay for spec 6.6's call -- only the click that
+    opens AI Insights may (`api/evaluations.py`'s `POST .../known-issues`)."""
+
+    def test_the_call_site_always_passes_network_allowed_false(self, session, monkeypatch):
+        captured: dict = {}
+
+        def fake_reading(*args, **kwargs):
+            captured.update(kwargs)
+            return KnownIssuesReading(pending=True)
+
+        monkeypatch.setattr(evaluation_module, "known_issues_reading", fake_reading)
+
+        capture = _capture(_target())
+        # offline=True keeps this test free of real NHTSA network calls, same
+        # as every other evaluate_capture test in this suite -- it is
+        # orthogonal to `network_allowed`, which is asserted below regardless
+        # of it.
+        evaluate_capture(session, capture, offline=True)
+
+        assert captured["network_allowed"] is False
 
 
 class TestPrompt:

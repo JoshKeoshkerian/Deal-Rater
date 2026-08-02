@@ -12,6 +12,7 @@ import type {
   CaptureResponse,
   EvaluationResponse,
   ExtractionIssue,
+  KnownIssuesFetchResponse,
   ObservationPayload,
 } from "./types";
 
@@ -21,6 +22,9 @@ export type ContentToBackground =
   | { type: "HARVEST_TARGET_VIA_TAB"; url: string }
   | { type: "CONTENT_READY"; url: string }
   | { type: "FETCH_EVALUATION"; captureId: number }
+  // The AI Insights click (spec 6.6, 10): fetched on demand, never on mount,
+  // so a plain evaluation never pays for a call nobody asked to see.
+  | { type: "FETCH_KNOWN_ISSUES"; captureId: number }
   // --- accounts and saved evaluations --------------------------------------
   // The content script never holds the session token; it asks for an outcome.
   // See `shared/session.ts`.
@@ -40,6 +44,10 @@ export type SubmitCaptureResult =
 
 export type EvaluationResult =
   | { ok: true; evaluation: EvaluationResponse }
+  | { ok: false; error: string };
+
+export type KnownIssuesFetchResult =
+  | { ok: true; result: KnownIssuesFetchResponse }
   | { ok: false; error: string };
 
 export type HarvestResult =

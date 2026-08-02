@@ -134,6 +134,37 @@ export interface ScoreComponent {
   unavailable_reason: string | null;
 }
 
+/**
+ * Spec 6.6's structured output, mirrored wherever it travels -- embedded in
+ * `EvaluationResponse` when a plain evaluation happened to find it already
+ * cached, and in `KnownIssuesFetchResponse` when the AI Insights click fetched
+ * it on demand.
+ */
+export interface KnownIssuesReport {
+  summary: string;
+  failure_modes: string[];
+  inspect: string[];
+  ask: string[];
+  ownership_notes: string[];
+  model: string | null;
+  mileage_band: string | null;
+  generated_at: string | null;
+  cached: boolean;
+}
+
+/**
+ * Response for `POST /v1/evaluations/{capture_id}/known-issues` -- the AI
+ * Insights click. Mirrors the backend's `KnownIssuesFetchOut`: the same three
+ * fields embedded in `EvaluationResponse`, without a `pending` counterpart,
+ * since this endpoint always resolves definitively (cached, a gate verdict, a
+ * deployment reason, or a fresh answer -- never pending).
+ */
+export interface KnownIssuesFetchResponse {
+  known_issues: KnownIssuesReport | null;
+  known_issues_unavailable_reason: string | null;
+  known_issues_unavailable_code: string | null;
+}
+
 export interface EvaluationResponse {
   capture_id: number;
   headline: string;
@@ -318,17 +349,7 @@ export interface EvaluationResponse {
    * QUALITATIVE ONLY: spec 6.6 forbids dollar estimates, and the backend
    * strips any that slip through, so no field here carries a figure.
    */
-  known_issues: {
-    summary: string;
-    failure_modes: string[];
-    inspect: string[];
-    ask: string[];
-    ownership_notes: string[];
-    model: string | null;
-    mileage_band: string | null;
-    generated_at: string | null;
-    cached: boolean;
-  } | null;
+  known_issues: KnownIssuesReport | null;
   known_issues_unavailable_reason: string | null;
   /**
    * Which kind of absence. Codes prefixed `deployment_` are facts about the
@@ -337,6 +358,17 @@ export interface EvaluationResponse {
    * gate returning a VERDICT about the car, which is a finding.
    */
   known_issues_unavailable_code: string | null;
+  /**
+   * True when the gate would allow spec 6.6's call and nothing is cached yet,
+   * but this evaluation deliberately didn't pay for one -- a plain page load
+   * never spends the one per-call cost this product has. The AI Insights
+   * section reads this as "available on click": opening it for the first
+   * time sends `FETCH_KNOWN_ISSUES`, which hits
+   * `POST /v1/evaluations/{capture_id}/known-issues`. Always false alongside
+   * a populated `known_issues` or a populated `known_issues_unavailable_reason`
+   * -- the three are mutually exclusive.
+   */
+  known_issues_pending: boolean;
   /**
    * KBB and Consumer Reports jumping-off points (`app/links/builder.py`).
    * Additive, not part of spec 7's numbered order: no minimum-comp or

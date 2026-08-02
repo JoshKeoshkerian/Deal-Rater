@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 import { Window } from "happy-dom";
 
 import { loadTs } from "./lib/load-ts.mjs";
-import { CONFIDENT, FLAT, SCAM, UNRELIABLE } from "./lib/preview-fixtures.mjs";
+import { CONFIDENT, FLAT, PENDING, SCAM, UNRELIABLE } from "./lib/preview-fixtures.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -293,6 +293,35 @@ ${css}
         <h3 class="rv-state-name">Flat breakdown</h3>
         <p class="rv-condition">sub-scores 62–70 · spread 8 points</p>
         ${both((t) => panel(FLAT, t))}
+      </div>
+    </div>
+  </div>
+
+  <div class="rv-band">
+    <h2>AI Insights</h2>
+    <p>Spec 6.6's cached model read, merged from what used to be two dropdowns ("Known
+       issues" under vehicle risk, "Questions to ask the seller" under seller/scam risk)
+       into its own section below the breakdown. Three states off the wire, only one of
+       which this static page can show fully: opening <em>Not yet generated</em> sends a
+       real <code>FETCH_KNOWN_ISSUES</code> message this offline harness has nothing to
+       answer, so its "Generating…" and loaded/error repaints have to be checked against
+       a live backend instead (see the module's own verification steps).</p>
+    <hr class="rv-band-rule">
+    <div class="rv-cols">
+      <div class="rv-col">
+        <h3 class="rv-state-name">Already generated</h3>
+        <p class="rv-condition">cache hit at evaluation time · free</p>
+        ${both((t) => panel(CONFIDENT, t))}
+      </div>
+      <div class="rv-col">
+        <h3 class="rv-state-name">Not available</h3>
+        <p class="rv-condition">gate declined: implausible discount</p>
+        ${both((t) => panel(SCAM, t))}
+      </div>
+      <div class="rv-col">
+        <h3 class="rv-state-name">Not yet generated</h3>
+        <p class="rv-condition">gate allows a call, nothing cached -- click to spend it</p>
+        ${both((t) => panel(PENDING, t))}
       </div>
     </div>
   </div>

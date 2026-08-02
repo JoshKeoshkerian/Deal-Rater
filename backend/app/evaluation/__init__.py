@@ -23,7 +23,7 @@ from ..flags import (
     assess_scam_patterns,
     read_title_status,
 )
-from ..known_issues import KnownIssuesReading, evaluate_gate, fetch_known_issues
+from ..known_issues import known_issues_reading
 from ..links import build_helpful_links
 from ..negotiation import (
     NegotiationAssessment,
@@ -57,49 +57,6 @@ __all__ = [
     "compute_deal_score",
     "evaluate_capture",
 ]
-
-
-def _known_issues(
-    session: Session,
-    capture: StoredCapture,
-    settings: Settings,
-    *,
-    title: TitleReading,
-    pricing_band: str | None,
-    offline: bool,
-) -> KnownIssuesReading:
-    """Spec 6.6's section, behind spec 10's gate.
-
-    The gate runs FIRST and unconditionally, before the cache is even consulted.
-    A salvage-title listing should report the salvage title whether or not the
-    answer for that vehicle happens to be sitting in the cache already -- spec
-    10's checks are about relevance as much as cost.
-    """
-    decision = evaluate_gate(
-        title=title,
-        description=capture.target_description,
-        pricing_band=pricing_band,
-        year=capture.target.year,
-        make=capture.target.make,
-        model=capture.target.model,
-    )
-    if not decision.allowed:
-        return KnownIssuesReading(
-            unavailable_reason=decision.reason,
-            skip_code=decision.code,
-        )
-
-    # The gate guarantees these three are present.
-    return fetch_known_issues(
-        session,
-        settings,
-        year=capture.target.year,
-        make=capture.target.make,
-        model=capture.target.model,
-        trim=capture.target.trim_text,
-        mileage=capture.target.mileage,
-        offline=offline,
-    )
 
 
 def evaluate_capture(
@@ -200,13 +157,26 @@ def evaluate_capture(
     # Last, and deliberately outside `compute_deal_score`: spec 6.6 is
     # qualitative context, not a scored dimension (spec 5.2 lists four weights
     # and this is none of them).
-    known_issues = _known_issues(
+    #
+    # `network_allowed=False`: a plain evaluation must never spend the one
+    # per-call cost this product has just because a page was loaded. The gate
+    # still runs here (using the pricing band already computed above, for
+    # free) so every disqualifying reason still shows up immediately; only
+    # the actual model call is deferred, to the click that opens AI Insights
+    # (`POST /v1/evaluations/{id}/known-issues`, `api/evaluations.py`).
+    known_issues = known_issues_reading(
         session,
-        capture,
         settings,
         title=title,
+        description=capture.target_description,
+        year=capture.target.year,
+        make=capture.target.make,
+        model=capture.target.model,
+        trim=capture.target.trim_text,
+        mileage=capture.target.mileage,
         pricing_band=pricing.rating.band if pricing.rating else None,
         offline=offline,
+        network_allowed=False,
     )
 
     return build_evaluation(

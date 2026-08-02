@@ -10,6 +10,7 @@ heading with nothing under it.
 from __future__ import annotations
 
 from ..evaluation import Evaluation
+from ..known_issues import KnownIssuesReading
 from ..pricing.loader import StoredCapture
 from ..schemas import (
     AlternativeOut,
@@ -18,6 +19,7 @@ from ..schemas import (
     DealScoreOut,
     EvaluationOut,
     HelpfulLinkOut,
+    KnownIssuesFetchOut,
     KnownIssuesOut,
     NegotiationOut,
     OfferOut,
@@ -28,6 +30,33 @@ from ..schemas import (
     VehicleRiskOut,
     WithheldAlternativeOut,
 )
+
+
+def known_issues_reading_to_schema(known: KnownIssuesReading) -> KnownIssuesFetchOut:
+    """The one mapping from a `KnownIssuesReading` to its wire shape.
+
+    Shared by `evaluation_to_schema` (embedded in the full evaluation payload)
+    and `api/evaluations.py`'s on-demand endpoint (returned on its own) so the
+    two can never map the same reading two different ways.
+    """
+    known_issues: KnownIssuesOut | None = None
+    if known.report is not None:
+        known_issues = KnownIssuesOut(
+            summary=known.report.summary,
+            failure_modes=list(known.report.failure_modes),
+            inspect=list(known.report.inspect),
+            ask=list(known.report.ask),
+            ownership_notes=list(known.report.ownership_notes),
+            model=known.llm_model,
+            mileage_band=known.mileage_band,
+            generated_at=known.generated_at,
+            cached=known.cache_hit,
+        )
+    return KnownIssuesFetchOut(
+        known_issues=known_issues,
+        known_issues_unavailable_reason=known.unavailable_reason,
+        known_issues_unavailable_code=known.skip_code,
+    )
 
 
 def _vehicle_label(capture: StoredCapture) -> str:
@@ -83,23 +112,12 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
     risk = evaluation.vehicle_risk
     scam = evaluation.scam
 
-    # Spec 6.6. Absent far more often than present -- no key, spec 10's gate, or
-    # a failed call -- so both halves are always emitted and exactly one of them
-    # is populated.
+    # Spec 6.6. Absent far more often than present -- no key, spec 10's gate, a
+    # deferred call, or a failed one -- so all three known-issues fields are
+    # always emitted and at most one signal (a populated section, a reason, or
+    # `pending`) is set.
     known = evaluation.known_issues
-    known_issues: KnownIssuesOut | None = None
-    if known.report is not None:
-        known_issues = KnownIssuesOut(
-            summary=known.report.summary,
-            failure_modes=list(known.report.failure_modes),
-            inspect=list(known.report.inspect),
-            ask=list(known.report.ask),
-            ownership_notes=list(known.report.ownership_notes),
-            model=known.llm_model,
-            mileage_band=known.mileage_band,
-            generated_at=known.generated_at,
-            cached=known.cache_hit,
-        )
+    known_issues_fetch = known_issues_reading_to_schema(known)
 
     seller_risk: SellerRiskOut | None = None
     if evaluation.has_seller_section:
@@ -257,9 +275,10 @@ def evaluation_to_schema(capture: StoredCapture, evaluation: Evaluation) -> Eval
                 for a in evaluation.alternatives.different_trim
             ],
         ),
-        known_issues=known_issues,
-        known_issues_unavailable_reason=known.unavailable_reason,
-        known_issues_unavailable_code=known.skip_code,
+        known_issues=known_issues_fetch.known_issues,
+        known_issues_unavailable_reason=known_issues_fetch.known_issues_unavailable_reason,
+        known_issues_unavailable_code=known_issues_fetch.known_issues_unavailable_code,
+        known_issues_pending=known.pending,
         helpful_links=[
             HelpfulLinkOut(label=link.label, url=link.url, note=link.note)
             for link in evaluation.helpful_links

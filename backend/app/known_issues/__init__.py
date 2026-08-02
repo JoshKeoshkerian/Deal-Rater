@@ -2,11 +2,13 @@
 
     "Price is not value. A cheap BMW is not a cheap car."
 
-    params.py  model choice, mileage bands, cost rates, gate phrases
-    gate.py    spec 10's deterministic checks -- when NOT to spend a call
-    prompt.py  the system prompt and the structured output shape
-    guard.py   spec 6.6's hard rule: no dollar figures reach a user
-    client.py  cache read, the call, cost accounting
+    params.py   model choice, mileage bands, cost rates, gate phrases
+    gate.py     spec 10's deterministic checks -- when NOT to spend a call
+    prompt.py   the system prompt and the structured output shape
+    guard.py    spec 6.6's hard rule: no dollar figures reach a user
+    client.py   cache read, the call, cost accounting
+    service.py  gate-then-fetch, shared by the eager evaluation and the
+                on-demand AI Insights endpoint so they can't drift apart
 
 WHAT MAKES THIS DIFFERENT FROM EVERY OTHER DIMENSION
 ----------------------------------------------------
@@ -29,6 +31,7 @@ from .gate import GateDecision, evaluate_gate, find_disqualifier
 from .guard import contains_currency, scrub_bullets
 from .params import cost_microdollars, mileage_band
 from .prompt import KnownIssuesReport
+from .service import known_issues_reading
 
 __all__ = [
     "GateDecision",
@@ -39,6 +42,7 @@ __all__ = [
     "evaluate_gate",
     "fetch_known_issues",
     "find_disqualifier",
+    "known_issues_reading",
     "mileage_band",
     "scrub_bullets",
 ]

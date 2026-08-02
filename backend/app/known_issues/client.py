@@ -2,7 +2,9 @@
 
     read cache  ->  hit?  ->  serve, cost 0
                      |
-                    miss  ->  Claude call  ->  guard caught a $ figure?
+                    miss  ->  network allowed?  -> no -> pending, cost 0
+                                     |
+                                    yes -> Claude call  ->  guard caught a $ figure?
                                                         |
                                                        yes -> one corrective
                                                               retry -> guard
@@ -13,6 +15,19 @@ Every path returns a `KnownIssuesReading`. Nothing here raises: an outage, a
 missing key, a malformed response and a refusal all degrade to a reading with an
 `unavailable_reason` attached, exactly as the NHTSA client degrades on a failed
 decode. The pricing model must not be able to fail because a text call did.
+
+WHY `network_allowed` IS SEPARATE FROM EVERY OTHER GATE HERE
+--------------------------------------------------------------
+Every other reason this function declines to call the model is a fact about
+whether the call is POSSIBLE or ALLOWED at all (no key, feature disabled, an
+offline run). `network_allowed=False` is different: the call is possible and
+allowed, there just isn't a cached answer yet and nobody has asked for one to
+be generated right now. That is the deferred-cost case (spec 10's caller,
+`evaluation/__init__.py`, sets this false so a plain evaluation never spends
+money the user hasn't asked for by opening the AI Insights section) -- so it
+is checked LAST, after every other reason a call would never happen anyway,
+and produces its own `pending` state rather than reusing `unavailable_reason`
+(nothing is actually wrong; the answer is simply not generated yet).
 
 WHY THE ENTIRE FEATURE IS OPT-IN
 --------------------------------
@@ -111,6 +126,11 @@ class KnownIssuesReading:
     #: Set when the gate declined to spend a call (spec 10), so telemetry can
     #: separate "we chose not to" from "it failed".
     skip_code: str | None = None
+
+    #: True when the gate would allow a call and nothing is cached yet, but
+    #: `network_allowed=False` deferred it. Distinct from `unavailable_reason`:
+    #: nothing is wrong here, a caller just hasn't asked for generation yet.
+    pending: bool = False
 
     @property
     def available(self) -> bool:
@@ -297,12 +317,14 @@ def fetch_known_issues(
     trim: str | None,
     mileage: int | None,
     offline: bool = False,
+    network_allowed: bool = True,
 ) -> KnownIssuesReading:
     """Cached ownership-cost context for one vehicle (spec 6.6).
 
     The caller is responsible for spec 10's gate (`gate.py`); by the time this
     runs, the decision to allow a call has already been made. What is decided
-    here is only whether the answer already exists.
+    here is only whether the answer already exists -- and, if not, whether
+    this caller is willing to pay for one right now (`network_allowed`).
     """
     llm_model = settings.known_issues_model
     band = params.mileage_band(mileage)
@@ -333,6 +355,8 @@ def fetch_known_issues(
             skip_code=NOT_CONFIGURED_CODE,
             mileage_band=band,
         )
+    if not network_allowed:
+        return KnownIssuesReading(pending=True, mileage_band=band)
 
     def _prompt(*, corrective: bool) -> str:
         return build_user_prompt(

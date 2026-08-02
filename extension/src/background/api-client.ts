@@ -1,6 +1,20 @@
-import type { CapturePayload, CaptureResponse, EvaluationResponse } from "../shared/types";
+import type {
+  CapturePayload,
+  CaptureResponse,
+  EvaluationResponse,
+  KnownIssuesFetchResponse,
+} from "../shared/types";
 
 const REQUEST_TIMEOUT_MS = 30_000;
+
+//: Comfortably above the backend's own `REQUEST_TIMEOUT_SECONDS` (30s,
+//: `known_issues/client.py`) plus its one possible corrective retry, so a
+//: hung connection here never aborts before the backend's own ceiling would
+//: have. Its own constant rather than reusing `REQUEST_TIMEOUT_MS`: that one
+//: times a request that is usually instant (a cache hit) or already bounded by
+//: NHTSA's own timeouts, and shortening THIS call to match it would abort a
+//: genuine cold generation early.
+const KNOWN_ISSUES_REQUEST_TIMEOUT_MS = 40_000;
 
 export async function postCapture(
   apiBaseUrl: string,
@@ -67,15 +81,18 @@ const EVALUATION_RETRY_DELAY_MS = 1_500;
  * `fetchEvaluation`, retried once after a short delay.
  *
  * `GET /v1/evaluations/{id}` recomputes the whole assessment on every call --
- * VIN decode, NHTSA recalls/complaints, and the known-issues LLM call, none of
- * which are free on a cold cache -- and the endpoint never checks for client
- * disconnection, so a request the client gave up on keeps running server-side
- * and finishes populating those caches anyway. A vehicle combination this
- * backend hasn't priced before can take long enough to trip
- * `REQUEST_TIMEOUT_MS`, which used to surface as the capture succeeding with
- * no evaluation and no overlay at all. One retry, after a pause to let the
- * first attempt actually finish server-side, turns that into an evaluation
- * that appears a couple of seconds late instead of not appearing.
+ * VIN decode and NHTSA recalls/complaints, neither of which is free on a cold
+ * cache -- and the endpoint never checks for client disconnection, so a
+ * request the client gave up on keeps running server-side and finishes
+ * populating those caches anyway. (Spec 6.6's known-issues call is NOT among
+ * these any more: `evaluate_capture` always defers it, so this endpoint never
+ * blocks on it -- see `fetchKnownIssues` below for the one place that does.)
+ * A vehicle combination this backend hasn't priced before can still take long
+ * enough to trip `REQUEST_TIMEOUT_MS`, which used to surface as the capture
+ * succeeding with no evaluation and no overlay at all. One retry, after a
+ * pause to let the first attempt actually finish server-side, turns that into
+ * an evaluation that appears a couple of seconds late instead of not
+ * appearing.
  */
 export async function fetchEvaluationWithRetry(
   apiBaseUrl: string,
@@ -86,6 +103,38 @@ export async function fetchEvaluationWithRetry(
   } catch {
     await new Promise((resolve) => setTimeout(resolve, EVALUATION_RETRY_DELAY_MS));
     return fetchEvaluation(apiBaseUrl, captureId);
+  }
+}
+
+/**
+ * The AI Insights click (spec 6.6, 10): `POST /v1/evaluations/{id}/known-issues`.
+ *
+ * Only called once the overlay already knows (from the eager evaluation's own
+ * `known_issues_pending`) that the gate allows a call and nothing is cached
+ * yet -- so, unlike `fetchEvaluationWithRetry`, this is deliberately NOT
+ * retried. A click that times out on a genuine cold generation should surface
+ * as a retry affordance the user chooses to press again, not a second paid
+ * call fired automatically behind their back.
+ */
+export async function fetchKnownIssues(
+  apiBaseUrl: string,
+  captureId: number,
+): Promise<KnownIssuesFetchResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KNOWN_ISSUES_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl.replace(/\/$/, "")}/v1/evaluations/${captureId}/known-issues`,
+      { method: "POST", signal: controller.signal },
+    );
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(`API ${response.status}: ${text.slice(0, 500)}`);
+    }
+    return JSON.parse(text) as KnownIssuesFetchResponse;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

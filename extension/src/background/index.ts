@@ -26,6 +26,7 @@ import type {
   EvaluationResult,
   HarvestResult,
   HarvestTargetResult,
+  KnownIssuesFetchResult,
   SavedStateResult,
   SubmitCaptureResult,
 } from "../shared/messages";
@@ -33,6 +34,7 @@ import { clearSession, loadSession, saveSession } from "../shared/session";
 import { loadSettings } from "../shared/settings";
 import {
   fetchEvaluationWithRetry,
+  fetchKnownIssues,
   fetchSavedState,
   postCapture,
   requestSignInCode,
@@ -54,6 +56,12 @@ async function handleEvaluation(captureId: number): Promise<EvaluationResult> {
   return { ok: true, evaluation };
 }
 
+async function handleKnownIssues(captureId: number): Promise<KnownIssuesFetchResult> {
+  const settings = await loadSettings();
+  const result = await fetchKnownIssues(settings.apiBaseUrl, captureId);
+  return { ok: true, result };
+}
+
 chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, sendResponse) => {
   if (message?.type === "SUBMIT_CAPTURE") {
     handleSubmit(message.payload)
@@ -69,6 +77,15 @@ chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, send
       .then(sendResponse)
       .catch((error: unknown) =>
         sendResponse({ ok: false, error: describe(error) } satisfies EvaluationResult),
+      );
+    return true;
+  }
+
+  if (message?.type === "FETCH_KNOWN_ISSUES") {
+    handleKnownIssues(message.captureId)
+      .then(sendResponse)
+      .catch((error: unknown) =>
+        sendResponse({ ok: false, error: describe(error) } satisfies KnownIssuesFetchResult),
       );
     return true;
   }

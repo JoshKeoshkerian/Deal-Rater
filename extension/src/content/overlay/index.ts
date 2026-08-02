@@ -3,22 +3,31 @@
  *
  * EXPERIMENT: SCORE BREAKDOWN AS THE STAR OF THE SHOW
  * -----------------------------------------------------
- * Pricing, Risk and Questions to ask the seller no longer have their own
- * top-level sections. Each of the score breakdown's four dimension bars is
- * now its own dropdown, and expanding one reveals everything that dimension
- * is made of -- see `breakdown.ts`'s `componentDetail`:
+ * Pricing and Risk no longer have their own top-level sections. Each of the
+ * score breakdown's four dimension bars is now its own dropdown, and
+ * expanding one reveals everything that dimension is made of -- see
+ * `breakdown.ts`'s `componentDetail`:
  *
  *   price residual          -> Pricing (spec 5.1's four numbers, drawn)
  *   information completeness -> which fields the seller stated vs. left out
- *   vehicle risk             -> recalls + complaints + the model's read
- *   seller and scam risk     -> red flags (incl. title status) + questions
+ *   vehicle risk             -> recalls, complaints, decoded specification
+ *   seller and scam risk     -> red flags (incl. title status)
+ *
+ * The qualitative model read (spec 6.6) used to be split across two of those
+ * bars -- "Known issues" under vehicle risk, "Questions to ask the seller"
+ * under seller/scam risk -- even though both read the same cached call. It is
+ * now its own "AI Insights" section instead (`ai-insights.ts`), merged and
+ * pulled out from under bars that are otherwise entirely deterministic.
  *
  * VERTICAL ORDER
  * ---------------
- * Headline -> score breakdown -> Negotiation -> Alternatives. The
- * latter two are not deal-score dimensions (spec 6.4 keeps negotiation
- * strength out of the composite on purpose), so they stay their own
- * disclosures rather than living under a bar that doesn't exist for them.
+ * Headline -> score breakdown -> AI Insights -> Negotiation -> Alternatives.
+ * Negotiation and Alternatives are not deal-score dimensions (spec 6.4 keeps
+ * negotiation strength out of the composite on purpose), so they stay their
+ * own disclosures rather than living under a bar that doesn't exist for them.
+ * AI Insights sits right after the breakdown for the same reason spec 5.2
+ * wants the breakdown itself directly under the headline: nothing about it is
+ * a composite input, so it does not need to compete for room inside one.
  *
  * THREE THINGS THE MARKUP IS NOT ALLOWED TO DROP
  * ----------------------------------------------
@@ -45,6 +54,7 @@
 
 import { loadSettings, saveSettings } from "../../shared/settings";
 import type { EvaluationResponse } from "../../shared/types";
+import { buildAiInsights } from "./ai-insights";
 import { buildBookmark } from "./bookmark";
 import { buildBreakdown } from "./breakdown";
 import { animateFills, disclosure, el, section } from "./elements";
@@ -293,6 +303,15 @@ export function renderEvaluation(data: EvaluationResponse): void {
   sheet.append(
     section("Score breakdown", buildBreakdown(data), undefined, buildExpandAll(sheet))!,
   );
+
+  // 1.5. AI Insights (spec 6.6): the cached model read, merged from what used
+  // to be "Known issues" (nested under Vehicle Risk) and "Questions to ask
+  // the seller" (nested under Seller/Scam Risk) into its own section right
+  // below the breakdown -- a sibling of it, not nested inside a bar that
+  // isn't scored (see `ai-insights.ts`). Null when there is nothing to show
+  // and nothing to fetch.
+  const aiInsights = buildAiInsights(data);
+  if (aiInsights) sheet.append(aiInsights);
 
   // 2. Negotiation.
   sheet.append(

@@ -89,14 +89,25 @@ function base() {
       days_listed: null,
       time_on_market_score: null,
       leverage_points: [],
-      suggested_offer_cents: null,
+      offer: {
+        stance: "withheld",
+        basis: "none",
+        opening_cents: null,
+        target_cents: null,
+        walk_away_cents: null,
+        reasoning: [],
+        caveat: null,
+        withheld_reason: "This listing has no asking price.",
+      },
+      opening_message: null,
       motivated_phrases: [],
       rigid_phrases: [],
     },
-    alternatives: { message: "", target_is_best: false, items: [], withheld: [] },
+    alternatives: { message: "", target_is_best: false, items: [], withheld: [], different_trim: [] },
     known_issues: null,
     known_issues_unavailable_reason: null,
     known_issues_unavailable_code: null,
+    known_issues_pending: false,
     helpful_links: [
       {
         label: "Kelley Blue Book",
@@ -204,7 +215,17 @@ export const CONFIDENT = {
         "vehicles move.",
       'Description says "moving, need gone" — the seller has a deadline the buyer does not.',
     ],
-    suggested_offer_cents: 1_285_000,
+    offer: {
+      stance: "negotiate",
+      basis: "comps",
+      opening_cents: 1_285_000,
+      target_cents: 1_350_000,
+      walk_away_cents: 1_460_000,
+      reasoning: ["Comparable listings support about $14,050."],
+      caveat: null,
+      withheld_reason: null,
+    },
+    opening_message: "Hi -- is the 2016 Mazda CX-5 still available?",
     motivated_phrases: ["moving", "need gone"],
     rigid_phrases: [],
   },
@@ -246,6 +267,7 @@ export const CONFIDENT = {
           "why. A discount this deep is more often a problem with the car than a saving.",
       },
     ],
+    different_trim: [],
   },
   known_issues: {
     summary:
@@ -348,7 +370,17 @@ export const UNRELIABLE = {
     days_listed: null,
     time_on_market_score: null,
     leverage_points: ["No posted date on this listing, so time on market is unknown."],
-    suggested_offer_cents: null,
+    offer: {
+      stance: "withheld",
+      basis: "none",
+      opening_cents: null,
+      target_cents: null,
+      walk_away_cents: null,
+      reasoning: [],
+      caveat: null,
+      withheld_reason: "No posted date on this listing, so there is no way to gauge leverage.",
+    },
+    opening_message: null,
     motivated_phrases: [],
     rigid_phrases: ["firm on price"],
   },
@@ -357,6 +389,7 @@ export const UNRELIABLE = {
     target_is_best: false,
     items: [],
     withheld: [],
+    different_trim: [],
   },
   // Spec 6.6 switched off in this deployment. The panel hides the section
   // rather than explaining the server's configuration to a car buyer.
@@ -458,6 +491,7 @@ export const SCAM = {
     target_is_best: false,
     items: [],
     withheld: [],
+    different_trim: [],
   },
   known_issues_unavailable_reason:
     "The ask is so far below comparable listings, with nothing in the description explaining " +
@@ -523,7 +557,17 @@ export const FLAT = {
     leverage: "moderate",
     days_listed: 12,
     leverage_points: ["Listed 12 days, which is around the median for this model locally."],
-    suggested_offer_cents: 1_120_000,
+    offer: {
+      stance: "negotiate",
+      basis: "comps",
+      opening_cents: 1_120_000,
+      target_cents: 1_180_000,
+      walk_away_cents: 1_255_000,
+      reasoning: ["Comparable listings support about $12,000."],
+      caveat: null,
+      withheld_reason: null,
+    },
+    opening_message: "Hi -- is the 2014 Toyota RAV4 LE still available?",
   },
   alternatives: {
     message:
@@ -532,5 +576,28 @@ export const FLAT = {
     target_is_best: false,
     items: [],
     withheld: [],
+    different_trim: [],
   },
+};
+
+// AI Insights, not yet generated: the gate allows a call and nothing is
+// cached for this vehicle/mileage band yet, but the eager evaluation never
+// pays for one -- only opening the section does (`ai-insights.ts`). The
+// static preview can only show the clickable idle state; "Generating..." and
+// the loaded/error repaints only exist after a real click sends
+// `FETCH_KNOWN_ISSUES`, which this offline harness never does.
+export const PENDING = {
+  ...base(),
+  vehicle: "2019 Honda Civic Sport",
+  headline:
+    "70 / 100, medium confidence. Comparable listings suggest an expected asking range of " +
+    "$16,800 to $18,100. This asks $17,400.",
+  deal_score: {
+    score: 70,
+    components: COMPONENTS(68, 74, 71, 100),
+    coverage: 1,
+    suppressed_reason: null,
+    beta: true,
+  },
+  known_issues_pending: true,
 };

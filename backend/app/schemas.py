@@ -474,6 +474,22 @@ class KnownIssuesOut(BaseModel):
     cached: bool
 
 
+class KnownIssuesFetchOut(BaseModel):
+    """Response for `POST /v1/evaluations/{capture_id}/known-issues`.
+
+    The on-demand endpoint the AI Insights click hits, once a plain evaluation
+    has already deferred the call (`EvaluationOut.known_issues_pending`). The
+    same three-field shape as the fields embedded in `EvaluationOut`, but no
+    `pending` field here -- this endpoint always calls `network_allowed=True`,
+    so it resolves definitively: cached, a gate verdict, a deployment reason,
+    or a fresh answer. Never pending.
+    """
+
+    known_issues: KnownIssuesOut | None
+    known_issues_unavailable_reason: str | None
+    known_issues_unavailable_code: str | None
+
+
 class EvaluationOut(BaseModel):
     """Spec 7's output structure, in its order."""
 
@@ -499,6 +515,14 @@ class EvaluationOut(BaseModel):
     #: which are about this server, not about the car, and should not be shown
     #: to a buyer at all). None when the section is present.
     known_issues_unavailable_code: str | None
+    #: True when the gate would allow the call and nothing is cached yet, but
+    #: this evaluation deliberately didn't pay for one (`network_allowed=False`
+    #: in `evaluation/__init__.py`). A UI reads this as "AI Insights available
+    #: on click" -- `POST /v1/evaluations/{capture_id}/known-issues` is what
+    #: that click hits. Always False alongside a populated `known_issues` or a
+    #: populated `known_issues_unavailable_reason`; the three are mutually
+    #: exclusive.
+    known_issues_pending: bool
     #: Additive, not part of spec 7's numbered order (build step 12): KBB and
     #: Consumer Reports links. Always exactly two entries -- no minimum-comp
     #: or confidence gate, since this reads only year/make/model.
