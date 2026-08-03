@@ -16,7 +16,8 @@
   "host_permissions": [
     "https://www.facebook.com/marketplace/*",
     "https://web.facebook.com/marketplace/*",
-    "https://api.curbsidescore.com/*"
+    "https://api.curbsidescore.com/*",
+    "http://localhost:8000/*"
   ],
 
   "background": {
