@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Curbside — Marketplace car deals, checked.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Check any Facebook Marketplace car listing in one click — fair price, vehicle risk, and the questions a savvy buyer would ask.",
   "minimum_chrome_version": "116",
 
@@ -16,8 +16,7 @@
   "host_permissions": [
     "https://www.facebook.com/marketplace/*",
     "https://web.facebook.com/marketplace/*",
-    "https://api.curbsidescore.com/*",
-    "http://localhost:8000/*"
+    "https://api.curbsidescore.com/*"
   ],
 
   "background": {
