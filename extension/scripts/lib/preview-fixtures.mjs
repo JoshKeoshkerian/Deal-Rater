@@ -353,7 +353,7 @@ export const UNRELIABLE = {
     seller_type: "private",
     dealer_markers: [],
     scam_warning: false,
-    scam_signals_fired: ["few_photos", "minimal_description"],
+    scam_signals_fired: ["few_or_stock_photos", "minimal_description"],
     scam_signals_evaluable: 5,
     scam_signals_total: 7,
     scam_reduced_sensitivity: true,
@@ -464,14 +464,19 @@ export const SCAM = {
     dealer_markers: [],
     scam_warning: true,
     scam_signals_fired: [
-      "price_far_below_expected",
-      "few_photos",
+      "unexplained_deep_discount",
+      "few_or_stock_photos",
       "minimal_description",
-      "shipping_offered",
+      "payment_or_meeting_red_flags",
     ],
-    scam_signals_evaluable: 6,
+    // Five, not six: `price_revised_upward` and `new_account` are permanently
+    // unevaluable (`flags/scam.py`), so five is the real ceiling and this
+    // fixture claimed a state the backend cannot produce.
+    scam_signals_evaluable: 5,
     scam_signals_total: 7,
-    scam_reduced_sensitivity: false,
+    scam_reduced_sensitivity: true,
+    seller_rating_average: 2.4,
+    seller_rating_count: 7,
     messages: [
       "Asking 49% below what comparable listings suggest, with nothing in the description " +
         "explaining why.",

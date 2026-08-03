@@ -265,12 +265,16 @@ function scamSignalText(code: string): string {
   return SCAM_SIGNAL_TEXT[code] ?? code.replace(/_/g, " ");
 }
 
-//: Below this a star rating gets called out as a red flag. UNCALIBRATED, like
-//: every other threshold in this panel (spec 9) -- Marketplace ratings skew
-//: high, so a rating in this range is a genuine outlier rather than typical
-//: noise. A rating at or above it says nothing (most sellers clear it) and is
-//: left out rather than printed as reassurance nobody asked for.
+//: Below this a star rating reads as adverse. UNCALIBRATED, like every other
+//: threshold in this panel (spec 9) -- Marketplace ratings skew high, so a
+//: rating in this range is a genuine outlier rather than typical noise.
 const LOW_RATING_THRESHOLD = 4.0;
+
+//: Matches `SELLER_RATING_MIN_REVIEWS` in `evaluation/score.py`. Below this the
+//: backend does not let the rating cap the score, so the panel does not show it
+//: either: a 5.0 from one review is not evidence, and printing it beside a
+//: score it did not move would imply it was weighed.
+const RATING_MIN_REVIEWS = 3;
 
 //: Facebook's "About this vehicle" owner-count fact (`vehicle_number_of_owners`).
 //: Only the multi-owner cases are worth a flag -- "one owner" is reassurance
@@ -281,67 +285,163 @@ const OWNER_COUNT_FLAG_TEXT: Record<string, string> = {
 };
 
 /**
- * Red flags about the LISTING itself: the scam-pattern combination (spec
- * 6.3), a dealer posing as a private seller, more than one previous owner,
- * and a star rating low enough to be a signal rather than noise. Title
- * status used to live here too; it now sits with the headliner score instead
- * (`headline.ts`'s `buildTitleStatus`), since it is important enough to see
- * before a click rather than after one.
+ * Why a low pattern count is weaker evidence than it looks, in one place so the
+ * clean branch and the counted branch cannot word it differently.
  *
- * The bullets are deliberately built from the structured fields rather than
- * the backend's prose `messages` list: that list always includes the
- * seller's rating once there are enough reviews to trust, GOOD or bad,
- * because it also caps the score (`evaluation/score.py`). A 4.9-star line has
- * no business in a list titled "red flags", so this reconstructs only the
- * parts that are actually flags.
+ * Takes the figures when the response carries them and states the same point
+ * without numbers when it does not (`seller_risk: null`, the clean case).
  */
-function buildRedFlags(data: EvaluationResponse): HTMLElement[] {
+function SCAM_COVERAGE_NOTE(unchecked?: number, total?: number): HTMLElement {
+  const source =
+    "Price-drop history needs months of observations; seller account age is deliberately " +
+    "never collected.";
+  return notePill(
+    unchecked !== undefined && total !== undefined
+      ? `${unchecked} of the ${total} patterns this tool looks for could not be checked on ` +
+          "this listing, so a low count is weaker evidence than it looks."
+      : "Two of the patterns this tool looks for can never be checked yet, so a clean result " +
+          "here is weaker evidence than it looks.",
+    source,
+  );
+}
+
+/**
+ * The scam-pattern combination (spec 6.3), led by the count rather than the
+ * bullets.
+ *
+ * WHY THE COUNT LEADS. Spec 6.3's rule is that "any one of these is weak. Four
+ * together is a strong signal" -- so how MANY co-fired is the finding, and each
+ * bullet is its supporting detail. Read as a flat list, individual patterns
+ * invite exactly the reading the spec warns against: treating one fired signal
+ * as a verdict.
+ *
+ * WHY THE DENOMINATOR IS ALWAYS PRINTED. `scam_signals_evaluable` is normally 5
+ * against a `scam_signals_total` of 7, because two of the spec's patterns are
+ * permanently dark -- price-revised-upward needs price history this product has
+ * not accumulated yet (spec 12), and account age is data spec 8.2 forbids
+ * collecting at all. "0 fired" therefore means "none of the five we can check",
+ * not a clean bill of health, and a bare "0" claims the second. `2 of 5` is the
+ * same fact without the overclaim.
+ *
+ * Title status used to live in this list and now sits with the headliner score
+ * (`headline.ts`'s `buildTitleStatus`), being important enough to see before a
+ * click rather than after one.
+ */
+function buildScamPatterns(data: EvaluationResponse): HTMLElement[] {
   const seller = data.seller_risk;
 
-  const flagNodes: HTMLElement[] = [];
+  // A NULL `seller_risk` IS THE CLEAN CASE, not missing data. Spec 7.4 has the
+  // backend omit this section "only when there is something to say", and
+  // `has_seller_section` (`evaluation/report.py`) resolves that to: nothing
+  // fired, not a dealer, no rating with enough reviews to matter. That is the
+  // commonest listing there is, so saying "no assessment available" here would
+  // report the ordinary good outcome as a failure. The count is stated without
+  // a denominator because the response carries none in this branch, and
+  // inventing one would mean hard-coding a backend constant.
+  if (!seller) {
+    return [
+      statTile("Patterns fired", "None", "favorable"),
+      el(
+        "p",
+        "muted",
+        "None of the scam patterns this tool can check fired on this listing, and the seller " +
+          "has no rating low enough to note.",
+      ),
+      SCAM_COVERAGE_NOTE(),
+    ];
+  }
 
-  const bullets: string[] = [];
-  // DISABLED, 2026-07-30: dealer-vs-private detection pulled from the UI
-  // ahead of a production push, alongside the badge in `headline.ts`
-  // (`buildSellerTypeBadge`) -- see that comment for the current status.
-  // `seller.seller_type` is still computed and still gates comp-set exclusion
-  // in the backend (`pricing/comps.py`); only this listing-facing bullet is
-  // suppressed.
-  const ownerCount = data.vehicle_details.owner_count;
-  if (ownerCount && OWNER_COUNT_FLAG_TEXT[ownerCount]) {
-    bullets.push(OWNER_COUNT_FLAG_TEXT[ownerCount]);
-  }
-  if (seller) bullets.push(...seller.scam_signals_fired.map(scamSignalText));
-  if (seller?.seller_rating_average != null && seller.seller_rating_average < LOW_RATING_THRESHOLD) {
-    const count = seller.seller_rating_count ?? 0;
-    bullets.push(
-      `Low seller rating: ${seller.seller_rating_average.toFixed(1)}/5 from ${count} ` +
-        `review${count === 1 ? "" : "s"} on Marketplace.`,
-    );
-  }
+  const fired = seller.scam_signals_fired;
+  const evaluable = seller.scam_signals_evaluable;
+  const nodes: HTMLElement[] = [];
 
   // Spec 6.3: "Flag the COMBINATION... Four together is a strong signal and
   // should produce a distinct, prominent warning rather than a numerical
   // deduction buried in a composite." `scam_warning` is the backend's own
   // threshold (`SCAM_SIGNALS_FOR_WARNING`), read rather than recounted here.
-  if (seller?.scam_warning) {
-    flagNodes.push(
+  if (seller.scam_warning) {
+    nodes.push(
       callout("adverse", "Several scam patterns fired together", [
-        `${seller.scam_signals_fired.length} independent signals fired on this listing. ` +
-          "Any one of them is weak. This many at once is not, and it is why no deal score " +
-          "is shown.",
-        list(bullets) ?? el("span"),
+        `${fired.length} independent patterns fired on this listing. Any one of them is ` +
+          "weak. This many at once is not, and it is why no deal score is shown.",
+        list(fired.map(scamSignalText)) ?? el("span"),
       ]),
     );
   } else {
-    const ul = list(bullets);
-    if (ul) flagNodes.push(ul);
+    nodes.push(
+      statTile(
+        "Patterns fired",
+        `${fired.length} of ${evaluable}`,
+        fired.length === 0 ? "favorable" : "caution",
+      ),
+    );
+    const ul = list(fired.map(scamSignalText));
+    if (ul) nodes.push(ul);
+    else {
+      nodes.push(el("p", "muted", "None of the patterns this tool can check fired here."));
+    }
   }
 
-  if (flagNodes.length === 0) {
-    flagNodes.push(el("p", "muted", "No red flags identified on this listing."));
+  // The caveat is a property of the DATA, not a finding about this listing --
+  // hence `notePill` rather than another bullet. Shown whenever anything is
+  // unchecked, which given the two permanently-dark patterns is essentially
+  // always; `scam_reduced_sensitivity` is the backend's own name for it.
+  const unchecked = seller.scam_signals_total - evaluable;
+  if (unchecked > 0) nodes.push(SCAM_COVERAGE_NOTE(unchecked, seller.scam_signals_total));
+  return nodes;
+}
+
+/**
+ * The SELLER, as distinct from the listing: their Marketplace rating and what
+ * they state about prior ownership.
+ *
+ * The rating is shown at every value, not only bad ones. It is a direct cap on
+ * this dimension's score (`_seller_rating_ceiling` in `evaluation/score.py`),
+ * so a 4.9 is load-bearing in exactly the way a 2.4 is -- it was simply
+ * invisible before, which made a well-rated seller look identical to an unrated
+ * one and hid why a score had not been capped. Tone carries the judgement so
+ * the figure itself does not have to be editorialised.
+ *
+ * Dealer-vs-private is NOT here. It is still computed and still gates comp-set
+ * exclusion in the backend (`pricing/comps.py`), but `vehicle_seller_type` is
+ * not accurate enough to show a buyer -- see `headline.ts`'s
+ * `buildSellerTypeBadge` for the full history of that decision.
+ */
+function buildSellerRecord(data: EvaluationResponse): HTMLElement[] {
+  const seller = data.seller_risk;
+  const nodes: HTMLElement[] = [];
+
+  const average = seller?.seller_rating_average;
+  const count = seller?.seller_rating_count ?? 0;
+  if (average != null && count >= RATING_MIN_REVIEWS) {
+    nodes.push(
+      statTile(
+        `Seller rating · ${count} review${count === 1 ? "" : "s"}`,
+        `${average.toFixed(1)}/5`,
+        average < LOW_RATING_THRESHOLD ? "adverse" : "favorable",
+        average < LOW_RATING_THRESHOLD
+          ? "Low enough to cap this dimension's score regardless of how the listing reads."
+          : undefined,
+      ),
+    );
+  } else {
+    nodes.push(
+      el(
+        "p",
+        "muted",
+        count > 0
+          ? `Only ${count} Marketplace review${count === 1 ? "" : "s"} — too few to read ` +
+              "anything into."
+          : "This seller has no Marketplace rating yet.",
+      ),
+    );
   }
-  return flagNodes;
+
+  const ownerCount = data.vehicle_details.owner_count;
+  if (ownerCount && OWNER_COUNT_FLAG_TEXT[ownerCount]) {
+    nodes.push(el("p", "muted", OWNER_COUNT_FLAG_TEXT[ownerCount]));
+  }
+  return nodes;
 }
 
 /** Open recall campaigns (spec 6.2), on its own rather than mixed with
@@ -450,14 +550,44 @@ export function buildVehicleRiskDetail(data: EvaluationResponse): HTMLElement[] 
 }
 
 /**
- * What goes inside the score breakdown's "seller and scam risk" dropdown:
- * red flags about the LISTING (title status, the scam-pattern combination, a
- * dealer posing as private, a low star rating). The seller-conversation
- * questions spec 6.6's cached call used to add here now live in "AI Insights"
- * instead (`ai-insights.ts`) alongside the rest of that same call's output.
+ * What goes inside the score breakdown's "seller and scam risk" dropdown, as
+ * the two questions the dimension's name actually contains: is this listing
+ * behaving like a scam, and who is selling it.
+ *
+ * ONE FLAT "RED FLAGS" LIST BEFORE THIS, and it had two problems. It mixed the
+ * scam-pattern combination with facts that are not patterns at all (owner
+ * count, star rating), so spec 6.3's "any one is weak, four together is strong"
+ * reading was unavailable -- everything was one undifferentiated bullet list.
+ * And `minimal_description` restated, almost verbatim, what information
+ * completeness had already reported one bar above: both fire off a 120-char
+ * description (`SCAM_MINIMAL_DESCRIPTION_CHARS` and `MINIMAL_DESCRIPTION_CHARS`
+ * in `flags/params.py` are the same number), so a thin listing was flagged
+ * twice in one panel as though two things were wrong with it.
+ *
+ * That signal is still LISTED here, because dropping the bullet while the
+ * backend still counts it toward the warning threshold would print a count that
+ * does not match its own evidence. What changed is that the count leads and the
+ * bullets support it, so this section reads as "how many patterns co-fired"
+ * rather than as a second, competing list of what the listing failed to say.
+ *
+ * The seller-conversation questions spec 6.6's cached call used to add here now
+ * live in "AI Insights" (`ai-insights.ts`) alongside the rest of that call.
  */
 export function buildSellerScamRiskDetail(data: EvaluationResponse): HTMLElement[] {
-  return [disclosure("Red flags", "", buildRedFlags(data))];
+  const seller = data.seller_risk;
+
+  return [
+    disclosure(
+      "Scam patterns",
+      // The summary carries the finding, per `disclosure`'s own contract -- a
+      // reader who never expands the row has still been told the count.
+      seller
+        ? `${seller.scam_signals_fired.length} of ${seller.scam_signals_evaluable} fired`
+        : "none fired",
+      buildScamPatterns(data),
+    ),
+    disclosure("Seller", "", buildSellerRecord(data)),
+  ];
 }
 
 /* -------------------------------------------------------------------------- */
