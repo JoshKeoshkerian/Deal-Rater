@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { buildBookmark } from "../src/content/overlay/bookmark";
+import { buildBookmark, SAVED_APP_URL } from "../src/content/overlay/bookmark";
 
 type Sent = { type: string; [key: string]: unknown };
 
@@ -44,6 +44,17 @@ function inputs(panel: HTMLElement): HTMLInputElement[] {
   return Array.from(panel.querySelectorAll<HTMLInputElement>("input"));
 }
 
+/**
+ * The star, on its own.
+ *
+ * The button carries a word beside the glyph now, so `button.textContent` is
+ * "☆Save" rather than "☆" -- these assertions are about which star is drawn,
+ * and reading the glyph span keeps them about that and not about the wording.
+ */
+function star(button: HTMLElement): string | null {
+  return button.querySelector(".bookmark-glyph")!.textContent;
+}
+
 beforeEach(() => {
   sent = [];
   reply = () => ({ ok: true, signedIn: false });
@@ -63,7 +74,7 @@ describe("the save button", () => {
     const { button } = buildBookmark(1);
     await settle();
 
-    expect(button.textContent).toBe("★");
+    expect(star(button)).toBe("★");
     expect(button.getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -72,8 +83,24 @@ describe("the save button", () => {
     const { button } = buildBookmark(1);
     await settle();
 
-    expect(button.textContent).toBe("☆");
+    expect(star(button)).toBe("☆");
     expect(button.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("says what it does in words, not only in a glyph", async () => {
+    // The whole reason the word is there: a bare star in the corner of
+    // somebody else's page is decoration until it has been clicked.
+    reply = () => ({ ok: true, signedIn: true, saved: false });
+    const { button } = buildBookmark(1);
+    await settle();
+
+    expect(button.querySelector(".bookmark-word")!.textContent).toBe("Save");
+
+    reply = () => ({ ok: true, signedIn: true, saved: true });
+    button.click();
+    await settle();
+
+    expect(button.querySelector(".bookmark-word")!.textContent).toBe("Saved");
   });
 
   it("saves on click, and fills in", async () => {
@@ -88,7 +115,7 @@ describe("the save button", () => {
     await settle();
 
     expect(sent.at(-1)).toEqual({ type: "SAVE_EVALUATION", captureId: 7 });
-    expect(button.textContent).toBe("★");
+    expect(star(button)).toBe("★");
   });
 
   it("unsaves on a second click", async () => {
@@ -103,7 +130,7 @@ describe("the save button", () => {
     await settle();
 
     expect(sent.at(-1)).toEqual({ type: "UNSAVE_EVALUATION", captureId: 7 });
-    expect(button.textContent).toBe("☆");
+    expect(star(button)).toBe("☆");
   });
 
   it("ignores clicks while a request is in flight", async () => {
@@ -130,7 +157,7 @@ describe("the save button", () => {
 
     // Not filled: the evaluation was not saved, and a star that lies about it
     // is worse than one that does not move.
-    expect(button.textContent).toBe("☆");
+    expect(star(button)).toBe("☆");
     expect(button.title).toBe("the server said no");
   });
 
@@ -148,7 +175,69 @@ describe("the save button", () => {
     const { button } = buildBookmark(1);
     await settle();
 
-    expect(button.textContent).toBe("☆");
+    expect(star(button)).toBe("☆");
+  });
+});
+
+describe("the strip under the header", () => {
+  it("names the site the saves are readable on, as a real link", async () => {
+    const { strip } = buildBookmark(1);
+    await settle();
+
+    const link = strip.querySelector<HTMLAnchorElement>("a")!;
+    expect(link.href).toBe(SAVED_APP_URL);
+    expect(link.textContent).toContain("app.curbsidescore.com");
+    // A link out of an overlay on facebook.com, so it opens elsewhere and does
+    // not hand the destination a window handle back to this page.
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toBe("noopener noreferrer");
+  });
+
+  it("points the URL at the page itself rather than the redirect", () => {
+    // `curbside-app/app/page.tsx` redirects / to /saved. Linking the root
+    // would be a round trip to reach the only page on the site.
+    expect(SAVED_APP_URL).toBe("https://app.curbsidescore.com/saved");
+  });
+
+  it("explains what saving is for before anything has been saved", async () => {
+    reply = () => ({ ok: true, signedIn: true, saved: false });
+    const { strip } = buildBookmark(1);
+    await settle();
+
+    expect(strip.dataset["state"]).toBe("unsaved");
+    expect(strip.textContent).toContain("Save this evaluation");
+  });
+
+  it("follows the button rather than keeping a state of its own", async () => {
+    reply = (message) =>
+      message.type === "SAVED_STATE"
+        ? { ok: true, signedIn: true, saved: false }
+        : { ok: true, signedIn: true, saved: true };
+    const { button, strip } = buildBookmark(1);
+    await settle();
+
+    button.click();
+    await settle();
+
+    expect(strip.dataset["state"]).toBe("saved");
+    expect(strip.textContent).toContain("Saved.");
+    // Still a link, and still the same one: a repaint must not swap out an
+    // anchor somebody is on the way to clicking.
+    expect(strip.querySelector<HTMLAnchorElement>("a")!.href).toBe(SAVED_APP_URL);
+  });
+
+  it("stays put when a save fails", async () => {
+    reply = (message) =>
+      message.type === "SAVED_STATE"
+        ? { ok: true, signedIn: true, saved: false }
+        : { ok: false, error: "the server said no" };
+    const { button, strip } = buildBookmark(1);
+    await settle();
+
+    button.click();
+    await settle();
+
+    expect(strip.dataset["state"]).toBe("unsaved");
   });
 });
 
@@ -206,7 +295,7 @@ describe("signing in, because the user clicked save", () => {
     // The whole point: they clicked save, so signing in finishes that action
     // rather than handing them an empty star to click again.
     expect(sent.at(-1)).toEqual({ type: "SAVE_EVALUATION", captureId: 9 });
-    expect(button.textContent).toBe("★");
+    expect(star(button)).toBe("★");
     expect(panel.dataset["open"]).toBeUndefined();
   });
 

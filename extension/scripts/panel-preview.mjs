@@ -73,8 +73,15 @@ async function main() {
   globalThis.matchMedia = undefined;
   // The theme control reads settings. It renders at its default and corrects
   // itself when storage answers; here it just never gets an answer.
+  //
+  // The save button asks the service worker whether this evaluation is saved.
+  // `savedReply` is what that answer is, so the band below can render the
+  // control in both of its states rather than only the one an offline harness
+  // happens to fall into.
+  let savedReply = { ok: true, signedIn: false };
   globalThis.chrome = {
     storage: { sync: { get: async (defaults) => defaults, set: async () => {} } },
+    runtime: { sendMessage: async () => savedReply },
   };
 
   const { renderEvaluation } = await loadTs(resolve(root, "src/content/overlay/index.ts"));
@@ -121,6 +128,34 @@ async function main() {
 
   const themes = ["light", "dark"];
   const both = (build) => themes.map((theme) => build(theme)).join("");
+  const bothAsync = async (build) =>
+    (await Promise.all(themes.map((theme) => build(theme)))).join("");
+
+  /**
+   * The save control in one of its two states, with the header row and the
+   * strip it belongs to.
+   *
+   * Built from `buildBookmark` directly rather than lifted out of a whole
+   * panel, because which state it lands in depends on an answer from the
+   * service worker that arrives a microtask after the panel above has already
+   * been serialised.
+   */
+  const { buildBookmark } = await loadTs(resolve(root, "src/content/overlay/bookmark.ts"));
+  async function saveControl(theme, saved) {
+    savedReply = { ok: true, signedIn: true, saved };
+    const { button, strip } = buildBookmark(1);
+    await new Promise((done) => setTimeout(done, 0));
+    return (
+      `<div class="panel" data-theme="${theme}"><header><div class="header-top">` +
+      `<div class="vehicle">2016 Mazda CX-5 Touring</div>` +
+      `<div class="header-actions">${button.outerHTML}</div>` +
+      `</div></header>${strip.outerHTML}` +
+      `<div class="rest">the rest of the panel</div></div>`
+    );
+  }
+
+  const saveUnsaved = await bothAsync((theme) => saveControl(theme, false));
+  const saveSaved = await bothAsync((theme) => saveControl(theme, true));
 
   // The rules are emitted once, hung on the panel wrapper so each panel carries
   // its own theme. A second copy of just the variable layer goes on :root, so
@@ -276,6 +311,31 @@ ${css}
       <li><span class="rv-key">6.2</span><span class="rv-note">Recalls are a stat tile, and <strong>Complaints is a new subsection</strong> — <code>complaint_count</code> and its top components were also never rendered.</span></li>
       <li><span class="rv-key">6.5</span><span class="rv-note">Alternatives are cards built from the structured fields with a price-delta chip, not the backend's pre-formatted line.</span></li>
       <li><span class="rv-key">6.4</span><span class="rv-note">Negotiation gains a <strong>strength meter</strong> and a copyable offer. <code>strength</code> was serialized and unused.</span></li>
+    </ul>
+  </div>
+
+  <div class="rv-band">
+    <h2>Saving</h2>
+    <p>The panel's one feature that outlives the tab it was opened in, and previously the
+       hardest to find: a bare ☆ in the corner, with the site the saves are readable on named
+       nowhere at all. The button carries its word, and the strip under the header carries the
+       URL as a live link.</p>
+    <hr class="rv-band-rule">
+    <div class="rv-cols">
+      <div class="rv-col">
+        <h3 class="rv-state-name">Not saved</h3>
+        <p class="rv-condition">signed in · this evaluation not saved</p>
+        ${saveUnsaved}
+      </div>
+      <div class="rv-col">
+        <h3 class="rv-state-name">Saved</h3>
+        <p class="rv-condition">signed in · saved</p>
+        ${saveSaved}
+      </div>
+    </div>
+    <ul class="rv-notes">
+      <li><span class="rv-key">rail</span><span class="rv-note">The strip's left rail is the <strong>link</strong> colour unsaved and the favorable tone once saved — a place to go, not a judgement about the vehicle.</span></li>
+      <li><span class="rv-key">state</span><span class="rv-note">The strip has no state of its own. It repaints off the button, so the two <strong>cannot disagree</strong> about whether this is saved.</span></li>
     </ul>
   </div>
 

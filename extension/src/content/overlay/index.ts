@@ -286,14 +286,16 @@ export function renderEvaluation(data: EvaluationResponse): void {
 
   // 1. Headline, in whichever state the evidence supports.
   //
-  // The bookmark is two pieces built together: a star in the header, and the
-  // sign-in panel it opens when clicked by somebody without an account. The
-  // panel goes directly under the header rather than floating over the sheet,
-  // so it pushes the evaluation down instead of covering it -- the user is
-  // still reading the thing they are about to save.
+  // The bookmark is three pieces built together: the Save button in the header,
+  // a strip naming the site the saves are readable on, and the sign-in panel
+  // the button opens for somebody without an account. Both of the latter go
+  // directly under the header rather than floating over the sheet, so they push
+  // the evaluation down instead of covering it -- the user is still reading the
+  // thing they are about to save. The strip comes first because it is permanent
+  // chrome belonging to the header; the panel is transient and appears below it.
   const bookmark = buildBookmark(data.capture_id);
   sheet.append(buildHeader(data, close, buildThemeControl(host), bookmark.button));
-  sheet.append(bookmark.panel);
+  sheet.append(bookmark.strip, bookmark.panel);
 
   // The breakdown belongs with the headline (spec 5.2) and is the section
   // closest to it for that reason -- nothing else renders between them.
