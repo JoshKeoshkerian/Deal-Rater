@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The one real page: a login gate, then the signed-in user's saved evaluations.
+ * The signed-in user's saved evaluations.
  *
  * ENTIRELY CLIENT-SIDE, which is a decision rather than a default. The session
  * is an httpOnly cookie on `.curbsidescore.com`, so the browser attaches it to
@@ -14,16 +14,22 @@
  * it runs no regression, calls no external API, and bills nothing. Live
  * re-scoring of saved listings is out of scope by decision, and this page has
  * no code path that could do it by accident.
+ *
+ * SIGN-IN STATE NOW COMES FROM `AuthProvider`, not from this page's own
+ * `fetchMe`. The header needs the same answer on every route, and two callers
+ * asking the server the same question on one page load is one too many.
  */
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { SavedCard } from "@/components/SavedCard";
 import { SignIn } from "@/components/SignIn";
-import { fetchMe, fetchSaved, NotAuthenticatedError, signOut, unsave } from "@/lib/api";
-import type { SavedEvaluation, User } from "@/lib/types";
+import { fetchSaved, NotAuthenticatedError, unsave } from "@/lib/api";
+import type { SavedEvaluation } from "@/lib/types";
 
-type Phase = "loading" | "signed-out" | "ready";
+import "./saved.css";
 
 type SortOrder = "recent" | "oldest" | "score_desc" | "score_asc";
 
@@ -69,9 +75,9 @@ function sortItems(items: SavedEvaluation[], order: SortOrder): SavedEvaluation[
 }
 
 export default function SavedPage() {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [user, setUser] = useState<User | null>(null);
+  const { status, signOut } = useAuth();
   const [items, setItems] = useState<SavedEvaluation[]>([]);
+  const [listLoaded, setListLoaded] = useState(false);
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<number | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
@@ -98,39 +104,28 @@ export default function SavedPage() {
 
   const load = useCallback(async () => {
     try {
-      const me = await fetchMe();
-      setUser(me);
       setItems(await fetchSaved());
-      setPhase("ready");
+      setError("");
     } catch (caught) {
       if (caught instanceof NotAuthenticatedError) {
-        setPhase("signed-out");
+        // The cookie died between the header's check and this call. Ending the
+        // shared session is what puts the sign-in form back on screen.
+        await signOut();
         return;
       }
       setError(caught instanceof Error ? caught.message : "Could not load your saved list.");
-      setPhase("ready");
+    } finally {
+      setListLoaded(true);
     }
-  }, []);
+  }, [signOut]);
 
+  // Fetch only once the session is confirmed. Firing this while auth is still
+  // `unknown` would spend a guaranteed 401 on every page load.
   useEffect(() => {
+    if (status !== "signed-in") return;
+    setListLoaded(false);
     void load();
-  }, [load]);
-
-  const onSignedIn = useCallback(
-    (signedIn: User) => {
-      setUser(signedIn);
-      setPhase("loading");
-      void load();
-    },
-    [load],
-  );
-
-  const onSignOut = async () => {
-    await signOut().catch(() => undefined);
-    setUser(null);
-    setItems([]);
-    setPhase("signed-out");
-  };
+  }, [status, load]);
 
   const onUnsave = async (item: SavedEvaluation) => {
     setRemoving(item.id);
@@ -143,7 +138,7 @@ export default function SavedPage() {
       setItems((current) => current.filter((row) => row.id !== item.id));
     } catch (caught) {
       if (caught instanceof NotAuthenticatedError) {
-        setPhase("signed-out");
+        await signOut();
         return;
       }
       setError(caught instanceof Error ? caught.message : "Could not remove that.");
@@ -152,101 +147,89 @@ export default function SavedPage() {
     }
   };
 
-  return (
-    <main className="shell">
-      <div className="topbar">
-        <div className="brand">
-          Curbside<span>.</span>
-        </div>
-        {phase === "ready" && user && (
-          <div className="account">
-            <span>{user.email}</span>
-            <button type="button" className="linkish" onClick={onSignOut}>
-              Sign out
-            </button>
-          </div>
-        )}
-      </div>
-
-      {phase === "loading" && (
+  if (status === "unknown" || (status === "signed-in" && !listLoaded)) {
+    return (
+      <main className="wrap page">
         <div className="state">
           <p>Loading…</p>
         </div>
-      )}
+      </main>
+    );
+  }
 
-      {phase === "signed-out" && (
-        <SignIn
-          initialEmail={linkParams.email}
-          initialCode={linkParams.code}
-          onSignedIn={onSignedIn}
-        />
-      )}
+  if (status !== "signed-in") {
+    return (
+      <main className="wrap page">
+        {/* No `onSignedIn` needed: verifying updates the shared auth state,
+            and the effect above loads the list when that flips. */}
+        <SignIn initialEmail={linkParams.email} initialCode={linkParams.code} />
+      </main>
+    );
+  }
 
-      {phase === "ready" && (
-        <>
-          <h1 className="page-title">Saved evaluations</h1>
-          <p className="page-sub">
-            Each card is what Curbside said on the date it was checked — a snapshot, not a live
-            quote. To get current figures, open the listing and run the extension again.
+  return (
+    <main className="wrap page">
+      <header className="page-head">
+        <h1 className="page-h1">Saved evaluations</h1>
+        <p className="page-lede">
+          Each card is what Curbside said on the date it was checked — a snapshot, not a live quote.
+          To get current figures, open the listing and run the extension again.
+        </p>
+      </header>
+
+      {error && <div className="error-banner">{error}</div>}
+
+      {items.length === 0 ? (
+        <div className="state">
+          <h2>Nothing saved yet</h2>
+          <p>
+            Open a Facebook Marketplace vehicle listing, run Curbside, and press the star in the
+            panel. Saved evaluations show up here.
           </p>
-
-          {error && <div className="error-banner">{error}</div>}
-
-          {items.length === 0 ? (
-            <div className="state">
-              <h2>Nothing saved yet</h2>
-              <p>
-                Open a Facebook Marketplace vehicle listing, run Curbside, and press the star in
-                the panel. Saved evaluations show up here.
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="sort-row">
-                <label htmlFor="sort-order">Sort</label>
-                <select
-                  id="sort-order"
-                  className="sort-select"
-                  value={sortOrder}
-                  onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-                >
-                  {Object.entries(SORT_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <ul className="cards">
-                {sortedItems.map((item) => (
-                  <SavedCard
-                    key={item.id}
-                    item={item}
-                    busy={removing === item.id}
-                    onUnsave={onUnsave}
-                  />
-                ))}
-              </ul>
-            </>
-          )}
-
-          {/* Spec 7's liability framing and spec 9's beta caveat. Once, at the
-              foot of the list, rather than repeated on every card. */}
-          <div className="notices">
-            <p>
-              <strong>Beta signal, not a rating.</strong> The weights and the discount curve are
-              starting hypotheses that have not been checked against hand-evaluated listings yet.
-              This is an informational analysis of a listing, not a purchase recommendation, and
-              never a substitute for a pre-purchase inspection or a vehicle history report.
-            </p>
-            <p>
-              Marketplace shows asking prices, not sale prices. Every figure here describes how
-              similar vehicles were <em>advertised</em>, not what they sold for.
-            </p>
+        </div>
+      ) : (
+        <>
+          <div className="sort-row">
+            <label htmlFor="sort-order">Sort</label>
+            <select
+              id="sort-order"
+              className="sort-select"
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            >
+              {Object.entries(SORT_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
+
+          <ul className="cards">
+            {sortedItems.map((item) => (
+              <SavedCard key={item.id} item={item} busy={removing === item.id} onUnsave={onUnsave} />
+            ))}
+          </ul>
         </>
       )}
+
+      {/* Spec 7's liability framing and spec 9's beta caveat. Once, at the
+          foot of the list, rather than repeated on every card. */}
+      <div className="notices">
+        <p>
+          <strong>Beta signal, not a rating.</strong> The weights and the discount curve are
+          starting hypotheses that have not been checked against hand-evaluated listings yet. This
+          is an informational analysis of a listing, not a purchase recommendation, and never a
+          substitute for a pre-purchase inspection or a vehicle history report.
+        </p>
+        <p>
+          Marketplace shows asking prices, not sale prices. Every figure here describes how similar
+          vehicles were <em>advertised</em>, not what they sold for.
+        </p>
+        <p>
+          Running low on checks? <Link href="/account">Your account</Link> has what&rsquo;s left.
+        </p>
+      </div>
     </main>
   );
 }

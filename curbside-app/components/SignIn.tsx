@@ -13,10 +13,16 @@
  * present the form skips straight to verifying, so clicking the link in a mail
  * client does what a link is expected to do rather than dumping the user on a
  * form asking for something they just clicked past.
+ *
+ * A SUCCESSFUL SIGN-IN ALWAYS UPDATES THE SHARED AUTH STATE, so the header
+ * flips to signed-in wherever this form was rendered. `onSignedIn` is the extra
+ * thing a particular page wants afterwards — the saved list uses it to load the
+ * list — and is optional because /account has nothing further to do.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useAuth } from "@/components/AuthProvider";
 import { requestSignInCode, verifySignInCode } from "@/lib/api";
 import type { User } from "@/lib/types";
 
@@ -27,11 +33,15 @@ export function SignIn({
   initialEmail,
   initialCode,
   onSignedIn,
+  heading = "Your saved evaluations",
 }: {
   initialEmail: string | null;
   initialCode: string | null;
-  onSignedIn: (user: User) => void;
+  onSignedIn?: (user: User) => void;
+  /** What the form is a gate to. The two pages using it gate different things. */
+  heading?: string;
 }) {
+  const { setUser } = useAuth();
   const [step, setStep] = useState<Step>(initialCode ? "code" : "email");
   const [email, setEmail] = useState(initialEmail ?? "");
   const [code, setCode] = useState(initialCode ?? "");
@@ -55,14 +65,15 @@ export function SignIn({
           fail("Signed in, but the server did not say who as. Try again.");
           return;
         }
-        onSignedIn(result.user);
+        setUser(result.user);
+        onSignedIn?.(result.user);
       } catch (error) {
         fail(error instanceof Error ? error.message : "That did not work.");
       } finally {
         setBusy(false);
       }
     },
-    [fail, onSignedIn],
+    [fail, onSignedIn, setUser],
   );
 
   // The emailed link, verified once on arrival. The ref guards React 18+
@@ -104,7 +115,7 @@ export function SignIn({
 
   return (
     <form className="signin" onSubmit={onSubmit}>
-      <h2>Your saved evaluations</h2>
+      <h2>{heading}</h2>
       <p>
         Sign in with the email you used in the extension. There is no password — we send you a
         code.
