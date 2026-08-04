@@ -186,17 +186,19 @@ describe("the strip under the header", () => {
 
     const link = strip.querySelector<HTMLAnchorElement>("a")!;
     expect(link.href).toBe(SAVED_APP_URL);
-    expect(link.textContent).toContain("app.curbsidescore.com");
+    expect(link.textContent).toContain("curbsidescore.com");
     // A link out of an overlay on facebook.com, so it opens elsewhere and does
     // not hand the destination a window handle back to this page.
     expect(link.target).toBe("_blank");
     expect(link.rel).toBe("noopener noreferrer");
   });
 
-  it("points the URL at the page itself rather than the redirect", () => {
-    // `curbside-app/app/page.tsx` redirects / to /saved. Linking the root
-    // would be a round trip to reach the only page on the site.
-    expect(SAVED_APP_URL).toBe("https://app.curbsidescore.com/saved");
+  it("points the URL at the saved list on the apex", () => {
+    // Two things this pins. The HOST: `app.curbsidescore.com` now 308s to the
+    // apex, so linking it still works and is a needless hop. The PATH: the
+    // root is the marketing page since the merge, and somebody with saved
+    // evaluations does not need to be sold the product again.
+    expect(SAVED_APP_URL).toBe("https://curbsidescore.com/saved");
   });
 
   it("explains what saving is for before anything has been saved", async () => {

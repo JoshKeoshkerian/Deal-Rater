@@ -24,11 +24,21 @@ cost-per-evaluation.
 ## Layout
 
 ```
-extension/   Manifest V3, TypeScript. Scrapes, derives seller fields, posts.
-backend/     FastAPI + Postgres. Validates and persists timestamped observations.
-contract/    One example capture payload, checked from both sides.
-docs/        Schema and selector strategy, in more depth than this file.
+extension/     Manifest V3, TypeScript. Scrapes, derives seller fields, posts.
+backend/       FastAPI + Postgres. Validates and persists timestamped observations.
+curbside-app/  The website: landing, pricing, sign-in, saved evaluations, account.
+curbside-site/ The old static landing page. Superseded — see its README.
+contract/      One example capture payload, checked from both sides.
+docs/          Schema and selector strategy, in more depth than this file.
 ```
+
+The website was two Vercel projects on two hostnames until they were merged
+into `curbside-app`; `curbside-site/` is kept only because it is what still
+serves the apex until the domains are moved. Its README has the steps.
+
+The pricing and account pages there are a **mockup**: prices are real
+intentions, balances and billing history are fabricated fixtures, and there is
+no billing code in `backend/` at all.
 
 ## Running it
 

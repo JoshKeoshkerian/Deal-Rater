@@ -1,0 +1,223 @@
+/* Account: preview banner, panels, the balance meter, billing history. */
+
+/* --- the "none of this is real" banner ------------------------------------- */
+
+/* Amber, matching the landing page's `.notecard` caveats, and NOT the error
+   red: nothing is broken, it just is not built. */
+.preview-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  margin-bottom: 28px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+  background: rgba(232, 180, 74, 0.08);
+  border: 1px solid rgba(232, 180, 74, 0.3);
+  border-radius: var(--radius-sm);
+}
+.preview-banner strong {
+  color: var(--amber);
+}
+.preview-banner__pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.preview-banner__pick select {
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--navy-deep);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* --- panels ---------------------------------------------------------------- */
+
+.panel {
+  padding: 24px 26px;
+  margin-bottom: 18px;
+  background: var(--navy-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.panel__title {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 18px;
+}
+.panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.deflist {
+  margin: 0;
+  display: grid;
+  gap: 14px;
+}
+.deflist > div {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 16px;
+  align-items: baseline;
+}
+@media (max-width: 620px) {
+  .deflist > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+.deflist dt {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.deflist dd {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* --- plan + balance -------------------------------------------------------- */
+
+.planrow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+@media (max-width: 620px) {
+  .planrow {
+    grid-template-columns: 1fr;
+  }
+}
+.planrow__name {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 10px 0 4px;
+}
+.planrow__sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.balance {
+  font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--lime);
+  margin: 10px 0 0;
+  line-height: 1.1;
+}
+.balance--unlimited {
+  font-size: 24px;
+  color: var(--teal-bright);
+}
+.balance__of {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+/* `<meter>` styles differently in every engine, so the element is reset to a
+   plain track and filled by hand in both the WebKit and Firefox pseudo. */
+.balance__meter {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  height: 6px;
+  margin-top: 10px;
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(234, 241, 248, 0.1);
+  overflow: hidden;
+}
+.balance__meter::-webkit-meter-bar {
+  background: rgba(234, 241, 248, 0.1);
+  border: none;
+  border-radius: var(--radius-pill);
+}
+.balance__meter::-webkit-meter-optimum-value,
+.balance__meter::-webkit-meter-suboptimum-value {
+  background: var(--lime);
+  border-radius: var(--radius-pill);
+}
+.balance__meter::-webkit-meter-even-less-good-value {
+  background: var(--amber);
+  border-radius: var(--radius-pill);
+}
+.balance__meter::-moz-meter-bar {
+  background: var(--lime);
+  border-radius: var(--radius-pill);
+}
+
+/* --- billing history ------------------------------------------------------- */
+
+.history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  /* Fixed, with widths below: the description column takes what is left, and
+     Amount stops running into Receipt at narrow widths. */
+  table-layout: fixed;
+}
+.history col.date {
+  width: 22%;
+}
+.history col.amount {
+  width: 20%;
+}
+.history col.receipt {
+  width: 14%;
+}
+.history th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.history td {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-dim);
+}
+.history tr:last-child td {
+  border-bottom: none;
+}
+/* Right-aligned against the receipt column's left edge, so without this the
+   amount and the receipt sit flush against each other with no gutter. */
+.history .num {
+  text-align: right;
+  padding-right: 28px;
+  font-family: var(--font-mono);
+}
+.history td.num {
+  color: var(--ink);
+}

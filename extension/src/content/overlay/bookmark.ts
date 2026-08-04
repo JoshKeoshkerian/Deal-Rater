@@ -76,14 +76,18 @@ function ask<T>(message: ContentToBackground): Promise<T> {
 /**
  * Where saved evaluations are read back (`curbside-app/`).
  *
- * `/saved` rather than the bare host: the root is a redirect to it
- * (`curbside-app/app/page.tsx`), and sending somebody through a redirect to
- * reach the only page on the site is a round trip for nothing.
+ * MOVED FROM `app.curbsidescore.com` when the marketing site and the app were
+ * merged into one Next.js project on the apex. The old host still resolves --
+ * it 308s here -- so an install that has not updated yet keeps working; this
+ * only saves the hop, and takes effect when a new version reaches the store.
+ *
+ * `/saved` rather than the bare host: the root is the landing page now, and
+ * somebody who has already saved things does not need to be sold the product.
  */
-export const SAVED_APP_URL = "https://app.curbsidescore.com/saved";
+export const SAVED_APP_URL = "https://curbsidescore.com/saved";
 
 /** The same host without the scheme or path -- what the link reads as. */
-const SAVED_APP_LABEL = "app.curbsidescore.com";
+const SAVED_APP_LABEL = "curbsidescore.com";
 
 type SaveState =
   /** The initial state, before the backend has answered. */

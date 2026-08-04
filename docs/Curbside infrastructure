@@ -10,9 +10,15 @@ How all the accounts, domains, and services fit together.
 
 | Subdomain | Points to | Purpose |
 |---|---|---|
-| `curbsidescore.com` / `www` | Vercel — landing page project | Public marketing site |
+| `curbsidescore.com` / `www` | Vercel — `curbside-app` project | The whole website |
 | `api.curbsidescore.com` | Railway | Backend API |
-| `app.curbsidescore.com` | Vercel — app project | Logged-in "saved evaluations" website |
+| `app.curbsidescore.com` | Vercel — `curbside-app` project | 308-redirects to the apex |
+
+**Changed when the two sites merged (2026-08-03).** All three web hostnames now
+serve one Vercel project. `app.` stays attached rather than being deleted
+because sign-in emails already in inboxes link to `app.curbsidescore.com/saved`,
+and the redirect in `curbside-app/next.config.mjs` only fires for requests that
+actually reach the app.
 
 ---
 
@@ -23,17 +29,19 @@ How all the accounts, domains, and services fit together.
 - Not used for CDN/proxy/security features — everything is set to "DNS only" on purpose, because Vercel and Railway need to see direct traffic to manage SSL themselves.
 - Also hosts DNS records Resend needs for email sending (SPF/DKIM/MX — the `send.`, `resend._domainkey`, and `_railway-verify` type records).
 
-### 2. Vercel — two separate projects, both under the `curbside1` team
-- **Landing page project** (dashboard name `usecurbside`, originally `curbsideprod`) — static HTML site. Domains: `curbsidescore.com`, `www.curbsidescore.com`.
-- **`curbside-app` project** — Next.js app for the logged-in bookmarks/saved-evaluations feature. Domain: `app.curbsidescore.com`. Calls the Railway backend via API — holds no data itself.
-- Kept as two separate projects intentionally: the landing page stays simple/static and isn't coupled to the app's build pipeline or auth system.
+### 2. Vercel — one project under the `curbside1` team
+- **`curbside-app`** — Next.js app serving everything: landing page, pricing, sign-in, saved evaluations, account. Domains: `curbsidescore.com`, `www.curbsidescore.com`, `app.curbsidescore.com`. Calls the Railway backend via API — holds no data itself.
+- **`curbsideprod`** (dashboard name `usecurbside`) — the old static landing page. To be retired once the apex is moved; Vercel will not attach a domain to two projects, so remove it there before adding it to `curbside-app`.
+- They were deliberately separate while the landing page was static and the app was one private page. Merging them is what makes a shared header, one sign-in state and a pricing → account path possible at all.
+- Env var on the project: `NEXT_PUBLIC_API_BASE_URL=https://api.curbsidescore.com`.
 
 ### 3. Railway — the backend
 - Runs the FastAPI backend (Postgres + API), reachable at `api.curbsidescore.com`.
 - Reads `$PORT` dynamically at runtime (not hardcoded).
 - Runs `alembic upgrade head` automatically on every deploy/boot — schema migrations apply themselves.
 - Environment variables that matter here:
-  - `DEAL_RATER_CORS_ORIGINS` — must include `https://app.curbsidescore.com` or the website's API calls fail with CORS errors.
+  - `DEAL_RATER_CORS_ORIGINS` — must include `https://curbsidescore.com` or the website's API calls fail with CORS errors. Keep `https://app.curbsidescore.com` in the list too: a magic link opened at `app.` redirects to the apex, but nothing is lost by leaving it and something breaks if it is removed early.
+  - `DEAL_RATER_APP_BASE_URL` — `https://curbsidescore.com` now. This is what builds the link in the sign-in email; leaving it on `app.` still works via the redirect, but every new email would take a needless hop.
   - `DEAL_RATER_SESSION_COOKIE_DOMAIN` — set to `.curbsidescore.com` so the auth cookie works across the `app.` subdomain.
   - `DEAL_RATER_RESEND_API_KEY` — required for magic-link sign-in emails to send; without it, sign-in returns 503.
 
@@ -49,7 +57,7 @@ How all the accounts, domains, and services fit together.
 - Chrome Web Store listing (currently unlisted).
 - `manifest.json`'s `host_permissions` points at `api.curbsidescore.com` (updated from the original Railway-only URL in version 0.1.3).
 - **Any change to `host_permissions` requires publishing a new version to the Chrome Web Store** — existing installs don't pick up a backend URL change until the update ships and Chrome auto-updates the install (Chrome checks for updates periodically, not instantly; can be forced via `chrome://extensions` → Developer mode → Update).
-- Saves are stored via the Railway backend, tied to a user's account (magic-link auth), and readable on `app.curbsidescore.com`.
+- Saves are stored via the Railway backend, tied to a user's account (magic-link auth), and readable at `curbsidescore.com/saved`.
 
 ---
 
@@ -62,17 +70,17 @@ Extension (on Facebook Marketplace) → Railway API (`api.curbsidescore.com`) �
 Extension → Railway API stores a serialized snapshot of the evaluation, tied to the signed-in user (or prompts sign-in if not authenticated).
 
 **Signing in:**
-User enters email (extension or `app.curbsidescore.com`) → Railway API → Resend sends a magic-link/code → user verifies → Railway issues a session (cookie for the website, token for the extension, stored in `chrome.storage.local`).
+User enters email (extension or `curbsidescore.com`) → Railway API → Resend sends a magic-link/code → user verifies → Railway issues a session (cookie for the website, token for the extension, stored in `chrome.storage.local`).
 
 **Viewing saved evaluations:**
-`app.curbsidescore.com` (Vercel) → Railway API (`GET /users/me/saved`) → returns stored JSON snapshots directly — no re-evaluation, no LLM call, no NHTSA lookup on read.
+`curbsidescore.com/saved` (Vercel) → Railway API (`GET /users/me/saved`) → returns stored JSON snapshots directly — no re-evaluation, no LLM call, no NHTSA lookup on read.
 
 ---
 
 ## Key gotchas worth remembering
 
 - **DNS-only, not proxied** — Cloudflare's proxy (orange cloud) breaks Vercel's and Railway's own SSL cert issuance. Every record for this project should stay grey cloud.
-- **`app.curbsidescore.com` domain must live on the `curbside-app` Vercel project's Domains settings, not the landing page project's.** Easy to look in the wrong project.
+- **All three web hostnames must live on the `curbside-app` Vercel project's Domains settings.** The apex and `www` start out on the old landing-page project and have to be removed there first — Vercel refuses to attach one domain to two projects, and the error does not say which other project is holding it.
 - **Stale DNS caches (local machine, router, or browser) can make a correctly-configured domain look broken** even when the DNS record itself is fine. Test on a different network (e.g. phone hotspot) before assuming a config problem.
 - **CORS origins must be an exact list, not `*`**, because the backend uses credentialed requests (cookies) — Starlette will break `*` + credentials combinations.
 - **Extension `host_permissions` changes require a new Chrome Web Store version.** Existing installs stay on the old backend URL until that update is published and auto-updates on the user's machine.

@@ -77,7 +77,10 @@ class Settings(BaseSettings):
 
     # Where the website lives, used to build the link in the email. The
     # extension's paste-a-code flow does not need it; the emailed link does.
-    app_base_url: str = "https://app.curbsidescore.com"
+    # Changed from `app.curbsidescore.com` when the landing page and the app
+    # became one site on the apex. The old host redirects here, so an email
+    # already sent still works; new ones should not take the extra hop.
+    app_base_url: str = "https://curbsidescore.com"
 
     # Short by design: the code is in an inbox, and the whole flow is a person
     # switching to their mail app and back.
