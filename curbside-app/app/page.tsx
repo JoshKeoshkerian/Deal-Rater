@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { Reveal } from "@/components/Reveal";
+import { ScoreSticker } from "@/components/ScoreSticker";
 import { PLANS, FREE_EVALUATIONS, formatPrice } from "@/lib/plans";
 import { CHROME_STORE_URL } from "@/lib/links";
 
@@ -9,10 +9,11 @@ import "./landing.css";
 /**
  * The landing page, ported from `curbside-site/index.html`.
  *
- * A SERVER COMPONENT, and it should stay one. The only interactive thing on
- * this page was the scroll-in observer, which now lives in `<Reveal>`; nothing
- * else here needs to run in the browser, and the marketing page is the one
- * route where first paint actually matters.
+ * A SERVER COMPONENT, and it should stay one. The page used to wrap nearly
+ * every section in a scroll-fade client component; that has been cut down to
+ * one deliberate animated moment (the score sticker in the "score" section),
+ * which now owns its own small client boundary in `ScoreSticker.tsx`. Nothing
+ * else here needs to run in the browser.
  *
  * Two substantive changes from the static original, both consequences of the
  * merge rather than redesign:
@@ -100,13 +101,33 @@ const STEPS = [
   },
 ];
 
+/**
+ * The worked example run through the page twice: static in the hero (the
+ * first thing a visitor sees, no scroll needed), and again — same car, same
+ * numbers — animating in once the score section is explained in full. Reusing
+ * one real example rather than inventing two keeps it honest and gives the
+ * sticker motif a through-line instead of reading as a one-off graphic.
+ */
+const COROLLA = {
+  car: "2017 Corolla SE",
+  ask: "$10,500",
+  total: 63,
+  verdict: "Fair, not great. Worth a closer look, not a rush.",
+  weightedNote: "50% price · 25% risk · 15% seller · 10% info → 62.8 → 63",
+  rows: [
+    { label: "Price", value: 73 },
+    { label: "Vehicle", value: 25 },
+    { label: "Seller", value: 75 },
+    { label: "Info", value: 87 },
+  ],
+};
+
 export default function LandingPage() {
   return (
     <>
       <header className="hero" id="top">
-        <div className="wrap">
+        <div className="wrap hero__inner">
           <div className="herocopy">
-            <span className="lbl">Chrome extension &middot; Facebook Marketplace</span>
             <h1>
               Is it the right car?
               <em>Find out in one click.</em>
@@ -121,25 +142,35 @@ export default function LandingPage() {
                 Add to Chrome &mdash; {FREE_EVALUATIONS} free checks
               </a>
               <p className="meta">
-                No card to start. Runs only when you click it.
-                <br />
-                Marketplace vehicle pages only.
+                Chrome extension. No card to start. Runs only when you click it. Marketplace
+                vehicle pages only.
               </p>
             </div>
+          </div>
+
+          <div className="hero__art">
+            <ScoreSticker
+              car={COROLLA.car}
+              ask={COROLLA.ask}
+              total={COROLLA.total}
+              verdict={COROLLA.verdict}
+              weightedNote={COROLLA.weightedNote}
+              rows={COROLLA.rows}
+            />
           </div>
         </div>
 
         <div className="showcase">
           <div className="wrap wrap--wide">
-            <Reveal className="showcase__intro">
+            <div className="showcase__intro">
               <h2>Three Corollas. Three very different answers.</h2>
               <p>
                 Same car, same city, prices within $400 of each other &mdash; and the reason they
                 score differently is on the screen, not hidden inside a number.
               </p>
-            </Reveal>
+            </div>
 
-            <Reveal className="shots">
+            <div className="shots">
               {SHOTS.map((shot) => (
                 <figure className="shot" key={shot.src}>
                   <div className="shot__frame">
@@ -155,24 +186,23 @@ export default function LandingPage() {
                   </figcaption>
                 </figure>
               ))}
-            </Reveal>
+            </div>
           </div>
         </div>
       </header>
 
       <section className="sec" id="score">
         <div className="wrap">
-          <Reveal className="sechead">
-            <span className="lbl eyebrow">The score</span>
+          <div className="sechead">
             <h2 className="sectitle">Other deal scores hide their math. This one shows it.</h2>
             <p className="secbody">
               Four readings, each weighted, each visible. You can see exactly which one pulled the
               number down and by how much &mdash; and if you disagree with a weight, you can see
               that too. <b>A number you can&rsquo;t check is a number you shouldn&rsquo;t trust.</b>
             </p>
-          </Reveal>
+          </div>
 
-          <Reveal className="mathgrid">
+          <div className="mathgrid">
             <ul className="mathpoints">
               <li>
                 <b>Price residual carries half the score</b> &mdash; how far the ask sits from what
@@ -192,37 +222,25 @@ export default function LandingPage() {
                 marks down the listings that left you guessing.
               </li>
             </ul>
-            <div className="mathcard">
-              <span className="cap">2017 Corolla SE &mdash; asking $10,500</span>
-              <div className="mrow">
-                <span className="k">price residual</span>
-                <span className="v">73 &times; 50% = 36.5</span>
-              </div>
-              <div className="mrow">
-                <span className="k">vehicle risk</span>
-                <span className="v">25 &times; 25% = &nbsp;6.3</span>
-              </div>
-              <div className="mrow">
-                <span className="k">seller / scam</span>
-                <span className="v">75 &times; 15% = 11.3</span>
-              </div>
-              <div className="mrow">
-                <span className="k">information</span>
-                <span className="v">87 &times; 10% = &nbsp;8.7</span>
-              </div>
-              <div className="mrow sum">
-                <span className="k">total</span>
-                <span className="v">62.8 &rarr; 63</span>
-              </div>
+
+            <div className="mathgrid__art">
+              <ScoreSticker
+                car={COROLLA.car}
+                ask={COROLLA.ask}
+                total={COROLLA.total}
+                verdict={COROLLA.verdict}
+                weightedNote={COROLLA.weightedNote}
+                rows={COROLLA.rows}
+                animate
+              />
             </div>
-          </Reveal>
+          </div>
         </div>
       </section>
 
       <section className="sec">
         <div className="wrap">
-          <Reveal className="sechead">
-            <span className="lbl eyebrow">Why the comps matter</span>
+          <div className="sechead">
             <h2 className="sectitle">
               Marketplace gives you a price and nothing to judge it against.
             </h2>
@@ -232,8 +250,8 @@ export default function LandingPage() {
               nearly every Marketplace car looks like a steal. Curbside compares it to the only fair
               benchmark: <b>other private sellers, right now, near you.</b>
             </p>
-          </Reveal>
-          <Reveal className="compare">
+          </div>
+          <div className="compare">
             <div className="col col--wrong">
               <p className="coltag lbl">Dealer benchmark</p>
               <p className="colline">&ldquo;$4,100 below market.&rdquo;</p>
@@ -250,21 +268,20 @@ export default function LandingPage() {
                 about to message. Adjusted for mileage and trim.
               </p>
             </div>
-          </Reveal>
+          </div>
         </div>
       </section>
 
       <section className="sec" id="what">
         <div className="wrap">
-          <Reveal className="sechead">
-            <span className="lbl eyebrow">What it checks</span>
+          <div className="sechead">
             <h2 className="sectitle">Six readings on every listing.</h2>
             <p className="secbody">
               Kept separate on purpose. A risky car can be fairly priced, and a clean car can be a
               bad buy.
             </p>
-          </Reveal>
-          <Reveal className="feats">
+          </div>
+          <div className="feats">
             {CHECKS.map((check) => (
               <div className="feat" key={check.label}>
                 <span className="lbl">{check.label}</span>
@@ -272,27 +289,28 @@ export default function LandingPage() {
                 <p>{check.body}</p>
               </div>
             ))}
-          </Reveal>
+          </div>
         </div>
       </section>
 
       <section className="sec">
         <div className="wrap">
-          <Reveal className="sechead">
-            <span className="lbl eyebrow">How it works</span>
+          <div className="sechead">
             <h2 className="sectitle">Three steps, then it&rsquo;s out of your way.</h2>
-          </Reveal>
-          <Reveal className="steps">
-            {STEPS.map((step) => (
-              <div className="step" key={step.title}>
-                <span className="step__n" aria-hidden="true" />
+          </div>
+          <ol className="steps">
+            {STEPS.map((step, index) => (
+              <li className="step" key={step.title}>
+                <span className="step__n" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
                 <div>
                   <h3>{step.title}</h3>
                   <p>{step.body}</p>
                 </div>
-              </div>
+              </li>
             ))}
-          </Reveal>
+          </ol>
         </div>
       </section>
 
@@ -301,8 +319,7 @@ export default function LandingPage() {
           saying the free allowance is real and what it costs after. */}
       <section className="sec" id="pricing">
         <div className="wrap">
-          <Reveal className="sechead">
-            <span className="lbl eyebrow">Pricing</span>
+          <div className="sechead">
             <h2 className="sectitle">
               Your first {FREE_EVALUATIONS} checks are free. Then pay for what you use.
             </h2>
@@ -311,9 +328,9 @@ export default function LandingPage() {
               pack of checks, or go unlimited for the month you&rsquo;re actually shopping and stop
               when you&rsquo;re done.
             </p>
-          </Reveal>
+          </div>
 
-          <Reveal className="planstrip">
+          <div className="planstrip">
             <div className="planstrip__free">
               <span className="lbl">Free</span>
               <p className="planstrip__price">
@@ -333,25 +350,24 @@ export default function LandingPage() {
                 <p className="planstrip__note">{plan.summary}</p>
               </div>
             ))}
-          </Reveal>
+          </div>
 
-          <Reveal className="planstrip__cta">
+          <div className="planstrip__cta">
             <Link className="btn" href="/pricing">
               See what&rsquo;s in each plan
             </Link>
-          </Reveal>
+          </div>
         </div>
       </section>
 
       <section className="sec honest">
         <div className="wrap">
-          <Reveal className="sechead">
-            <span className="lbl eyebrow">What we won&rsquo;t pretend</span>
+          <div className="sechead">
             <h2 className="sectitle">
               Two limits, stated up front instead of buried in a terms page.
             </h2>
-          </Reveal>
-          <Reveal className="notes">
+          </div>
+          <div className="notes">
             <div className="notecard">
               <h3>It&rsquo;s a beta signal, not a rating.</h3>
               <p>
@@ -368,21 +384,20 @@ export default function LandingPage() {
                 valuation, and you should know it going in.
               </p>
             </div>
-          </Reveal>
+          </div>
         </div>
       </section>
 
       <section className="sec" id="privacy">
         <div className="wrap">
-          <Reveal className="sechead">
-            <span className="lbl eyebrow">Privacy</span>
+          <div className="sechead">
             <h2 className="sectitle">It runs when you click it. That&rsquo;s the whole rule.</h2>
             <p className="secbody">
               No background scanning, no monitoring searches while you&rsquo;re away, no watching
               where else you go.
             </p>
-          </Reveal>
-          <Reveal className="privacy">
+          </div>
+          <div className="privacy">
             <div className="pcell">
               <h3>You start every check</h3>
               <p>
@@ -404,29 +419,27 @@ export default function LandingPage() {
                 is none of its business.
               </p>
             </div>
-          </Reveal>
+          </div>
         </div>
       </section>
 
       <section className="sec final" id="install">
         <div className="wrap">
-          <Reveal as="h2" className="sectitle">
-            Don&rsquo;t drive an hour to find out.
-          </Reveal>
-          <Reveal as="p" className="secbody">
+          <h2 className="sectitle">Don&rsquo;t drive an hour to find out.</h2>
+          <p className="secbody">
             Check the listing in one click, then decide whether it&rsquo;s worth the trip.
-          </Reveal>
-          <Reveal className="finalcta">
+          </p>
+          <div className="finalcta">
             <a className="btn btn--big" href={CHROME_STORE_URL} target="_blank" rel="noopener">
               Add Curbside to Chrome &mdash; {FREE_EVALUATIONS} free checks
             </a>
-          </Reveal>
-          <Reveal as="p" className="disclaimer">
+          </div>
+          <p className="disclaimer">
             Curbside is an informational tool for evaluating listings. It is not a purchase
             recommendation, an appraisal, or a substitute for a pre-purchase inspection and a
             vehicle history report. Curbside is not affiliated with, endorsed by, or connected to
             Meta Platforms, Inc.
-          </Reveal>
+          </p>
         </div>
       </section>
     </>

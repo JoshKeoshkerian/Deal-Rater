@@ -543,23 +543,3 @@ a {
 .modal .btn {
   margin-top: 8px;
 }
-
-/* --- reveal-on-scroll ------------------------------------------------------ */
-
-.rv {
-  opacity: 0;
-  transform: translateY(16px);
-  transition:
-    opacity 0.65s ease,
-    transform 0.65s ease;
-}
-.rv.in {
-  opacity: 1;
-  transform: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .rv {
-    opacity: 1;
-    transform: none;
-  }
-}

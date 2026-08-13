@@ -14,32 +14,28 @@
   padding: 84px 0 0;
   overflow: hidden;
 }
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(1.5px 1.5px at 9% 16%, rgba(34, 194, 147, 0.5), transparent),
-    radial-gradient(1.5px 1.5px at 22% 40%, rgba(34, 194, 147, 0.38), transparent),
-    radial-gradient(1.5px 1.5px at 78% 20%, rgba(34, 194, 147, 0.46), transparent),
-    radial-gradient(1.5px 1.5px at 91% 44%, rgba(34, 194, 147, 0.34), transparent),
-    radial-gradient(1.5px 1.5px at 15% 62%, rgba(34, 194, 147, 0.3), transparent),
-    radial-gradient(1.5px 1.5px at 86% 66%, rgba(34, 194, 147, 0.3), transparent),
-    radial-gradient(1000px 560px at 50% -6%, rgba(18, 48, 85, 0.75), transparent 72%);
+.hero__inner {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 40px;
+  align-items: center;
+}
+@media (max-width: 900px) {
+  .hero__inner {
+    grid-template-columns: 1fr;
+    gap: 56px;
+  }
 }
 .herocopy {
   position: relative;
-  text-align: center;
-  max-width: 800px;
-  margin: 0 auto;
+  max-width: 620px;
 }
 .hero h1 {
-  font-size: clamp(42px, 6vw, 76px);
+  font-size: clamp(36px, 5vw, 64px);
   line-height: 0.98;
   font-weight: 800;
   font-variation-settings: "wdth" 120;
-  margin-top: 20px;
 }
 .hero h1 em {
   font-style: normal;
@@ -47,19 +43,18 @@
   display: block;
 }
 .lede {
-  font-size: 19.5px;
+  font-size: 19px;
   line-height: 1.55;
   color: rgba(234, 241, 248, 0.6);
   max-width: 35em;
-  margin: 24px auto 0;
+  margin: 22px 0 0;
 }
 .herocta {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 22px;
-  flex-wrap: wrap;
-  margin-top: 36px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 32px;
 }
 .meta {
   font-family: var(--font-mono);
@@ -67,12 +62,29 @@
   line-height: 1.55;
   color: rgba(234, 241, 248, 0.4);
   margin: 0;
-  text-align: left;
+  max-width: 32em;
 }
-@media (max-width: 600px) {
-  .meta {
-    text-align: center;
+
+/* The signature element: bleeds past the column's right edge rather than
+   sitting politely inside it, which is the point — a price sticker taped to
+   glass does not respect a grid. */
+.hero__art {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+@media (min-width: 901px) {
+  .hero__art {
+    margin-right: -22px;
   }
+}
+@media (max-width: 900px) {
+  .hero__art {
+    justify-content: center;
+  }
+}
+.hero__art .sticker {
+  transform: rotate(-4deg);
 }
 
 /* ---------- showcase: real output ---------- */
@@ -99,9 +111,19 @@
 
 .shots {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1.12fr 1fr 1fr;
   gap: 26px;
   align-items: start;
+}
+/* Three identically-sized, evenly-spaced cards is the default answer. This
+   staggers them instead — the strong example pulled up and given more room,
+   the other two dropped to different depths, like they were laid on a table
+   rather than snapped to a grid. */
+.shot:nth-child(1) {
+  transform: translateY(-24px);
+}
+.shot:nth-child(3) {
+  transform: translateY(28px);
 }
 @media (max-width: 1000px) {
   .shots {
@@ -109,6 +131,10 @@
     gap: 44px;
     max-width: 520px;
     margin: 0 auto;
+  }
+  .shot:nth-child(1),
+  .shot:nth-child(3) {
+    transform: none;
   }
 }
 .shot {
@@ -247,43 +273,157 @@
   color: var(--ink);
   font-weight: 600;
 }
-.mathcard {
-  background: var(--navy);
-  border: 1px solid rgba(180, 214, 240, 0.15);
-  border-radius: 10px;
-  padding: 26px 24px;
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-  line-height: 2.05;
-}
-.mathcard .mrow {
+.mathgrid__art {
   display: flex;
-  justify-content: space-between;
-  gap: 18px;
+  justify-content: center;
 }
-.mathcard .k {
-  color: rgba(234, 241, 248, 0.6);
+.mathgrid__art .sticker {
+  transform: rotate(-2deg);
 }
-.mathcard .v {
-  color: var(--ink);
-  white-space: nowrap;
+
+/* ---------- the sticker: the one signature element on the page ----------
+   A windshield price sticker rendered in the site's own palette rather than
+   literal paper — taped corners, mono numerals, a barcode strip along the
+   bottom. It appears twice (hero, score section) with the same worked
+   example, and only the score-section instance animates: see
+   `ScoreSticker.tsx` for the armed/unarmed state that drives it. */
+.sticker {
+  position: relative;
+  width: min(320px, 100%);
+  background: var(--navy);
+  border: 1px solid rgba(180, 214, 240, 0.18);
+  border-radius: 3px;
+  padding: 22px 22px 18px;
+  box-shadow: 0 40px 70px -34px rgba(0, 0, 0, 0.85);
 }
-.mathcard .sum {
-  border-top: 1px solid rgba(180, 214, 240, 0.15);
-  margin-top: 12px;
-  padding-top: 12px;
+.sticker__tape {
+  position: absolute;
+  top: -9px;
+  width: 58px;
+  height: 20px;
+  background: rgba(234, 241, 248, 0.13);
+  border: 1px solid rgba(234, 241, 248, 0.16);
 }
-.mathcard .sum .k,
-.mathcard .sum .v {
-  color: var(--lime);
+.sticker__tape--l {
+  left: 18px;
+  transform: rotate(-9deg);
 }
-.mathcard .cap {
-  color: rgba(234, 241, 248, 0.4);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+.sticker__tape--r {
+  right: 14px;
+  transform: rotate(7deg);
+}
+.sticker__cap {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  margin-bottom: 14px;
+  color: rgba(234, 241, 248, 0.4);
+  margin: 4px 0 10px;
+}
+.sticker__total {
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 0;
+}
+.sticker__num {
+  font-size: 50px;
+  font-weight: 700;
+  color: var(--lime);
+  line-height: 1;
+  display: inline-block;
+  opacity: 1;
+  transform: none;
+}
+.sticker:not(.sticker--armed) .sticker__num {
+  opacity: 0;
+  transform: scale(1.6) rotate(-8deg);
+}
+.sticker--armed .sticker__num {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.sticker__of {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgba(234, 241, 248, 0.4);
+}
+.sticker__verdict {
+  font-size: 14px;
+  color: rgba(234, 241, 248, 0.6);
+  margin: 6px 0 16px;
+}
+.sticker__rows {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 12px 0 0;
+  border-top: 1px dashed rgba(180, 214, 240, 0.2);
+  display: grid;
+  gap: 9px;
+}
+.sticker__rows li {
+  display: grid;
+  grid-template-columns: 76px 1fr 24px;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.sticker__row-label {
+  color: rgba(234, 241, 248, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sticker__row-track {
+  height: 4px;
+  background: var(--line-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.sticker__row-fill {
   display: block;
+  height: 100%;
+  width: 0;
+  background: var(--teal-bright);
+  transition: width 0.9s cubic-bezier(0.16, 0.84, 0.44, 1);
+}
+.sticker--armed .sticker__row-fill {
+  width: var(--w);
+}
+.sticker__row-value {
+  color: var(--ink);
+  text-align: right;
+}
+.sticker__foot {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(234, 241, 248, 0.35);
+  margin: 0;
+}
+.sticker__barcode {
+  display: block;
+  margin-top: 16px;
+  height: 18px;
+  opacity: 0.3;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(234, 241, 248, 0.7) 0 2px,
+    transparent 2px 5px,
+    rgba(234, 241, 248, 0.7) 5px 6px,
+    transparent 6px 11px
+  );
+}
+@media (max-width: 480px) {
+  .sticker {
+    width: 100%;
+  }
 }
 
 .compare {
@@ -380,36 +520,28 @@
 }
 
 .steps {
-  margin-top: 48px;
-  counter-reset: s;
+  list-style: none;
+  margin: 48px 0 0;
+  padding: 0;
 }
 .step {
   display: grid;
-  grid-template-columns: 56px 1fr;
+  grid-template-columns: 40px 1fr;
   gap: 22px;
   padding: 26px 0;
   border-top: 1px solid var(--line-soft);
-  align-items: start;
+  align-items: baseline;
 }
 .step:last-child {
   border-bottom: 1px solid var(--line-soft);
 }
+/* A plain ledger numeral, not a badge — this is a genuine three-step
+   sequence, so the number stays, but nothing dresses it up as an icon. */
 .step__n {
-  counter-increment: s;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(34, 194, 147, 0.14);
-  border: 1px solid rgba(34, 194, 147, 0.4);
-  color: var(--teal-bright);
-  display: grid;
-  place-items: center;
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
-}
-.step__n::before {
-  content: counter(s);
+  color: var(--teal-bright);
 }
 .step h3 {
   font-size: 20px;
