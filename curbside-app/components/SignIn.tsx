@@ -153,6 +153,17 @@ export function SignIn({
             autoFocus
             onChange={(event) => setCode(event.target.value)}
           />
+
+          {/* Separate from the status line below on purpose: that line is
+              overwritten by "Checking…" and by every error, so a spam-folder
+              hint living there would disappear exactly when somebody is
+              hunting for a code that never arrived. Mail from a young sending
+              domain lands in junk often enough that this is the most likely
+              first-run failure the product has. */}
+          <p className="form-note form-note--hint">
+            Not there in a minute? Check your spam or junk folder — and mark it as not spam, so
+            the next one arrives in your inbox.
+          </p>
         </>
       )}
 

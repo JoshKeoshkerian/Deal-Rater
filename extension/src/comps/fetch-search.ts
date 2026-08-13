@@ -12,6 +12,27 @@
  * no `tabs` permission — `chrome.tabs.create` and `chrome.tabs.remove` do not,
  * and the content script in the new tab reports back through messaging rather
  * than the worker reading the tab's URL.
+ *
+ * THE FALLBACK IS THE EXPENSIVE PATH, AND IT WAS BEING TAKEN FOR "NO RESULTS"
+ * ---------------------------------------------------------------------------
+ * A tab fallback is a real navigation: create a tab, wait for Facebook to load
+ * and for a content script to announce itself, message it, close the tab. It
+ * costs seconds, and up to 30 of them before `TAB_LOAD_TIMEOUT_MS` gives up.
+ *
+ * This function used to escalate whenever a search produced no comps — which
+ * includes the ordinary case of a peer metro that genuinely has none of the car.
+ * One capture searches the home metro, a trim query and up to eight peers, so a
+ * scarce vehicle in a thin market paid that navigation nine times over, in
+ * series, for nine correct answers of "nothing here". That is the bulk of where
+ * a 30-45 second capture went.
+ *
+ * `escalateOnEmpty` lets the caller say when zero is trustworthy. It is true for
+ * the FIRST search of a run, where a false zero would empty the whole comp set
+ * and where a broken extractor has to be caught. Once that search has come back
+ * through the fetch path with real cards, the fetch path is known to be working
+ * on this page shape right now, and every later zero is far more likely a thin
+ * market than a broken parser — so the peer and trim searches pass false and
+ * take the answer at face value.
  */
 
 import { extractCompCards } from "../extract/comp-card";
@@ -63,15 +84,31 @@ export async function fetchDocument(url: string): Promise<Document | null> {
   }
 }
 
+export interface CompSearchOptions {
+  /**
+   * Whether a search that renders correctly but finds nothing is worth a
+   * background-tab retry. See the module docstring: true for the first search of
+   * a run, false once the fetch path has proven itself on this page.
+   */
+  escalateOnEmpty?: boolean;
+}
+
 export async function runCompSearch(
   searchUrl: string,
   now: Date = new Date(),
+  { escalateOnEmpty = true }: CompSearchOptions = {},
 ): Promise<CompSearchResult> {
   const doc = await fetchDocument(searchUrl);
 
   if (doc && !looksLikeShell(doc)) {
     const result = await extractCompCards(doc, searchUrl, now);
     if (result.observations.length > 0) {
+      return { ...result, source: "same_origin_fetch" };
+    }
+    // A page that rendered and holds no cars. Believed rather than retried
+    // when the caller has already seen the fetch path work this run: the tab
+    // would load the same empty market, several seconds later.
+    if (!escalateOnEmpty) {
       return { ...result, source: "same_origin_fetch" };
     }
   }

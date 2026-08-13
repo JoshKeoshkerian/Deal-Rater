@@ -1,6 +1,14 @@
 /**
  * The wordmark and its logo, lifted verbatim from the landing page's inline
  * SVG so the two do not drift apart now that they share a codebase.
+ *
+ * THE PATHS BELOW ARE A COPY. The source is `assets/brand/curbside-mark.svg`,
+ * which `assets/brand/render.mjs` also rasterises into the extension's toolbar
+ * icons, this app's favicon and link-preview card, and the static site's. Edit
+ * the mark there, re-run that script, and update this component and
+ * `curbside-site/index.html` to match -- an inline SVG is used here rather than
+ * an <img> so the header paints with the page instead of after a second
+ * request, which is worth one duplicated shape and a comment saying so.
  */
 
 export function BrandMark({ size = 28 }: { size?: number }) {

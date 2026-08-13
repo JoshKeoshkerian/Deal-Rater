@@ -92,10 +92,16 @@ export type AuthVerifyResult =
  * signed in" is the state the button renders as its default, and treating it as
  * a failure would put an error message in front of every user who has not made
  * an account yet -- which is all of them, on first run.
+ *
+ * `saved` is a statement about the VEHICLE rather than about this capture, so a
+ * car saved from a previous run reads as saved here. `stale` is that same car
+ * saved from an OLDER run: the star is filled, and the saved copy on the
+ * website is showing figures that are not the ones on screen. See
+ * `overlay/bookmark.ts` for what is done about it.
  */
 export type SavedStateResult =
   | { ok: true; signedIn: false }
-  | { ok: true; signedIn: true; saved: boolean }
+  | { ok: true; signedIn: true; saved: boolean; stale?: boolean }
   | { ok: false; error: string };
 
 export function sendToBackground<T>(message: ContentToBackground): Promise<T> {

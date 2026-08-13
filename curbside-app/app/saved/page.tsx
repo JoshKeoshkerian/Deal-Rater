@@ -173,7 +173,8 @@ export default function SavedPage() {
         <h1 className="page-h1">Saved evaluations</h1>
         <p className="page-lede">
           Each card is what Curbside said on the date it was checked — a snapshot, not a live quote.
-          To get current figures, open the listing and run the extension again.
+          To get current figures, open the listing and run the extension again: the card here
+          updates to match, rather than becoming a second copy of the same car.
         </p>
       </header>
 

@@ -113,6 +113,17 @@ fetch returns a JavaScript shell with no rendered results. Distinguishing "shell
 from "genuinely zero comps" matters: the latter is what step 0 exists to measure
 and must not be manufactured by a failed fetch.
 
+**A rendered page with no cars is only escalated once per capture.** The
+distinction above was drawn correctly and then not acted on: a search that
+rendered fine and held nothing still opened a tab, so every empty peer metro
+cost a full navigation to re-confirm an answer already given. The first search
+of a run still escalates — a false zero there would empty the comp set, and a
+broken extractor has to be caught somewhere. Once that search returns real cards
+through `fetch`, the fetch path is known to work on this page shape right now,
+and later searches take a zero at face value (`escalateOnEmpty`, in
+`comps/fetch-search.ts`). This was most of the wall-clock cost of a capture in a
+thin market.
+
 ## Verifying changes
 
 ```bash

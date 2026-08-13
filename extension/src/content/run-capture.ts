@@ -23,7 +23,10 @@ import {
   shouldWiden,
 } from "../comps/widen";
 import { loadBadMetroSlugs, rememberBadMetroSlug } from "../shared/metro-health";
+import type { CompSearchResult } from "../comps/fetch-search";
 import { fetchDocument, runCompSearch } from "../comps/fetch-search";
+import type { WidenStop } from "../comps/peer-walk";
+import { walkPeers } from "../comps/peer-walk";
 import { extractTargetListing } from "../extract/listing";
 import { collapseIssues } from "../extract/self-check";
 import type {
@@ -38,6 +41,42 @@ import type { CapturePayload, ExtractionIssue, ObservationPayload } from "../sha
 
 export const CLIENT_NAME = "chrome-extension";
 export const CLIENT_VERSION = "0.1.0";
+
+/**
+ * How many peer-metro searches run at once.
+ *
+ * Widening was strictly sequential: eight peers, one at a time, each a full page
+ * fetch. With `USABLE_COMP_TARGET` at 30 comps most vehicles walk most of that
+ * list, so the phase reliably cost eight round trips end to end and dominated
+ * the wait after a click.
+ *
+ * The requests do not depend on each other -- each names a different metro and
+ * the results are merged -- so the only thing serialising them bought was the
+ * chance to stop between each one. That is kept, at batch granularity:
+ * `shouldWiden` still runs before each batch, so the stopping rule is intact and
+ * the overshoot is at most `PEER_BATCH_SIZE - 1` searches, which cost no
+ * additional time because they were already in flight.
+ *
+ * THREE RATHER THAN ALL EIGHT, deliberately. Firing the whole peer list at once
+ * would be one round trip, but it also abandons the tiering that `widen.ts`
+ * documents as the request budget spec 8.1 makes binding, and puts eight
+ * simultaneous searches on one account -- which is the traffic shape of a
+ * crawler rather than of somebody with a few tabs open. Three keeps the common
+ * case at one or two rounds while still looking like a person.
+ */
+const PEER_BATCH_SIZE = 3;
+
+/**
+ * How long the comp phase may keep STARTING new peer searches.
+ *
+ * Not a timeout: work already in flight is awaited and used. It bounds the tail
+ * instead -- a metro that answers slowly, or a market so thin that every peer
+ * returns nothing, used to add its full latency to a click with no ceiling on
+ * the total. Past this the run proceeds with the comps it has and records that
+ * it stopped early, which the confidence model already handles: a thin comp set
+ * widens the interval rather than being silently treated as a good one.
+ */
+const WIDEN_TIME_BUDGET_MS = 12_000;
 
 export interface CapturePayloadParts {
   capturedAt: Date;
@@ -219,6 +258,13 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
   const search = buildCompSearch(target.observation, target.locationId);
   let comps: CapturePayload["comps"] = [];
   let compSource = "none";
+  // When the comp phase began, and what stopped it. Recorded for the same
+  // reason the rest of this block is: a capture that ran out of budget and one
+  // that satisfied `shouldWiden` both finish with "some comps", and only the
+  // payload can tell them apart afterwards.
+  let searchStartedAt = Date.now();
+  let widenStopped: WidenStop = "peers_exhausted";
+  let searchElapsedMs = 0;
   // Whether the comp set actually came back scoped to the target's location.
   // Step 3 reads this: comps from an unknown market widen the interval.
   let locationScoped = search?.query.location_id !== null;
@@ -237,6 +283,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     });
   } else {
     onStatus("Searching comparable listings…", "comps");
+    searchStartedAt = Date.now();
     let result = await runCompSearch(search.url, capturedAt);
 
     // An unrecognised location parameter yields zero results rather than an
@@ -249,6 +296,14 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
 
     compSource = result.source;
     issues.push(...result.issues);
+
+    // The home search came back through the plain fetch WITH cars in it, so the
+    // fetch path and the card extractor are both working on this page shape,
+    // right now. That is what lets every later search in this run believe a zero
+    // instead of paying for a background tab to confirm it -- see
+    // `comps/fetch-search.ts`.
+    const fetchPathProven =
+      result.source === "same_origin_fetch" && result.observations.length > 0;
 
     // Deduplicated AS WE GO, not afterwards.
     //
@@ -311,6 +366,14 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     // have gone through the instrumentation: below half the home page being the
     // right model, the trim query returned no gain on any capture measured.
     // See `homeMarketHasHeadroom`.
+    //
+    // STARTED HERE, SETTLED WITH THE FIRST PEER BATCH. The trim query and the
+    // peers are independent requests -- the peer gate reads the comp set, and
+    // the at-most-one-batch of peers that a not-yet-absorbed trim result might
+    // have made unnecessary is the same overshoot batching already accepts. So
+    // this is fired and not awaited, and `settleTrim` folds it in below.
+    let trimPending: Promise<CompSearchResult> | null = null;
+
     if (!locationScoped) {
       trimQuerySkipped = "unscoped_home_search";
     } else if (trimMatchedBefore >= TRIM_MATCH_TARGET) {
@@ -323,16 +386,34 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
         trimQuerySkipped = "no_trim_level";
       } else {
         onStatus("Searching this trim…", "comps");
-        const trimResult = await runCompSearch(trimSearch.url, capturedAt);
         trimSearchQuery = trimSearch.query.query;
+        trimPending = runCompSearch(trimSearch.url, capturedAt, {
+          escalateOnEmpty: !fetchPathProven,
+        });
+      }
+    }
+
+    /**
+     * Absorb the trim query, if one is in flight, and take the same-trim count.
+     *
+     * Called before any peer result is merged, which is what keeps
+     * `trim_query_new` and `trim_matched_after` meaning what they meant when
+     * this ran in series: the trim query's own contribution to the home
+     * market's comps, not a figure diluted by whatever a peer returned in the
+     * same round trip.
+     */
+    const settleTrim = async (): Promise<void> => {
+      if (trimPending) {
+        const trimResult = await trimPending;
+        trimPending = null;
         trimQueryReturned = trimResult.observations.length;
         const before = observations.length;
         absorb(trimResult.observations);
         trimQueryNew = observations.length - before;
         issues.push(...trimResult.issues);
       }
-    }
-    trimMatchedAfter = countTrimMatched(target.observation, observations);
+      trimMatchedAfter = countTrimMatched(target.observation, observations);
+    };
 
     // Facebook's 40-mile radius is not settable per request, so a wider market
     // is only reachable as SEPARATE searches centred on other metros. Peers are
@@ -374,34 +455,52 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     // in wants those and not a guess layered on top.
     const queue = manual.length > 0 ? manual : autoPeers.map((m) => m.slug);
 
-    let remaining = queue.length;
-    for (const slug of queue) {
-      if (!shouldWiden(target.observation, observations, remaining--)) break;
-      // The listing's own metro is always searched above.
-      if (slug === target.locationId) continue;
+    // Peers run in concurrent batches, with the stopping rule re-checked before
+    // each one (`comps/peer-walk.ts`). Same requests, same order, same early
+    // stop -- what changed is the waiting, from eight round trips in series to
+    // two or three rounds.
+    widenStopped = await walkPeers({
+      queue,
+      batchSize: PEER_BATCH_SIZE,
+      budgetMs: WIDEN_TIME_BUDGET_MS,
+      startedAt: searchStartedAt,
 
-      const metroSearch = buildMetroSearch(target.observation, slug);
-      if (!metroSearch) continue;
+      shouldContinue: (remaining) => shouldWiden(target.observation, observations, remaining),
 
-      onStatus("Searching nearby markets…", "widening");
-      const extra = await runCompSearch(metroSearch.url, capturedAt);
+      search: (slug) => {
+        // The listing's own metro is always searched above.
+        if (slug === target.locationId) return null;
+        const metroSearch = buildMetroSearch(target.observation, slug);
+        if (!metroSearch) return null;
 
-      // An unresolvable slug silently returns the account's own metro rather
-      // than erroring, which is indistinguishable from an empty market. Check
-      // that the results actually came from where they were asked for.
-      const metro = autoPeers.find((m) => m.slug === slug);
-      if (metro) {
-        const places = extra.observations.map((o) => o.location_text ?? "");
-        if (!verifyMetroResults(metro, places)) {
-          await rememberBadMetroSlug(slug);
-          metrosFailed.push(slug);
-          continue;
+        onStatus("Searching nearby markets…", "widening");
+        return runCompSearch(metroSearch.url, capturedAt, {
+          escalateOnEmpty: !fetchPathProven,
+        });
+      },
+
+      onFirstBatchSettled: settleTrim,
+
+      accept: async (slug, extra) => {
+        // An unresolvable slug silently returns the account's own metro rather
+        // than erroring, which is indistinguishable from an empty market. Check
+        // that the results actually came from where they were asked for.
+        const metro = autoPeers.find((m) => m.slug === slug);
+        if (metro) {
+          const places = extra.observations.map((o) => o.location_text ?? "");
+          if (!verifyMetroResults(metro, places)) {
+            await rememberBadMetroSlug(slug);
+            metrosFailed.push(slug);
+            return;
+          }
         }
-      }
 
-      absorb(extra.observations);
-      metrosSearched.push(slug);
-    }
+        absorb(extra.observations);
+        metrosSearched.push(slug);
+      },
+    });
+
+    searchElapsedMs = Date.now() - searchStartedAt;
 
     // Already deduplicated by `absorb`, and the target's own listing was seeded
     // into `seenIds` so a search page returning it cannot make the target its
@@ -462,6 +561,14 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
           // market.
           extra_metros_unresolved: metrosFailed,
           usable_comp_estimate: countUsable(target.observation, comps),
+          // How long the comp phase took, and why it ended. This phase is the
+          // bulk of the wait after a click, and until it was measured the only
+          // evidence for where the time went was how long the button sat there.
+          // `target_met` is the healthy ending; a run of `time_budget` means
+          // `WIDEN_TIME_BUDGET_MS` is doing real work and the peer list, not
+          // the batch size, is what to look at next.
+          search_elapsed_ms: searchElapsedMs,
+          widen_stopped: widenStopped,
         }
       : null,
   });

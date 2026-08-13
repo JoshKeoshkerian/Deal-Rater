@@ -33,6 +33,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -591,9 +592,12 @@ class SavedEvaluation(Base):
 
     WHY TWO CAPTURE COLUMNS
     -----------------------
-    `source_capture_id` is a plain integer and is the permanent identity: it is
-    what `POST/DELETE /v1/evaluations/{id}/save` matches on, and what makes the
-    unique constraint below work forever.
+    `source_capture_id` is a plain integer and is the permanent identity of the
+    RUN this snapshot came from. It is what `POST/DELETE
+    /v1/evaluations/{id}/save` matched on originally, and it is still the
+    fallback match; the primary one is now `listing_id`, because a capture is
+    one click and the same car clicked twice is two of them. See
+    `api/saved.py`'s module docstring.
 
     `capture_id` is the real foreign key and is NULLABLE with ON DELETE SET
     NULL. `app/retention.py` deletes captures past the retention window, and
@@ -647,6 +651,26 @@ class SavedEvaluation(Base):
         # here rather than only in the endpoint, so a double-click that races
         # itself cannot write two rows.
         UniqueConstraint("user_id", "source_capture_id", name="uq_saved_user_capture"),
+        # ONE ROW PER USER PER VEHICLE, which the constraint above does not give:
+        # a second capture of the same car is a different `source_capture_id`,
+        # so the same vehicle could be saved twice and appear twice on the
+        # website. `api/saved.py` matches on the listing for that reason, and
+        # this is the same rule at the level that a race cannot get past.
+        #
+        # PARTIAL, because `listing_id` is NULLABLE and means something specific
+        # when null: retention has removed the capture behind the snapshot
+        # (spec 8.2). Those rows have no vehicle identity left to be unique on,
+        # and there can legitimately be several of them per user. Postgres
+        # already treats NULLs as distinct in a unique index; the predicate says
+        # so explicitly and keeps the index off rows it can never constrain.
+        Index(
+            "uq_saved_user_listing",
+            "user_id",
+            "listing_id",
+            unique=True,
+            postgresql_where=text("listing_id IS NOT NULL"),
+            sqlite_where=text("listing_id IS NOT NULL"),
+        ),
         Index("ix_saved_user_time", "user_id", "saved_at"),
     )
 

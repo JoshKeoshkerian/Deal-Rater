@@ -343,7 +343,12 @@ async function handleSavedState(captureId: number): Promise<SavedStateResult> {
   const adopt = maybeAdoptWebSession(settings.apiBaseUrl, session.token);
   try {
     const state = await fetchSavedState(settings.apiBaseUrl, session.token, captureId);
-    return { ok: true, signedIn: true, saved: state?.saved ?? false };
+    return {
+      ok: true,
+      signedIn: true,
+      saved: state?.saved ?? false,
+      stale: state?.stale ?? false,
+    };
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       // The stored token no longer resolves: expired, or revoked elsewhere.

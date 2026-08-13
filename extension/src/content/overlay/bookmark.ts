@@ -35,6 +35,16 @@
  * click a second time. A sign-in prompt that forgets why it appeared is a
  * prompt the user has to satisfy twice.
  *
+ * THE STAR IS ABOUT THE CAR, NOT ABOUT THIS CLICK
+ * ------------------------------------------------
+ * A capture is one click, and clicking Capture again on the same listing makes
+ * a new one. While the backend keyed saves on the capture id, that meant the
+ * star came back EMPTY on a car the user had already saved, and pressing it
+ * added a SECOND card for the same vehicle to the website. Both routes now
+ * resolve to the listing (`backend/app/api/saved.py`), so a saved car reads as
+ * saved on every later run -- and when this run is newer than the saved copy,
+ * `refreshSavedCopy` below brings the saved copy up to the figures on screen.
+ *
  * WHAT THIS DOES NOT DO
  * ----------------------
  * It never holds the session token. Every call goes through the service worker
@@ -125,12 +135,20 @@ const LABEL: Record<SaveState, string> = {
 };
 
 /**
- * The strip's sentence, in its two readings. Both end by naming the site, which
- * is the part the header alone could never say.
+ * The strip's sentence, in its three readings. All of them end by naming the
+ * site, which is the part the header alone could never say.
+ *
+ * `refreshed` is the one that follows an automatic update (see
+ * `refreshSavedCopy` below). It exists because silently rewriting something the
+ * user saved is the kind of helpfulness that reads as a bug when it is
+ * discovered later: the card they remember said $14,900 and now says $13,700.
+ * One sentence, in the place the save state is already reported, is the whole
+ * disclosure this needs.
  */
-const STRIP_LEAD: Record<"saved" | "unsaved", string> = {
+const STRIP_LEAD: Record<"saved" | "unsaved" | "refreshed", string> = {
   unsaved: "Save this evaluation and read it back on any device at",
   saved: "Saved. It is waiting with your other saved listings at",
+  refreshed: "Saved already — updated just now to these figures, at",
 };
 
 export interface BookmarkControl {
@@ -186,6 +204,25 @@ function buildSignIn(panel: HTMLElement, onDone: () => void): void {
   message.setAttribute("role", "status");
   message.setAttribute("aria-live", "polite");
 
+  /**
+   * The spam-folder note, and why it is not part of `message`.
+   *
+   * A transactional email from a domain with almost no sending history lands in
+   * junk often enough that "it never arrived" is the most likely first-run
+   * failure this product has, and the user's only recovery is to look in a
+   * folder they were not told about. `message` is the wrong place for that: it
+   * is overwritten by "Checking…" and by every error, so the hint would vanish
+   * at exactly the moment somebody is hunting for the code. This line is
+   * separate, appears with the code field, and stays put.
+   */
+  const hint = el(
+    "p",
+    "signin-hint",
+    "Not there in a minute? Check your spam or junk folder — and mark it as not spam, " +
+      "so the next one arrives in your inbox.",
+  );
+  hint.hidden = true;
+
   const cancel = el("button", "signin-cancel", "Not now") as HTMLButtonElement;
   cancel.type = "button";
   cancel.addEventListener("click", () => {
@@ -226,6 +263,7 @@ function buildSignIn(panel: HTMLElement, onDone: () => void): void {
           step = "code";
           codeInput.hidden = false;
           codeInput.focus();
+          hint.hidden = false;
           submit.textContent = "Sign in";
           message.dataset["tone"] = "info";
           message.textContent = `Code sent to ${email}. It expires shortly.`;
@@ -264,7 +302,7 @@ function buildSignIn(panel: HTMLElement, onDone: () => void): void {
 
   const actions = el("div", "signin-actions");
   actions.append(submit, cancel);
-  form.append(title, blurb, emailInput, codeInput, actions, message);
+  form.append(title, blurb, emailInput, codeInput, actions, message, hint);
   panel.append(form);
   emailInput.focus();
 }
@@ -305,6 +343,8 @@ export function buildBookmark(captureId: number): BookmarkControl {
   const panel = el("div", "signin-panel");
 
   let state: SaveState = "unknown";
+  /** Set once this render has rewritten an older saved copy. Never unset. */
+  let refreshed = false;
 
   const paint = () => {
     const saved = state === "saved";
@@ -323,7 +363,8 @@ export function buildBookmark(captureId: number): BookmarkControl {
     // about it is the failure mode worth designing out.
     strip.node.dataset["state"] = saved ? "saved" : "unsaved";
     strip.glyph.textContent = GLYPH[saved ? "saved" : "not-saved"];
-    strip.lead.textContent = `${saved ? STRIP_LEAD.saved : STRIP_LEAD.unsaved} `;
+    const lead = saved ? (refreshed ? STRIP_LEAD.refreshed : STRIP_LEAD.saved) : STRIP_LEAD.unsaved;
+    strip.lead.textContent = `${lead} `;
   };
 
   const apply = (result: SavedStateResult) => {
@@ -352,6 +393,46 @@ export function buildBookmark(captureId: number): BookmarkControl {
       .catch(() => apply({ ok: false, error: "Could not reach the server." }));
   };
 
+  /**
+   * Bring the saved copy up to THIS run's figures.
+   *
+   * Fired only when the backend reports a listing saved from an EARLIER
+   * capture. The user re-ran the tool on a car they had already saved, so the
+   * evaluation on screen and the one on the website disagree, and the website's
+   * is the older of the two. Posting the save again rewrites that one row (the
+   * endpoint keys on the vehicle, not the capture), which is also what stops a
+   * second card appearing for the same car.
+   *
+   * Not a background job (spec 8.1): it happens inside the render of a panel the
+   * user opened by clicking, and only for a listing they had already saved
+   * themselves. Nothing here evaluates a car nobody asked about.
+   *
+   * A failure leaves the star filled. The car IS still saved -- just with last
+   * run's numbers -- and flipping the star empty would be the one wrong answer
+   * available.
+   */
+  const refreshSavedCopy = () => {
+    state = "busy";
+    paint();
+
+    const savedAnyway = () => {
+      state = "saved";
+      paint();
+    };
+
+    void ask<SavedStateResult>({ type: "SAVE_EVALUATION", captureId })
+      .then((result) => {
+        if (!result.ok) {
+          savedAnyway();
+          button.title = result.error;
+          return;
+        }
+        refreshed = result.signedIn && result.saved;
+        apply(result);
+      })
+      .catch(savedAnyway);
+  };
+
   button.addEventListener("click", () => {
     if (state === "busy") return;
     if (state === "signed-out" || state === "unknown") {
@@ -368,7 +449,10 @@ export function buildBookmark(captureId: number): BookmarkControl {
   // answer "is this saved" should leave an empty star rather than an error on
   // an evaluation that is otherwise complete.
   void ask<SavedStateResult>({ type: "SAVED_STATE", captureId })
-    .then(apply)
+    .then((result) => {
+      apply(result);
+      if (result.ok && result.signedIn && result.saved && result.stale) refreshSavedCopy();
+    })
     .catch(() => undefined);
 
   return { button, strip: strip.node, panel };
@@ -471,4 +555,12 @@ export const BOOKMARK_STYLES = `
   }
   .signin-message[data-tone="error"] { color: var(--tone-adverse-text); }
   .signin-message:empty { display: none; }
+
+  /* A step below the status line, not beside it: it is a standing note about
+     where the mail might be, and must never read as this attempt's outcome. */
+  .signin-hint {
+    margin: var(--sp-2) 0 0; font-size: var(--fs-xs); line-height: 1.45;
+    color: var(--text-faint);
+  }
+  .signin-hint[hidden] { display: none; }
 `;

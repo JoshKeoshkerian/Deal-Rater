@@ -260,11 +260,16 @@ export function signOut(apiBaseUrl: string, token: string): Promise<unknown> {
   return apiRequest(apiBaseUrl, "/v1/auth/sign-out", { method: "POST", token });
 }
 
+/**
+ * `saved` answers for the vehicle, not for this capture id -- the backend
+ * resolves both to a listing (`backend/app/api/saved.py`). `stale` is set when
+ * the saved copy came from an earlier capture of the same vehicle.
+ */
 export function fetchSavedState(
   apiBaseUrl: string,
   token: string,
   captureId: number,
-): Promise<{ saved: boolean } | null> {
+): Promise<{ saved: boolean; stale?: boolean } | null> {
   return apiRequest(apiBaseUrl, `/v1/evaluations/${captureId}/save`, { token });
 }
 

@@ -487,6 +487,12 @@ a {
 .form-note:empty {
   display: none;
 }
+/* The spam-folder note under the code field. Tighter to the input it belongs
+   to than a standalone note would be, so it reads as part of that field
+   rather than as a second status line. */
+.form-note--hint {
+  margin-top: 8px;
+}
 
 .price-label {
   display: block;

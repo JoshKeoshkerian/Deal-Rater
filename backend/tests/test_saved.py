@@ -168,6 +168,133 @@ def test_list_survives_a_snapshot_saved_before_known_issues_pending_existed(
     assert listed.json()["items"][0]["evaluation"]["known_issues_pending"] is False
 
 
+# --- one card per car, not per click ----------------------------------------
+#
+# `ingest(client)` twice is two captures of the SAME listing (conftest's default
+# `source_listing_id`), which is exactly what running the extension again on a
+# car you looked at last week produces.
+
+
+def test_the_star_is_filled_on_a_later_capture_of_a_saved_car(client, session, settings):
+    """The bug this set exists for: the star came back empty on a car the user
+    had already saved, because the new capture id had never been saved."""
+    auth = sign_in(session, settings)
+    first = ingest(client)
+    client.post(f"/v1/evaluations/{first}/save?offline=true", headers=auth)
+
+    second = ingest(client)
+    state = client.get(f"/v1/evaluations/{second}/save", headers=auth).json()
+
+    assert state["saved"] is True
+    assert state["stale"] is True
+    assert state["saved_capture_id"] == first
+
+
+def test_state_is_not_stale_on_the_capture_it_was_saved_from(client, session, settings):
+    auth = sign_in(session, settings)
+    capture_id = ingest(client)
+    client.post(f"/v1/evaluations/{capture_id}/save?offline=true", headers=auth)
+
+    state = client.get(f"/v1/evaluations/{capture_id}/save", headers=auth).json()
+
+    assert state["stale"] is False
+    assert state["saved_capture_id"] == capture_id
+
+
+def test_an_older_capture_of_a_saved_car_is_not_stale(client, session, settings):
+    """A panel left open on a previous run -- a second tab, a page open
+    overnight -- must not report itself stale against the newer snapshot, or the
+    overlay would refresh the row BACKWARDS onto figures already replaced."""
+    auth = sign_in(session, settings)
+    first = ingest(client)
+    second = ingest(client)
+    client.post(f"/v1/evaluations/{second}/save?offline=true", headers=auth)
+
+    state = client.get(f"/v1/evaluations/{first}/save", headers=auth).json()
+
+    assert state["saved"] is True
+    assert state["stale"] is False
+
+
+def test_saving_the_same_car_from_a_new_capture_updates_the_one_row(client, session, settings):
+    """The other half of the bug: this used to write a second row, so the same
+    car showed up twice on the website with different figures."""
+    auth = sign_in(session, settings)
+    first = ingest(client)
+    original = client.post(f"/v1/evaluations/{first}/save?offline=true", headers=auth).json()
+
+    # Something the user would see change between runs.
+    row = session.scalars(select(SavedEvaluation)).one()
+    row.evaluation = {**row.evaluation, "headline": "last week's figures"}
+    session.commit()
+
+    second = ingest(client)
+    refreshed = client.post(f"/v1/evaluations/{second}/save?offline=true", headers=auth)
+
+    assert refreshed.status_code == 200
+    body = refreshed.json()
+    assert body["id"] == original["id"]
+    assert body["capture_id"] == second
+    assert body["evaluation"]["headline"] != "last week's figures"
+    assert _instant(body["evaluated_at"]) > _instant(original["evaluated_at"])
+
+    items = client.get("/v1/users/me/saved", headers=auth).json()["items"]
+    assert len(items) == 1
+    assert items[0]["capture_id"] == second
+
+
+def test_a_refresh_keeps_the_date_the_car_was_first_saved(client, session, settings):
+    """When they took an interest in the car and when it was last checked are
+    two different facts, and the card states both."""
+    auth = sign_in(session, settings)
+    first = ingest(client)
+    original = client.post(f"/v1/evaluations/{first}/save?offline=true", headers=auth).json()
+
+    second = ingest(client)
+    refreshed = client.post(f"/v1/evaluations/{second}/save?offline=true", headers=auth).json()
+
+    assert _instant(refreshed["saved_at"]) == _instant(original["saved_at"])
+
+
+def test_unsaving_from_a_later_capture_removes_the_car(client, session, settings):
+    auth = sign_in(session, settings)
+    first = ingest(client)
+    client.post(f"/v1/evaluations/{first}/save?offline=true", headers=auth)
+    second = ingest(client)
+
+    assert client.delete(f"/v1/evaluations/{second}/save", headers=auth).status_code == 204
+    assert client.get("/v1/users/me/saved", headers=auth).json()["items"] == []
+
+
+def test_a_different_car_is_still_its_own_row(client, session, settings):
+    """The de-duplication is per vehicle. Two cars saved in a row are two
+    cards, which is the thing it must not break."""
+    auth = sign_in(session, settings)
+    camry = ingest(client)
+    accord = ingest(client, target=observation(source_listing_id="200000000000002"))
+
+    client.post(f"/v1/evaluations/{camry}/save?offline=true", headers=auth)
+    client.post(f"/v1/evaluations/{accord}/save?offline=true", headers=auth)
+
+    assert len(client.get("/v1/users/me/saved", headers=auth).json()["items"]) == 2
+    assert client.get(f"/v1/evaluations/{accord}/save", headers=auth).json()["stale"] is False
+
+
+def test_one_users_refresh_does_not_touch_anothers_save(client, session, settings):
+    alice = sign_in(session, settings, "alice@example.com")
+    bob = sign_in(session, settings, "bob@example.com")
+    first = ingest(client)
+    client.post(f"/v1/evaluations/{first}/save?offline=true", headers=alice)
+    client.post(f"/v1/evaluations/{first}/save?offline=true", headers=bob)
+
+    second = ingest(client)
+    client.post(f"/v1/evaluations/{second}/save?offline=true", headers=alice)
+
+    assert client.get(f"/v1/evaluations/{second}/save", headers=alice).json()["stale"] is False
+    assert client.get(f"/v1/evaluations/{second}/save", headers=bob).json()["stale"] is True
+    assert len(session.scalars(select(SavedEvaluation)).all()) == 2
+
+
 def test_saving_an_unknown_capture_is_404(client, session, settings):
     auth = sign_in(session, settings)
     assert client.post("/v1/evaluations/9999/save?offline=true", headers=auth).status_code == 404

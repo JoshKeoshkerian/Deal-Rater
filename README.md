@@ -30,7 +30,27 @@ curbside-app/  The website: landing, pricing, sign-in, saved evaluations, accoun
 curbside-site/ The old static landing page. Superseded — see its README.
 contract/      One example capture payload, checked from both sides.
 docs/          Schema and selector strategy, in more depth than this file.
+assets/brand/  The mark, and the script that renders every icon from it.
 ```
+
+### The icon
+
+`assets/brand/curbside-mark.svg` is the source. Everything else — the
+extension's toolbar icons, the site's favicon, apple-touch icon and link-preview
+card, and the old static page's copies of the same — is generated:
+
+```bash
+node assets/brand/render.mjs   # needs Chrome; CHROME_PATH overrides the default
+```
+
+Not wired into any build. These files change roughly never, and a Vercel deploy
+that needs a headless browser installed is a bad trade for regenerating four
+identical PNGs. Run it after editing the mark and commit what it writes.
+
+The two inline copies of the mark — `curbside-app/components/BrandMark.tsx` and
+the `<svg>` in `curbside-site/index.html` — are inline so the header paints with
+the page rather than after a second request. They are hand-kept in sync, and
+both say so.
 
 The website was two Vercel projects on two hostnames until they were merged
 into `curbside-app`; `curbside-site/` is kept only because it is what still
@@ -98,12 +118,21 @@ separately in `tests/overlay-contrast.test.ts` rather than by eye.
 **Everything is user-initiated** (spec §8.1). There are no alarms, no scheduled
 jobs, and no background crawling anywhere in the extension. The service worker
 acts only on a message from a content script, and a content script sends one
-only on a click. One click is one listing plus one search, with
-no pagination and no auto-scroll. The one `setInterval` in the extension is the
+only on a click. One click is one listing plus one search, plus the widening
+searches §4.3 asks for when that one is not enough — with no pagination and no
+auto-scroll. The one `setInterval` in the extension is the
 elapsed-seconds clock on the capture progress card: it runs only between the
 click and the result, reads nothing from the page, and is cleared either way.
 There is no "monitor this search" feature and
 adding one would undo the rationale for store distribution.
+
+The widening searches run **three at a time** (`comps/peer-walk.ts`), not one
+after another. This is a latency change and not a volume one: the stopping rule
+still runs before each batch, so the same click makes the same requests it
+always did, at most two more, and finishes in two or three round trips instead
+of eight. Three rather than the whole peer list on purpose — eight simultaneous
+searches on one account is the traffic shape of a crawler, and the request
+budget in `comps/widen.ts` is what §8.1 makes binding.
 
 **Permissions are narrow** (spec §8.1.2). `storage`, plus host permissions for
 Marketplace paths and your API host. No `<all_urls>`. No `tabs` — the

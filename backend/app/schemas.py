@@ -612,11 +612,24 @@ class SavedStateOut(BaseModel):
     payload is unauthenticated and shared: two users evaluating the same listing
     get the same response, and hanging a per-user fact on it would make it
     per-user and uncacheable.
+
+    `saved` is a statement about the VEHICLE, not this capture: a car saved from
+    last week's run reads as saved on today's, which is what the filled star in
+    the overlay now means. `stale` distinguishes the two cases underneath that.
     """
 
     capture_id: int
     saved: bool
     saved_at: datetime | None
+    #: The capture the stored snapshot was computed from. Equal to `capture_id`
+    #: unless this vehicle was saved from an earlier run.
+    saved_capture_id: int | None = None
+    #: When that snapshot was computed -- what a card states as "checked".
+    evaluated_at: datetime | None = None
+    #: Saved, but from an older capture than the one being asked about. The
+    #: overlay refreshes the stored snapshot when it sees this, so the website
+    #: shows the figures the user is looking at rather than last week's.
+    stale: bool = False
 
 
 class SavedEvaluationOut(BaseModel):

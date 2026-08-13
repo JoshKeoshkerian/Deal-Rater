@@ -161,6 +161,46 @@ describe("the save button", () => {
     expect(button.title).toBe("the server said no");
   });
 
+  it("brings an older saved copy up to this run's figures", async () => {
+    // The user ran the tool again on a car they saved last week. The star is
+    // filled either way; what this fixes is the website showing last week's
+    // numbers for a listing whose evaluation is on screen right now.
+    reply = (message) =>
+      message.type === "SAVED_STATE"
+        ? { ok: true, signedIn: true, saved: true, stale: true }
+        : { ok: true, signedIn: true, saved: true };
+    const { button } = buildBookmark(31);
+    await settle();
+
+    expect(sent).toEqual([
+      { type: "SAVED_STATE", captureId: 31 },
+      { type: "SAVE_EVALUATION", captureId: 31 },
+    ]);
+    expect(star(button)).toBe("★");
+  });
+
+  it("does not re-post a save for the capture it was saved from", async () => {
+    reply = () => ({ ok: true, signedIn: true, saved: true, stale: false });
+    buildBookmark(31);
+    await settle();
+
+    expect(sent).toEqual([{ type: "SAVED_STATE", captureId: 31 }]);
+  });
+
+  it("leaves the star filled when the refresh fails", async () => {
+    // The car IS still saved -- with last run's numbers. Emptying the star
+    // would be the one wrong answer available.
+    reply = (message) =>
+      message.type === "SAVED_STATE"
+        ? { ok: true, signedIn: true, saved: true, stale: true }
+        : { ok: false, error: "the server said no" };
+    const { button } = buildBookmark(1);
+    await settle();
+
+    expect(star(button)).toBe("★");
+    expect(button.title).toBe("the server said no");
+  });
+
   it("survives the messaging channel being gone", async () => {
     // What Chrome does after the extension is reloaded under a live page: a
     // synchronous throw, which a bare .then().catch() would never see.
@@ -228,6 +268,21 @@ describe("the strip under the header", () => {
     expect(strip.querySelector<HTMLAnchorElement>("a")!.href).toBe(SAVED_APP_URL);
   });
 
+  it("says so when it has refreshed an older saved copy", async () => {
+    reply = (message) =>
+      message.type === "SAVED_STATE"
+        ? { ok: true, signedIn: true, saved: true, stale: true }
+        : { ok: true, signedIn: true, saved: true };
+    const { strip } = buildBookmark(1);
+    await settle();
+
+    // Silently rewriting something the user saved is the kind of helpfulness
+    // that reads as a bug when it is discovered later, so it is disclosed in
+    // the one place the save state is already reported.
+    expect(strip.dataset["state"]).toBe("saved");
+    expect(strip.textContent).toContain("updated just now");
+  });
+
   it("stays put when a save fails", async () => {
     reply = (message) =>
       message.type === "SAVED_STATE"
@@ -273,6 +328,48 @@ describe("signing in, because the user clicked save", () => {
     expect(sent.at(-1)).toEqual({ type: "AUTH_REQUEST_CODE", email: "buyer@example.com" });
     expect(code!.hidden).toBe(false);
     expect(panel.textContent).toContain("buyer@example.com");
+  });
+
+  it("says where to look when the email does not arrive", async () => {
+    // Mail from a young sending domain lands in junk often enough that this is
+    // the most likely first-run failure the product has, and the user's only
+    // recovery is a folder nothing told them about.
+    const { button, panel } = buildBookmark(1);
+    await settle();
+    button.click();
+
+    const hint = panel.querySelector<HTMLElement>(".signin-hint")!;
+    expect(hint.hidden).toBe(true);
+
+    reply = () => ({ ok: true });
+    inputs(panel)[0]!.value = "buyer@example.com";
+    submit(panel);
+    await settle();
+
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toContain("spam or junk folder");
+  });
+
+  it("keeps the spam hint visible while a wrong code is being corrected", async () => {
+    // It is deliberately not part of the status line: that line is overwritten
+    // by "Checking…" and by every error, which is exactly when somebody is
+    // hunting for a code they cannot find.
+    const { button, panel } = buildBookmark(1);
+    await settle();
+    button.click();
+
+    reply = () => ({ ok: true });
+    const [email, code] = inputs(panel);
+    email!.value = "buyer@example.com";
+    submit(panel);
+    await settle();
+
+    reply = () => ({ ok: false, error: "That code is not right, or it has expired." });
+    code!.value = "WRONGCOD";
+    submit(panel);
+    await settle();
+
+    expect(panel.querySelector<HTMLElement>(".signin-hint")!.hidden).toBe(false);
   });
 
   it("saves the evaluation once the code verifies", async () => {
