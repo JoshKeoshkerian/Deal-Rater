@@ -82,14 +82,18 @@ const RULES = `
   }
 
   button.capture {
-    font: 650 14px/1 var(--font-sans);
-    padding: var(--sp-4) var(--sp-6);
+    font: 700 15px/1 var(--font-sans);
+    padding: var(--sp-5) var(--sp-7);
     border: 0;
     border-radius: var(--radius-pill);
     background: var(--accent);
     color: var(--accent-on);
     cursor: pointer;
-    box-shadow: var(--elev-2);
+    /* A second, accent-tinted layer on top of the standard elevation -- the
+       one saturated colour in the extension (see accent() below) gets a
+       shadow to match, so the button reads as the page's one call to action
+       instead of just another floating chip. */
+    box-shadow: var(--elev-2), 0 8px 20px -6px color-mix(in srgb, var(--accent) 55%, transparent);
     transition: transform var(--dur-fast) var(--ease-out),
                 filter var(--dur-fast) var(--ease-out);
   }
