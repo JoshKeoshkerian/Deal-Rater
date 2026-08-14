@@ -5,7 +5,7 @@
  * merging the two properties: before this there were two, and moving between
  * them looked like leaving the site.
  *
- * The section links point at `/#score` rather than `#score` so they work from
+ * The section links point at `/#how` etc. rather than `#how` so they work from
  * /pricing and /saved too — Next's router handles the same-page case without a
  * reload.
  */
@@ -33,11 +33,14 @@ export function SiteHeader() {
 
   const nav = (
     <>
-      <Link href="/#score" className="nav-link">
-        The score
+      <Link href="/#how" className="nav-link">
+        How it works
       </Link>
       <Link href="/#what" className="nav-link">
         What it checks
+      </Link>
+      <Link href="/#trust" className="nav-link">
+        Trust &amp; limits
       </Link>
       <Link href="/pricing" className="nav-link" aria-current={pathname === "/pricing" ? "page" : undefined}>
         Pricing

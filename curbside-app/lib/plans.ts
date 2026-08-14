@@ -56,7 +56,7 @@ export const PLANS: Plan[] = [
     priceCents: 1199,
     interval: null,
     evaluations: 20,
-    featured: true,
+    featured: false,
     points: [
       "20 evaluations, used whenever you like",
       "They do not expire",
@@ -71,7 +71,7 @@ export const PLANS: Plan[] = [
     priceCents: 1699,
     interval: "month",
     evaluations: null,
-    featured: false,
+    featured: true,
     points: [
       "Unlimited evaluations while it is active",
       "Saved evaluations included",

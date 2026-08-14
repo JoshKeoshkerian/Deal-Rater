@@ -11,9 +11,10 @@ import "./landing.css";
  *
  * A SERVER COMPONENT, and it should stay one. The page used to wrap nearly
  * every section in a scroll-fade client component; that has been cut down to
- * one deliberate animated moment (the score sticker in the "score" section),
- * which now owns its own small client boundary in `ScoreSticker.tsx`. Nothing
- * else here needs to run in the browser.
+ * `ScoreSticker.tsx`'s own small client boundary, which today renders once
+ * (statically) in the hero. It still supports an `animate` reveal-on-scroll
+ * mode from when the worked example ran through the page twice, but nothing
+ * currently passes that prop — see the note by the `score` section below.
  *
  * Two substantive changes from the static original, both consequences of the
  * merge rather than redesign:
@@ -53,14 +54,18 @@ const SHOTS = [
   },
 ];
 
-const CHECKS = [
+// The three dimensions that feed the weighted score (see COROLLA below) plus
+// Information, which the score uses but doesn't get its own card here — the
+// intro line in the "what" section points back at the hero/score breakdown
+// for it instead of implying a fourth card exists.
+const SCORED_CHECKS = [
   {
     label: "Price",
     title: "Is the ask fair?",
     body: "An expected range built from comparable listings nearby, adjusted for mileage and trim — and how far this one sits outside it.",
   },
   {
-    label: "Scam",
+    label: "Seller & Scam",
     title: "Does it smell wrong?",
     body: "Flags the patterns real scam listings share: far below market with no reason given, thin or templated descriptions, wire-only payment, won't meet in person.",
   },
@@ -69,6 +74,9 @@ const CHECKS = [
     title: "What's wrong with this car?",
     body: "Open safety recalls, complaint density for this model year, and title flags — salvage, rebuilt, branded — from free federal NHTSA data.",
   },
+];
+
+const EXTRA_CHECKS = [
   {
     label: "Leverage",
     title: "How much room do you have?",
@@ -102,11 +110,11 @@ const STEPS = [
 ];
 
 /**
- * The worked example run through the page twice: static in the hero (the
- * first thing a visitor sees, no scroll needed), and again — same car, same
- * numbers — animating in once the score section is explained in full. Reusing
- * one real example rather than inventing two keeps it honest and gives the
- * sticker motif a through-line instead of reading as a one-off graphic.
+ * The worked example, shown once now: static in the hero, the first thing a
+ * visitor sees. It used to run through the page a second time, animating in
+ * partway down the "score" section — that instance was a duplicate of this
+ * same card and has been removed; see `ScoreSticker.tsx` for the unused
+ * `animate` mode it left behind.
  */
 const COROLLA = {
   car: "2017 Corolla SE",
@@ -159,37 +167,109 @@ export default function LandingPage() {
             />
           </div>
         </div>
+      </header>
 
-        <div className="showcase">
-          <div className="wrap wrap--wide">
-            <div className="showcase__intro">
-              <h2>Three Corollas. Three very different answers.</h2>
-              <p>
-                Same car, same city, prices within $400 of each other &mdash; and the reason they
-                score differently is on the screen, not hidden inside a number.
-              </p>
-            </div>
+      <section className="sec" id="how">
+        <div className="wrap">
+          <div className="sechead">
+            <h2 className="sectitle">Three steps, then it&rsquo;s out of your way.</h2>
+          </div>
+          <ol className="steps">
+            {STEPS.map((step, index) => (
+              <li className="step" key={step.title}>
+                <span className="step__n" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <h3>{step.title}</h3>
+                  <p>{step.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
 
-            <div className="shots">
-              {SHOTS.map((shot) => (
-                <figure className="shot" key={shot.src}>
-                  <div className="shot__frame">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={shot.src} alt={shot.alt} width={660} height={1180} loading="lazy" />
+      <section className="sec" id="what">
+        <div className="wrap">
+          <div className="sechead">
+            <h2 className="sectitle">Six readings on every listing.</h2>
+            <p className="secbody">
+              Kept separate on purpose. A risky car can be fairly priced, and a clean car can be a
+              bad buy.
+            </p>
+            {/* FLAG FOR REVIEW: the source brief's suggested wording ("the first
+                four make up your score") doesn't match the six cards below —
+                only Price, Seller & Scam, and Vehicle map to score dimensions;
+                Information (the fourth weighted dimension, 10%) has no card of
+                its own here, it only appears in the score breakdown above.
+                Adjusted to "three" + a pointer to Information rather than
+                shipping an inaccurate count. */}
+            <p className="secbody">
+              Price, Seller &amp; Scam, and Vehicle roll straight into your score, alongside
+              Information (see the breakdown above). Leverage, Inspection, and Alternatives are
+              free reads pulled from the same comp data &mdash; no extra weight, just extra
+              context.
+            </p>
+          </div>
+          <div className="feats-groups">
+            <div className="feats-group">
+              <span className="lbl feats-group__label">Part of your score</span>
+              <div className="feats">
+                {SCORED_CHECKS.map((check) => (
+                  <div className="feat" key={check.label}>
+                    <span className="lbl">{check.label}</span>
+                    <h3>{check.title}</h3>
+                    <p>{check.body}</p>
                   </div>
-                  <figcaption>
-                    <p className="shot__verdict">
-                      <span className={`shot__num shot__num--${shot.tone}`}>{shot.score}</span>{" "}
-                      {shot.verdict}
-                    </p>
-                    <p>{shot.note}</p>
-                  </figcaption>
-                </figure>
-              ))}
+                ))}
+              </div>
+            </div>
+            <div className="feats-group">
+              <span className="lbl feats-group__label">Free extras, same comp data</span>
+              <div className="feats">
+                {EXTRA_CHECKS.map((check) => (
+                  <div className="feat" key={check.label}>
+                    <span className="lbl">{check.label}</span>
+                    <h3>{check.title}</h3>
+                    <p>{check.body}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
-      </header>
+      </section>
+
+      <div className="showcase">
+        <div className="wrap wrap--wide">
+          <div className="showcase__intro">
+            <h2>Three Corollas. Three very different answers.</h2>
+            <p>
+              Same car, same city, prices within $400 of each other &mdash; and the reason they
+              score differently is on the screen, not hidden inside a number.
+            </p>
+          </div>
+
+          <div className="shots">
+            {SHOTS.map((shot) => (
+              <figure className="shot" key={shot.src}>
+                <div className="shot__frame">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={shot.src} alt={shot.alt} width={660} height={1180} loading="lazy" />
+                </div>
+                <figcaption>
+                  <p className="shot__verdict">
+                    <span className={`shot__num shot__num--${shot.tone}`}>{shot.score}</span>{" "}
+                    {shot.verdict}
+                  </p>
+                  <p>{shot.note}</p>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <section className="sec" id="score">
         <div className="wrap">
@@ -222,18 +302,6 @@ export default function LandingPage() {
                 marks down the listings that left you guessing.
               </li>
             </ul>
-
-            <div className="mathgrid__art">
-              <ScoreSticker
-                car={COROLLA.car}
-                ask={COROLLA.ask}
-                total={COROLLA.total}
-                verdict={COROLLA.verdict}
-                weightedNote={COROLLA.weightedNote}
-                rows={COROLLA.rows}
-                animate
-              />
-            </div>
           </div>
         </div>
       </section>
@@ -272,45 +340,56 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="sec" id="what">
+      <section className="sec honest" id="trust">
         <div className="wrap">
           <div className="sechead">
-            <h2 className="sectitle">Six readings on every listing.</h2>
+            <h2 className="sectitle">What to know before you trust the number.</h2>
             <p className="secbody">
-              Kept separate on purpose. A risky car can be fairly priced, and a clean car can be a
-              bad buy.
+              No background scanning, no monitoring searches while you&rsquo;re away, no watching
+              where else you go.
             </p>
           </div>
-          <div className="feats">
-            {CHECKS.map((check) => (
-              <div className="feat" key={check.label}>
-                <span className="lbl">{check.label}</span>
-                <h3>{check.title}</h3>
-                <p>{check.body}</p>
-              </div>
-            ))}
+          <div className="notes">
+            <div className="notecard">
+              <h3>It&rsquo;s a beta signal, not a rating.</h3>
+              <p>
+                The weights and the discount curve are starting hypotheses. They haven&rsquo;t been
+                checked against a set of hand-evaluated listings yet, and until they are, treat the
+                number as a reason to look closer &mdash; not a verdict.
+              </p>
+            </div>
+            <div className="notecard notecard--teal">
+              <h3>These are asking prices, not sale prices.</h3>
+              <p>
+                Marketplace never shows what a car actually sold for. Every figure here describes
+                how comparable vehicles are advertised. That&rsquo;s a weaker claim than a
+                valuation, and you should know it going in.
+              </p>
+            </div>
           </div>
-        </div>
-      </section>
-
-      <section className="sec">
-        <div className="wrap">
-          <div className="sechead">
-            <h2 className="sectitle">Three steps, then it&rsquo;s out of your way.</h2>
+          <div className="privacy">
+            <div className="pcell">
+              <h3>You start every check</h3>
+              <p>
+                Curbside reads a listing only after you click Evaluate on a page you already opened.
+                It never crawls Marketplace on its own.
+              </p>
+            </div>
+            <div className="pcell">
+              <h3>Sellers stay anonymous</h3>
+              <p>
+                No names, no profile links, no photos, no join dates. A scrambled ID and a count of
+                active listings &mdash; that&rsquo;s all that leaves your browser.
+              </p>
+            </div>
+            <div className="pcell">
+              <h3>Marketplace only</h3>
+              <p>
+                Permissions are scoped to Marketplace vehicle pages. Every other tab you have open
+                is none of its business.
+              </p>
+            </div>
           </div>
-          <ol className="steps">
-            {STEPS.map((step, index) => (
-              <li className="step" key={step.title}>
-                <span className="step__n" aria-hidden="true">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <div>
-                  <h3>{step.title}</h3>
-                  <p>{step.body}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
         </div>
       </section>
 
@@ -356,69 +435,6 @@ export default function LandingPage() {
             <Link className="btn" href="/pricing">
               See what&rsquo;s in each plan
             </Link>
-          </div>
-        </div>
-      </section>
-
-      <section className="sec honest">
-        <div className="wrap">
-          <div className="sechead">
-            <h2 className="sectitle">
-              Two limits, stated up front instead of buried in a terms page.
-            </h2>
-          </div>
-          <div className="notes">
-            <div className="notecard">
-              <h3>It&rsquo;s a beta signal, not a rating.</h3>
-              <p>
-                The weights and the discount curve are starting hypotheses. They haven&rsquo;t been
-                checked against a set of hand-evaluated listings yet, and until they are, treat the
-                number as a reason to look closer &mdash; not a verdict.
-              </p>
-            </div>
-            <div className="notecard notecard--teal">
-              <h3>These are asking prices, not sale prices.</h3>
-              <p>
-                Marketplace never shows what a car actually sold for. Every figure here describes
-                how comparable vehicles are advertised. That&rsquo;s a weaker claim than a
-                valuation, and you should know it going in.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="sec" id="privacy">
-        <div className="wrap">
-          <div className="sechead">
-            <h2 className="sectitle">It runs when you click it. That&rsquo;s the whole rule.</h2>
-            <p className="secbody">
-              No background scanning, no monitoring searches while you&rsquo;re away, no watching
-              where else you go.
-            </p>
-          </div>
-          <div className="privacy">
-            <div className="pcell">
-              <h3>You start every check</h3>
-              <p>
-                Curbside reads a listing only after you click Evaluate on a page you already opened.
-                It never crawls Marketplace on its own.
-              </p>
-            </div>
-            <div className="pcell">
-              <h3>Sellers stay anonymous</h3>
-              <p>
-                No names, no profile links, no photos, no join dates. A scrambled ID and a count of
-                active listings &mdash; that&rsquo;s all that leaves your browser.
-              </p>
-            </div>
-            <div className="pcell">
-              <h3>Marketplace only</h3>
-              <p>
-                Permissions are scoped to Marketplace vehicle pages. Every other tab you have open
-                is none of its business.
-              </p>
-            </div>
           </div>
         </div>
       </section>

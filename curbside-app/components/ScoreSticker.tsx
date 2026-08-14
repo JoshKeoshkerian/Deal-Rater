@@ -5,11 +5,12 @@
  * the site's own palette rather than literal paper, carrying the four scored
  * dimensions as itemized line items instead of a generic bar chart.
  *
- * Used twice with the same worked example (2017 Corolla SE, see `page.tsx`):
- * static in the hero, and here with `animate` set in the score-breakdown
- * section, which is deliberately the only thing on the page that moves on
- * scroll. `animate={false}` renders fully "armed" from the first paint —
- * there is no unarmed state to flash before hydration.
+ * Renders once today, static in the hero (2017 Corolla SE, see `page.tsx`).
+ * `animate={false}` (the default) renders fully "armed" from the first paint —
+ * there is no unarmed state to flash before hydration. The `animate` mode
+ * below is unused now that the second, scroll-triggered copy of this card in
+ * the "score" section has been removed as a duplicate; it's left in place in
+ * case a reveal-on-scroll moment is wanted elsewhere later.
  */
 
 import { useEffect, useRef, useState } from "react";

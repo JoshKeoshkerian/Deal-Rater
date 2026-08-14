@@ -243,18 +243,20 @@
   font-weight: 600;
 }
 
-.mathgrid {
-  display: grid;
-  grid-template-columns: 1.15fr 1fr;
-  gap: 56px;
-  align-items: center;
-  margin-top: 52px;
+/* This section used to be a two-column grid: text on the left, the (now
+   removed, see ScoreSticker note below) duplicate scorecard on the right.
+   With nothing left to fill that second column, the section is centered as
+   a single column instead of left-pinned with dead space beside it — the
+   same "centered intro" treatment `.showcase__intro` uses. Scoped to #score
+   only; every other section's `.sechead` stays left-aligned. */
+#score .sechead {
+  max-width: 44em;
+  margin: 0 auto;
+  text-align: center;
 }
-@media (max-width: 900px) {
-  .mathgrid {
-    grid-template-columns: 1fr;
-    gap: 36px;
-  }
+.mathgrid {
+  max-width: 620px;
+  margin: 52px auto 0;
 }
 .mathpoints {
   padding-left: 20px;
@@ -273,20 +275,13 @@
   color: var(--ink);
   font-weight: 600;
 }
-.mathgrid__art {
-  display: flex;
-  justify-content: center;
-}
-.mathgrid__art .sticker {
-  transform: rotate(-2deg);
-}
 
 /* ---------- the sticker: the one signature element on the page ----------
    A windshield price sticker rendered in the site's own palette rather than
    literal paper — taped corners, mono numerals, a barcode strip along the
-   bottom. It appears twice (hero, score section) with the same worked
-   example, and only the score-section instance animates: see
-   `ScoreSticker.tsx` for the armed/unarmed state that drives it. */
+   bottom. Appears once, statically, in the hero: see `ScoreSticker.tsx` for
+   the armed/unarmed state, currently unused since the second, scroll-animated
+   copy of this card (in the "score" section) was removed as a duplicate. */
 .sticker {
   position: relative;
   width: min(320px, 100%);
@@ -476,6 +471,19 @@
   color: rgba(234, 241, 248, 0.6);
 }
 
+/* Two groups — scored dimensions, then free extras — each its own .feats
+   grid so the "part of your score" split from the intro text has a visual
+   home too, without breaking the seamless grid-line look within a group. */
+.feats-groups {
+  margin-top: 50px;
+}
+.feats-group + .feats-group {
+  margin-top: 40px;
+}
+.feats-group__label {
+  display: block;
+  margin: 0 0 14px;
+}
 .feats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -484,7 +492,6 @@
   border: 1px solid var(--line-soft);
   border-radius: 10px;
   overflow: hidden;
-  margin-top: 50px;
 }
 @media (max-width: 900px) {
   .feats {
