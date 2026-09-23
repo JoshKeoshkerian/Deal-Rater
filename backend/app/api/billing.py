@@ -292,7 +292,13 @@ async def stripe_webhook(request: Request, session: Session = Depends(get_sessio
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Invalid signature.") from exc
 
     event_type = event["type"]
-    data = event["data"]["object"]
+    # `.to_dict()`, not bare `["object"]` -- Stripe's SDK returns a
+    # `StripeObject`, not a plain dict, and every handler below relies on
+    # dict's `.get()`, which `StripeObject` does not implement (`[]` indexing
+    # works on it, `.get()` raises `AttributeError` instead of using its
+    # default). Converting once here, recursively, is simpler than rewriting
+    # every `.get()` call as `[...]` with no default.
+    data = event["data"]["object"].to_dict()
 
     subscription_events = (
         "customer.subscription.created",
