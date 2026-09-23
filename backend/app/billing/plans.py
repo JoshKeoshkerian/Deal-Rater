@@ -48,7 +48,7 @@ PLANS: dict[PlanId, Plan] = {
         price_cents=799,
         mode="payment",
         evaluations=10,
-        stripe_price_id=None,
+        stripe_price_id="price_1UIgubQecxBqsGW5Oli7tgK9",
     ),
     "pack-20": Plan(
         id="pack-20",
@@ -56,7 +56,7 @@ PLANS: dict[PlanId, Plan] = {
         price_cents=1199,
         mode="payment",
         evaluations=20,
-        stripe_price_id=None,
+        stripe_price_id="price_1UIgucQecxBqsGW5plG15kir",
     ),
     "unlimited-monthly": Plan(
         id="unlimited-monthly",
@@ -64,7 +64,7 @@ PLANS: dict[PlanId, Plan] = {
         price_cents=1699,
         mode="subscription",
         evaluations=None,
-        stripe_price_id=None,
+        stripe_price_id="price_1UIgucQecxBqsGW54RAx5kTM",
     ),
 }
 
