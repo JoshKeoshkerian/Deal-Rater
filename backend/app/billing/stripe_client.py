@@ -53,6 +53,12 @@ def create_checkout_session(
         cancel_url=cancel_url,
         client_reference_id=str(user_id),
         metadata=metadata,
+        # Stripe's Managed Payments (on by default for new accounts) requires
+        # a tax code on every Product it prices, which this app has no use
+        # for -- checks aren't a taxable physical good and we're not using
+        # Stripe Tax. Opting out here is what Stripe's own error message
+        # recommends for exactly this case.
+        managed_payments={"enabled": False},
     )
     if mode == "subscription":
         # Carried on the Subscription object too, not just the Checkout
