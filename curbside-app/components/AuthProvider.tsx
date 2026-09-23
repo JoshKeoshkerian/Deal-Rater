@@ -33,6 +33,12 @@ interface AuthValue {
   status: AuthStatus;
   /** Non-null only when `status === "error"` — the API was unreachable. */
   error: string | null;
+  /**
+   * Non-null when the last `signOut()` could not confirm the server actually
+   * revoked the session (network/timeout — see `signOut` below). Cleared by
+   * the next sign-out attempt.
+   */
+  signOutError: string | null;
   /** Re-ask the server. Called after a successful sign-in. */
   refresh: () => Promise<void>;
   /** Revoke the session, then drop local state whether or not that succeeded. */
@@ -47,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>("unknown");
   const [error, setError] = useState<string | null>(null);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -80,7 +87,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const signOut = useCallback(async () => {
-    await apiSignOut().catch(() => undefined);
+    // Local state is dropped whether or not the server call succeeds — staying
+    // signed-in-looking on a session the server may have already rejected is
+    // worse than being wrong the other way. But "worse" isn't "silent": if the
+    // server call itself failed (as opposed to succeeding), that's surfaced so
+    // the UI can say so instead of claiming an unqualified success.
+    try {
+      await apiSignOut();
+      setSignOutError(null);
+    } catch (caught) {
+      setSignOutError(
+        caught instanceof Error
+          ? `Signed out here, but couldn't confirm the server closed the session: ${caught.message}`
+          : "Signed out here, but couldn't confirm the server closed the session.",
+      );
+    }
     setUserState(null);
     setStatus("signed-out");
     setError(null);
@@ -93,8 +114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthValue>(
-    () => ({ user, status, error, refresh, signOut, setUser }),
-    [user, status, error, refresh, signOut, setUser],
+    () => ({ user, status, error, signOutError, refresh, signOut, setUser }),
+    [user, status, error, signOutError, refresh, signOut, setUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

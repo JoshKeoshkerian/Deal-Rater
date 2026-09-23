@@ -52,6 +52,12 @@ class StoredCapture:
     #: rating widget yet, or no seller was identified at all.
     target_seller_rating_average: float | None = None
     target_seller_rating_count: int | None = None
+    #: Who paid for this check. `None` for a capture taken before sign-in was
+    #: required -- readable by anyone, same as before billing existed (and the
+    #: default for every `StoredCapture` built by hand in a test, which predate
+    #: ownership existing at all). Used by `app/api/evaluations.py`'s
+    #: ownership check.
+    user_id: int | None = None
 
 
 #: Tesla's Marketplace listings carry `model="Model"` for every one of the 3, S,
@@ -162,6 +168,7 @@ def load_captures(session: Session, capture_ids: list[int] | None = None) -> lis
                 capture_id=capture.id,
                 client_capture_id=capture.client_capture_id,
                 captured_at=capture.captured_at,
+                user_id=capture.user_id,
                 target=_to_candidate(target_row[0], target_row[1]),
                 target_observation_id=target_row[0].id,
                 target_posted_at=target_row[0].posted_at,

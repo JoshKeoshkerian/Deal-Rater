@@ -80,6 +80,7 @@ import {
 
 const HOST_ID = "deal-rater-overlay";
 const TRIGGER_ID = "deal-rater-trigger";
+const SUPPORT_EMAIL = "support@curbsidescore.com";
 
 /** Everything in the sheet a Tab can land on. */
 const FOCUSABLE = 'button, a[href], summary, input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -111,6 +112,13 @@ function buildNotices(data: EvaluationResponse): HTMLElement {
   for (const notice of data.notices) {
     if (!known.test(notice)) node.append(el("p", undefined, notice));
   }
+
+  const support = el("p");
+  const supportLink = el("a", undefined, SUPPORT_EMAIL) as HTMLAnchorElement;
+  supportLink.href = `mailto:${SUPPORT_EMAIL}`;
+  support.append("Questions or something look wrong? ", supportLink);
+  node.append(support);
+
   return node;
 }
 

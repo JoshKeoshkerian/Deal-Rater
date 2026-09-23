@@ -662,3 +662,47 @@ class SavedEvaluationOut(BaseModel):
 
 class SavedListOut(BaseModel):
     items: list[SavedEvaluationOut]
+
+
+class PurchaseOut(BaseModel):
+    """One line of billing history. See `CreditLedger`."""
+
+    id: int
+    at: datetime
+    description: str
+    amount_cents: int
+
+
+class BillingMeOut(BaseModel):
+    """What `/account` renders. Shaped to mirror `curbside-app/lib/billing.ts`'s
+    `BillingState` directly -- this response IS that type now, not a fixture.
+    """
+
+    #: `billing.PlanId`, or null on the free allowance (nobody has bought
+    #: anything yet). `str` rather than the `Plan` model's `PlanId` literal:
+    #: an old client should not 500 on a plan id it doesn't recognise.
+    plan: str | None
+    #: Null when the active plan is uncapped (an active subscription).
+    evaluations_remaining: int | None
+    #: How much of `evaluations_remaining` is still the free grant. Zero once
+    #: anything has ever been purchased -- once a pack has been bought, "how
+    #: many of these came free" stops being a meaningful distinction, since
+    #: the two pools are fungible from that point on.
+    free_evaluations_remaining: int
+    renews_at: datetime | None
+    ends_at: datetime | None
+    purchases: list[PurchaseOut]
+
+
+class CheckoutIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_id: str
+
+
+class CheckoutOut(BaseModel):
+    url: str
+
+
+class PortalOut(BaseModel):
+    url: str

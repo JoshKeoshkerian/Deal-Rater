@@ -1,46 +1,51 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
+import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { ScoreSticker } from "@/components/ScoreSticker";
+import { ShowcaseShots } from "@/components/ShowcaseShots";
 import { PLANS, FREE_EVALUATIONS, formatPrice } from "@/lib/plans";
 import { CHROME_STORE_URL } from "@/lib/links";
 
 import "./landing.css";
 
 /**
- * The landing page, ported from `curbside-site/index.html`.
+ * The landing page, ported from `curbside-site/index.html`, then revised for
+ * accuracy against the actual backend/extension behaviour (see the per-claim
+ * comments below) and restructured so the differentiator and a worked example
+ * sit near the hero instead of two-thirds down the page.
  *
- * A SERVER COMPONENT, and it should stay one. The page used to wrap nearly
- * every section in a scroll-fade client component; that has been cut down to
- * `ScoreSticker.tsx`'s own small client boundary, which today renders once
- * (statically) in the hero. It still supports an `animate` reveal-on-scroll
- * mode from when the worked example ran through the page twice, but nothing
- * currently passes that prop — see the note by the `score` section below.
- *
- * Two substantive changes from the static original, both consequences of the
- * merge rather than redesign:
- *
- *   1. THE "FREE" CLAIM IS NOW QUALIFIED. The old copy said "Add to Chrome —
- *      free" in three places, which stops being true the moment evaluations are
- *      metered. Every CTA now names the free allowance instead, and there is a
- *      pricing section that links to the full table.
- *   2. The three screenshots were inline base64 (a 240KB HTML file). They are
- *      real files in /public/shots now, so they can be cached and lazily loaded.
+ * A SERVER COMPONENT, and it should stay one. `ScoreSticker` and
+ * `ShowcaseShots` are the only client boundaries.
  */
+
+export const metadata: Metadata = {
+  title: "Curbside — Is it the right car?",
+  description:
+    "Check a Facebook Marketplace car listing against comparable private-party listings, spot warning signs, and prepare better questions and an opening offer.",
+  openGraph: {
+    title: "Curbside — Is it the right car?",
+    description:
+      "Check a Facebook Marketplace car listing against comparable private-party listings, spot warning signs, and prepare better questions and an opening offer.",
+    url: "https://curbsidescore.com",
+  },
+  alternates: {
+    canonical: "/",
+  },
+};
 
 const SHOTS = [
   {
     src: "/shots/score-88-buy-this-one.webp",
     alt: "Curbside panel scoring a listing 88 out of 100, headed 'Strong deal'.",
     score: 88,
-    tone: "good" as const,
-    verdict: "Buy this one.",
+    verdict: "Worth a closer look.",
     note: "Clean title, asking below the comparable range, and nothing dragging it down. Sixteen days listed, so there's still moderate room to negotiate.",
   },
   {
     src: "/shots/score-75-cheap-for-a-reason.webp",
     alt: "Curbside panel scoring a rebuilt-title listing 75 out of 100, with vehicle risk at 25.",
     score: 75,
-    tone: "mid" as const,
     verdict: "Cheap for a reason.",
     note: "The title is rebuilt, which drops vehicle risk to 25/100 — but the price is low enough to carry it. Listed 76 days, so the leverage is strong if you still want it.",
   },
@@ -48,7 +53,6 @@ const SHOTS = [
     src: "/shots/score-63-keep-looking.webp",
     alt: "Curbside panel scoring an older rebuilt-title listing 63 out of 100, with better-priced alternatives listed.",
     score: 63,
-    tone: "low" as const,
     verdict: "Keep looking.",
     note: "Same rebuilt title, two years older, and asking more. Four comparable listings in the same search are better priced for what they are.",
   },
@@ -72,7 +76,12 @@ const SCORED_CHECKS = [
   {
     label: "Vehicle",
     title: "What's wrong with this car?",
-    body: "Open safety recalls, complaint density for this model year, and title flags — salvage, rebuilt, branded — from free federal NHTSA data.",
+    // Corrected against `backend/app/nhtsa/assessment.py`: NHTSA's free API
+    // returns recall CAMPAIGNS for a year/make/model, not confirmation that
+    // this VIN's recalls were fixed, and complaint counts are raw (never
+    // normalized — "density" overstated that). Title status comes from what
+    // the listing says, not from NHTSA.
+    body: "Recall campaigns issued for this model, owner complaint counts, and title flags — salvage, rebuilt, branded — from what the listing states, cross-checked against free federal NHTSA recall and complaint data.",
   },
 ];
 
@@ -97,7 +106,7 @@ const EXTRA_CHECKS = [
 const STEPS = [
   {
     title: "Add it to Chrome",
-    body: "One install. Curbside can only reach Marketplace vehicle pages — nothing else you browse.",
+    body: "One install, on desktop Chrome. Curbside only acts on a Marketplace vehicle listing you open and click Evaluate on.",
   },
   {
     title: "Open a car you're considering",
@@ -110,11 +119,10 @@ const STEPS = [
 ];
 
 /**
- * The worked example, shown once now: static in the hero, the first thing a
- * visitor sees. It used to run through the page a second time, animating in
- * partway down the "score" section — that instance was a duplicate of this
- * same card and has been removed; see `ScoreSticker.tsx` for the unused
- * `animate` mode it left behind.
+ * The worked example, static in the hero — the first thing a visitor sees.
+ * `keyWarning`/`nextQuestion` are both derived directly from `rows` (Vehicle
+ * is the lowest reading here), not invented detail about this fictional car —
+ * see the note on `ScoreSticker` about not fabricating a comp range.
  */
 const COROLLA = {
   car: "2017 Corolla SE",
@@ -128,11 +136,13 @@ const COROLLA = {
     { label: "Seller", value: 75 },
     { label: "Info", value: 87 },
   ],
+  keyWarning: "Lowest reading: Vehicle at 25/100 — the biggest drag on this score.",
+  nextQuestion: "What's behind the Vehicle reading, before anything else.",
 };
 
 export default function LandingPage() {
   return (
-    <>
+    <main id="main">
       <header className="hero" id="top">
         <div className="wrap hero__inner">
           <div className="herocopy">
@@ -141,33 +151,78 @@ export default function LandingPage() {
               <em>Find out in one click.</em>
             </h1>
             <p className="lede">
-              Curbside checks any Facebook Marketplace car listing and tells you whether the price
-              is fair, whether it looks like a scam, how much room you have to negotiate, and what
-              to ask the seller.
+              Check a Facebook Marketplace car against comparable private-party listings, spot
+              warning signs, and prepare better questions and an opening offer.
             </p>
             <div className="herocta">
-              <a className="btn btn--big" href={CHROME_STORE_URL} target="_blank" rel="noopener">
-                Add to Chrome &mdash; {FREE_EVALUATIONS} free checks
-              </a>
+              <div className="herocta__row">
+                <a className="btn btn--big" href={CHROME_STORE_URL} target="_blank" rel="noopener">
+                  Add to Chrome &mdash; {FREE_EVALUATIONS}&nbsp;free&nbsp;checks
+                </a>
+                <a className="btn btn--ghost btn--big" href="#examples">
+                  See an example ↓
+                </a>
+              </div>
               <p className="meta">
-                Chrome extension. No card to start. Runs only when you click it. Marketplace
-                vehicle pages only.
+                Desktop Chrome extension. No card to start. Runs only when you click Evaluate.
+              </p>
+              <p className="meta meta--desktop">
+                Not at your computer? <CopyLinkButton /> and open it later on desktop Chrome.
               </p>
             </div>
           </div>
 
           <div className="hero__art">
-            <ScoreSticker
-              car={COROLLA.car}
-              ask={COROLLA.ask}
-              total={COROLLA.total}
-              verdict={COROLLA.verdict}
-              weightedNote={COROLLA.weightedNote}
-              rows={COROLLA.rows}
-            />
+            <div className="hero__art-inner">
+              <p className="hero__art-label">Illustrative example, not a live listing.</p>
+              <ScoreSticker
+                car={COROLLA.car}
+                ask={COROLLA.ask}
+                total={COROLLA.total}
+                verdict={COROLLA.verdict}
+                weightedNote={COROLLA.weightedNote}
+                rows={COROLLA.rows}
+                keyWarning={COROLLA.keyWarning}
+                nextQuestion={COROLLA.nextQuestion}
+              />
+            </div>
           </div>
         </div>
       </header>
+
+      <section className="sec" id="why">
+        <div className="wrap">
+          <div className="sechead">
+            <h2 className="sectitle">
+              Marketplace gives you a price and nothing to judge it against.
+            </h2>
+            <p className="secbody">
+              A lot of price tools compare a private-party car to <b>dealer listings</b> &mdash;
+              cars carrying reconditioning markup, warranty, and lot overhead. Against that
+              baseline almost anything on Marketplace looks like a deal. Curbside compares it to{" "}
+              <b>other private sellers, right now, near you,</b> instead.
+            </p>
+          </div>
+          <div className="compare">
+            <div className="col col--wrong">
+              <p className="coltag lbl">Dealer benchmark</p>
+              <p className="colline">&ldquo;$4,100 below market.&rdquo;</p>
+              <p className="colnote">
+                Measured against cars that were detailed, warrantied, and sold off a lot. That gap
+                is the dealer&rsquo;s overhead, not your discount.
+              </p>
+            </div>
+            <div className="col col--right">
+              <p className="coltag lbl">Curbside benchmark</p>
+              <p className="colline">&ldquo;Below what private sellers ask.&rdquo;</p>
+              <p className="colnote">
+                Measured against comparable listings from people just like the one you&rsquo;re
+                about to message. Adjusted for mileage and trim.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="sec" id="how">
         <div className="wrap">
@@ -198,18 +253,11 @@ export default function LandingPage() {
               Kept separate on purpose. A risky car can be fairly priced, and a clean car can be a
               bad buy.
             </p>
-            {/* FLAG FOR REVIEW: the source brief's suggested wording ("the first
-                four make up your score") doesn't match the six cards below —
-                only Price, Seller & Scam, and Vehicle map to score dimensions;
-                Information (the fourth weighted dimension, 10%) has no card of
-                its own here, it only appears in the score breakdown above.
-                Adjusted to "three" + a pointer to Information rather than
-                shipping an inaccurate count. */}
             <p className="secbody">
               Price, Seller &amp; Scam, and Vehicle roll straight into your score, alongside
-              Information (see the breakdown above). Leverage, Inspection, and Alternatives are
-              free reads pulled from the same comp data &mdash; no extra weight, just extra
-              context.
+              Information (see the breakdown below). Leverage and Alternatives are free reads
+              built from the same comparable-listings search; Inspection draws on known issues
+              for the model instead &mdash; none of the three carry extra weight.
             </p>
           </div>
           <div className="feats-groups">
@@ -226,7 +274,7 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="feats-group">
-              <span className="lbl feats-group__label">Free extras, same comp data</span>
+              <span className="lbl feats-group__label">Free extras</span>
               <div className="feats">
                 {EXTRA_CHECKS.map((check) => (
                   <div className="feat" key={check.label}>
@@ -238,12 +286,39 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
+
+          <details className="disclosure">
+            <summary>How the score is weighted</summary>
+            <div className="mathgrid">
+              <ul className="mathpoints">
+                <li>
+                  <b>Price residual carries half the score</b> &mdash; how far the ask sits from
+                  what comparable private-party listings suggest, adjusted for mileage and trim.
+                </li>
+                <li>
+                  <b>Vehicle risk gets its own line, and its own weight in the total.</b> It&rsquo;s
+                  never hidden inside the number &mdash; a rebuilt-title car priced low for exactly
+                  that reason still shows up two ways: a fair price, and a risk warning that
+                  isn&rsquo;t averaged away.
+                </li>
+                <li>
+                  <b>Seller and scam risk stands on its own,</b> so a warning arrives as a warning
+                  &mdash; not as a few points quietly shaved off a total you&rsquo;d never notice.
+                </li>
+                <li>
+                  <b>Information completeness</b> rewards sellers who actually told you something,
+                  and marks down the listings that left you guessing.
+                </li>
+              </ul>
+            </div>
+          </details>
         </div>
       </section>
 
-      <div className="showcase">
+      <div className="showcase" id="examples">
         <div className="wrap wrap--wide">
           <div className="showcase__intro">
+            <p className="lbl">Illustrative examples &middot; beta scoring</p>
             <h2>Three Corollas. Three very different answers.</h2>
             <p>
               Same car, same city, prices within $400 of each other &mdash; and the reason they
@@ -251,94 +326,9 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="shots">
-            {SHOTS.map((shot) => (
-              <figure className="shot" key={shot.src}>
-                <div className="shot__frame">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={shot.src} alt={shot.alt} width={660} height={1180} loading="lazy" />
-                </div>
-                <figcaption>
-                  <p className="shot__verdict">
-                    <span className={`shot__num shot__num--${shot.tone}`}>{shot.score}</span>{" "}
-                    {shot.verdict}
-                  </p>
-                  <p>{shot.note}</p>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
+          <ShowcaseShots shots={SHOTS} />
         </div>
       </div>
-
-      <section className="sec" id="score">
-        <div className="wrap">
-          <div className="sechead">
-            <h2 className="sectitle">Other deal scores hide their math. This one shows it.</h2>
-            <p className="secbody">
-              Four readings, each weighted, each visible. You can see exactly which one pulled the
-              number down and by how much &mdash; and if you disagree with a weight, you can see
-              that too. <b>A number you can&rsquo;t check is a number you shouldn&rsquo;t trust.</b>
-            </p>
-          </div>
-
-          <div className="mathgrid">
-            <ul className="mathpoints">
-              <li>
-                <b>Price residual carries half the score</b> &mdash; how far the ask sits from what
-                comparable private-party listings suggest, adjusted for mileage and trim.
-              </li>
-              <li>
-                <b>Vehicle risk is scored separately, never folded in.</b> A rebuilt-title car
-                priced low for exactly that reason is a risky car that&rsquo;s fairly priced. One
-                number can&rsquo;t say both things at once.
-              </li>
-              <li>
-                <b>Seller and scam risk stands on its own,</b> so a warning arrives as a warning
-                &mdash; not as a few points quietly shaved off a total you&rsquo;d never notice.
-              </li>
-              <li>
-                <b>Information completeness</b> rewards sellers who actually told you something, and
-                marks down the listings that left you guessing.
-              </li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section className="sec">
-        <div className="wrap">
-          <div className="sechead">
-            <h2 className="sectitle">
-              Marketplace gives you a price and nothing to judge it against.
-            </h2>
-            <p className="secbody">
-              Most price checkers compare a private-party car to <b>dealer listings</b> &mdash; cars
-              carrying reconditioning markup, warranty, and lot overhead. Against that baseline
-              nearly every Marketplace car looks like a steal. Curbside compares it to the only fair
-              benchmark: <b>other private sellers, right now, near you.</b>
-            </p>
-          </div>
-          <div className="compare">
-            <div className="col col--wrong">
-              <p className="coltag lbl">Dealer benchmark</p>
-              <p className="colline">&ldquo;$4,100 below market.&rdquo;</p>
-              <p className="colnote">
-                Measured against cars that were detailed, warrantied, and sold off a lot. That gap
-                is the dealer&rsquo;s overhead, not your discount.
-              </p>
-            </div>
-            <div className="col col--right">
-              <p className="coltag lbl">Curbside benchmark</p>
-              <p className="colline">&ldquo;Below what private sellers ask.&rdquo;</p>
-              <p className="colnote">
-                Measured against comparable listings from people just like the one you&rsquo;re
-                about to message. Adjusted for mileage and trim.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section className="sec honest" id="trust">
         <div className="wrap">
@@ -350,14 +340,6 @@ export default function LandingPage() {
             </p>
           </div>
           <div className="notes">
-            <div className="notecard">
-              <h3>It&rsquo;s a beta signal, not a rating.</h3>
-              <p>
-                The weights and the discount curve are starting hypotheses. They haven&rsquo;t been
-                checked against a set of hand-evaluated listings yet, and until they are, treat the
-                number as a reason to look closer &mdash; not a verdict.
-              </p>
-            </div>
             <div className="notecard notecard--teal">
               <h3>These are asking prices, not sale prices.</h3>
               <p>
@@ -371,22 +353,24 @@ export default function LandingPage() {
             <div className="pcell">
               <h3>You start every check</h3>
               <p>
-                Curbside reads a listing only after you click Evaluate on a page you already opened.
-                It never crawls Marketplace on its own.
+                Curbside reads a listing only after you click Evaluate on a page you already
+                opened. It never crawls Marketplace on its own.
               </p>
             </div>
             <div className="pcell">
-              <h3>Sellers stay anonymous</h3>
+              <h3>Seller data, minimized</h3>
               <p>
-                No names, no profile links, no photos, no join dates. A scrambled ID and a count of
-                active listings &mdash; that&rsquo;s all that leaves your browser.
+                No names, no profile links, no photos, no join dates. A scrambled ID, a count of
+                active listings, and the star rating Marketplace already shows on the listing
+                &mdash; that&rsquo;s what leaves your browser.
               </p>
             </div>
             <div className="pcell">
-              <h3>Marketplace only</h3>
+              <h3>Scoped to Marketplace</h3>
               <p>
-                Permissions are scoped to Marketplace vehicle pages. Every other tab you have open
-                is none of its business.
+                The extension can read Marketplace pages, but it only acts &mdash; and only sends
+                anything &mdash; when you click Evaluate on a vehicle listing you&rsquo;re viewing.
+                Every other tab you have open is none of its business.
               </p>
             </div>
           </div>
@@ -447,17 +431,19 @@ export default function LandingPage() {
           </p>
           <div className="finalcta">
             <a className="btn btn--big" href={CHROME_STORE_URL} target="_blank" rel="noopener">
-              Add Curbside to Chrome &mdash; {FREE_EVALUATIONS} free checks
+              Add Curbside to Chrome &mdash; {FREE_EVALUATIONS}&nbsp;free&nbsp;checks
             </a>
+            <p className="meta final-meta">Desktop Chrome extension.</p>
           </div>
           <p className="disclaimer">
-            Curbside is an informational tool for evaluating listings. It is not a purchase
-            recommendation, an appraisal, or a substitute for a pre-purchase inspection and a
-            vehicle history report. Curbside is not affiliated with, endorsed by, or connected to
-            Meta Platforms, Inc.
+            Beta signal, not a rating: the weights are starting hypotheses that have not been
+            checked against hand-evaluated listings yet. Curbside is an informational tool for
+            evaluating listings. It is not a purchase recommendation, an appraisal, or a substitute
+            for a pre-purchase inspection and a vehicle history report. Curbside is not affiliated
+            with, endorsed by, or connected to Meta Platforms, Inc.
           </p>
         </div>
       </section>
-    </>
+    </main>
   );
 }

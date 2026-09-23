@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.billing import grant_free_credits
 from app.config import Settings
 from app.models import AuthSession, MagicLinkToken, User
 
@@ -141,6 +142,10 @@ def verify_code(
         user = User(email=normalized, created_at=now)
         session.add(user)
         session.flush()
+        # Free checks are granted at account creation, not extension install --
+        # sign-in is required before the first check, so those are the same
+        # moment for a new user. See `billing/ledger.py`.
+        grant_free_credits(session, user)
 
     token = generate_session_token()
     expires_at = now + timedelta(days=settings.session_ttl_days)

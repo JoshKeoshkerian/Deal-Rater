@@ -1,10 +1,20 @@
 import type { Metadata } from "next";
 
+import { CONTACT_EMAIL } from "@/lib/links";
+
 import "./privacy.css";
 
 export const metadata: Metadata = {
   title: "Privacy policy",
   description: "What Curbside collects, why, and what it never touches.",
+  openGraph: {
+    title: "Privacy policy — Curbside",
+    description: "What Curbside collects, why, and what it never touches.",
+    url: "https://curbsidescore.com/privacy",
+  },
+  alternates: {
+    canonical: "/privacy",
+  },
 };
 
 /**
@@ -52,9 +62,13 @@ export default function PrivacyPage() {
 
       <h2>What is collected about sellers</h2>
       <p>
-        Two fields, and only two: an irreversible hash of the seller&rsquo;s Facebook identifier,
-        and a count of their other active vehicle listings. The extension never reads or transmits
-        seller display names, profile URLs, profile photos, or account join dates.
+        An irreversible hash of the seller&rsquo;s Facebook identifier, a count of their other
+        active vehicle listings, and the star rating and rating count Marketplace already displays
+        on the listing itself. The extension never reads or transmits seller display names, profile
+        URLs, profile photos, or account join dates &mdash; the hash and the numbers above are the
+        only things that identify a seller at all, which minimizes what leaves your browser without
+        making it anonymous: the hash is stable, so the same seller is recognizably the same seller
+        across listings, even though nothing in it can be reversed back to a name or profile.
       </p>
       <p>
         Phone numbers and email addresses that appear in a listing&rsquo;s description text are
@@ -65,8 +79,11 @@ export default function PrivacyPage() {
       <h2>VIN decoding and recall data</h2>
       <p>
         If a listing includes a VIN, it may be sent to NHTSA&rsquo;s free, keyless vPIC and recall
-        APIs to decode the vehicle&rsquo;s trim/engine/drivetrain and to check for open safety
-        recalls. NHTSA does not require or receive any information about you.
+        APIs to decode the vehicle&rsquo;s trim/engine/drivetrain and to look up recall campaigns
+        issued for that year, make and model. That is a narrower thing than confirming this
+        specific car&rsquo;s recalls were fixed: NHTSA&rsquo;s free public data says which campaigns
+        exist for the model, not which of them this VIN had performed. NHTSA does not require or
+        receive any information about you.
       </p>
 
       <h2>The one AI call this product makes</h2>
@@ -82,9 +99,16 @@ export default function PrivacyPage() {
 
       <h2>Data retention</h2>
       <p>
-        Captured listing data is stored as a time-stamped record and is periodically purged after a
-        fixed retention window. It is not sold, rented, or shared with third parties for advertising
-        or any purpose unrelated to producing your evaluation.
+        Captured listing data is stored as a time-stamped record, and the backend defines a
+        retention window (currently 400 days) and a deletion tool that removes observations past
+        it. That tool is a script an operator runs &mdash; it is not something the application
+        triggers automatically on its own, so whether it is actually being run on a schedule at any
+        given time is an operational fact this page cannot promise you, only the code that makes it
+        possible. Deleting the underlying capture does not touch a saved evaluation you&rsquo;ve
+        bookmarked: the snapshot you saved stays visible, it just loses the ability to be re-checked
+        against the original observation once that&rsquo;s gone. None of this data is sold, rented,
+        or shared with third parties for advertising or any purpose unrelated to producing your
+        evaluation.
       </p>
 
       <h2>A note on Facebook&rsquo;s terms of service</h2>
@@ -98,7 +122,7 @@ export default function PrivacyPage() {
       <h2>Contact</h2>
       <p>
         Questions about this policy or your data can be sent to{" "}
-        <a href="mailto:joshkeoshkerian@gmail.com">joshkeoshkerian@gmail.com</a>.
+        <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
       </p>
     </main>
   );

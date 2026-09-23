@@ -351,7 +351,9 @@ def test_adopt_sets_the_same_cookie_verify_does(client, session, settings, monke
 
 
 def test_adopt_without_a_token_is_401(client):
-    response = client.post("/v1/auth/adopt")
+    # `client`'s default header is a valid session (see conftest.py) --
+    # cleared here to exercise the actual "no token" case.
+    response = client.post("/v1/auth/adopt", headers={"Authorization": ""})
     assert response.status_code == 401
     assert "set-cookie" not in response.headers
 

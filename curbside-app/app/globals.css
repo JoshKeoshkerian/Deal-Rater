@@ -111,6 +111,33 @@ a {
   border: 0;
 }
 
+/* Hidden until it receives keyboard focus, then pinned above everything else
+   so a keyboard/screen-reader user can jump past the header without tabbing
+   through every nav link first. */
+.skip-link {
+  position: absolute;
+  top: -48px;
+  left: 12px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--lime);
+  color: var(--navy);
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 12px;
+}
+
+/* Set on <body> while a modal/lightbox is open, to stop the page behind it
+   from scrolling. */
+.scroll-locked {
+  overflow: hidden;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -140,7 +167,7 @@ a {
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(234, 241, 248, 0.4);
+  color: rgba(234, 241, 248, 0.58);
 }
 
 /* Every page that is not the landing page: a readable column, not full width. */
@@ -194,6 +221,8 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 15px;
+  line-height: 1.3;
+  text-align: center;
   letter-spacing: -0.01em;
   background: var(--teal);
   color: #03231a;
@@ -310,6 +339,12 @@ a {
   font-weight: 500;
 }
 
+.signout-note {
+  font-size: 12px;
+  color: var(--danger);
+  max-width: 22em;
+}
+
 .nav-toggle {
   display: none;
   background: none;
@@ -366,7 +401,7 @@ a {
   flex-wrap: wrap;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: rgba(234, 241, 248, 0.4);
+  color: rgba(234, 241, 248, 0.58);
 }
 .site-footer a {
   text-decoration: none;
@@ -494,6 +529,13 @@ a {
   margin-top: 8px;
 }
 
+.code-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .price-label {
   display: block;
   font-size: 11px;
@@ -518,6 +560,8 @@ a {
 
 .modal {
   width: min(460px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   background: var(--navy-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius);

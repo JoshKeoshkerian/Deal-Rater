@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, captures, evaluations, health, saved, telemetry
+from app.api import auth, billing, captures, evaluations, health, saved, telemetry
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -116,3 +116,17 @@ app.include_router(telemetry.router)
 app.include_router(evaluations.router)
 app.include_router(auth.router)
 app.include_router(saved.router)
+app.include_router(billing.router)
+
+if not settings.stripe_secret_key:
+    logger.info(
+        "Billing (Stripe): DISABLED (no DEAL_RATER_STRIPE_SECRET_KEY). Checkout/portal return 503."
+    )
+elif not settings.stripe_webhook_secret:
+    logger.warning(
+        "Billing (Stripe): checkout/portal are live, but DEAL_RATER_STRIPE_WEBHOOK_SECRET is "
+        "unset -- the webhook rejects every event, so paid credits and subscription status will "
+        "never actually update."
+    )
+else:
+    logger.info("Billing (Stripe): ENABLED")

@@ -8,7 +8,7 @@ Alembic migration targets Postgres and is what production uses.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,9 +16,18 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth.tokens import generate_session_token, hash_secret
+from app.billing import grant_free_credits
 from app.db import get_session
 from app.main import app
-from app.models import Base
+from app.models import AuthSession, Base, User
+
+#: The identity behind the `client` fixture's default `Authorization` header.
+#: Tests that need a SECOND, distinct user still sign in explicitly (see
+#: `test_saved.py`'s `sign_in()`) and pass that token to override this default
+#: per-request -- httpx per-request headers take precedence over client-level
+#: ones for the same key.
+DEFAULT_TEST_EMAIL = "buyer@example.com"
 
 
 @pytest.fixture
@@ -49,8 +58,45 @@ def session(engine) -> Session:
 
 @pytest.fixture
 def client(session) -> TestClient:
+    """A TestClient signed in as `DEFAULT_TEST_EMAIL` by default.
+
+    `POST /v1/captures` and `GET /v1/evaluations/{id}` both require a session
+    now (billing needs an identity to charge and to own what it charged for).
+    Defaulting this fixture to authenticated keeps the large majority of the
+    suite -- which exercises scoring, extraction and telemetry, not auth --
+    unchanged. The handful of tests that exercise auth directly override the
+    header for that one call (an explicit bad token), or clear it entirely
+    (`headers={"Authorization": ""}` -- falsy, so `auth/dependencies.py`'s
+    `bearer_token()` reads it as no header at all).
+
+    Builds the `User`/`AuthSession` rows directly rather than going through
+    `request_sign_in`/`verify_code` -- `test_auth.py` asserts an EMPTY
+    `magic_link_tokens` table after specific actions of its own, and a fixture
+    that ran the real code-exchange flow on every test using `client` would
+    leave a row there before those tests even start.
+    """
     app.dependency_overrides[get_session] = lambda: session
     with TestClient(app) as c:
+        now = datetime.now(UTC)
+        user = User(email=DEFAULT_TEST_EMAIL, created_at=now)
+        session.add(user)
+        session.flush()
+        grant_free_credits(session, user)
+
+        token = generate_session_token()
+        session.add(
+            AuthSession(
+                user_id=user.id,
+                token_hash=hash_secret(token),
+                created_at=now,
+                expires_at=now + timedelta(days=90),
+                last_seen_at=now,
+                client="web",
+            )
+        )
+        session.commit()
+
+        c.headers["Authorization"] = f"Bearer {token}"
         yield c
     app.dependency_overrides.clear()
 

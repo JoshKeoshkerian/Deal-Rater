@@ -16,33 +16,26 @@ const REQUEST_TIMEOUT_MS = 30_000;
 //: genuine cold generation early.
 const KNOWN_ISSUES_REQUEST_TIMEOUT_MS = 40_000;
 
+/**
+ * Both a check and evaluations now require a session (billing needs an
+ * identity to charge, and to own what it charged for -- see
+ * `backend/app/api/captures.py` and `app/api/evaluations.py`). `token` is
+ * required, not optional: `background/index.ts` checks `loadSession()` before
+ * ever calling this, so a call with no token would only mean a bug upstream,
+ * not a legitimate anonymous request.
+ */
 export async function postCapture(
   apiBaseUrl: string,
+  token: string,
   payload: CapturePayload,
 ): Promise<CaptureResponse> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/v1/captures`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-
-    const text = await response.text();
-
-    if (!response.ok) {
-      // The body carries Pydantic's field-level detail, which is what tells you
-      // whether the extension and the API contract have drifted apart.
-      throw new Error(`API ${response.status}: ${text.slice(0, 500)}`);
-    }
-
-    return JSON.parse(text) as CaptureResponse;
-  } finally {
-    clearTimeout(timer);
-  }
+  const result = await apiRequest<CaptureResponse>(apiBaseUrl, "/v1/captures", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+  if (result === null) throw new Error("Empty response from /v1/captures");
+  return result;
 }
 
 /**
@@ -55,24 +48,16 @@ export async function postCapture(
  */
 export async function fetchEvaluation(
   apiBaseUrl: string,
+  token: string,
   captureId: number,
 ): Promise<EvaluationResponse> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(
-      `${apiBaseUrl.replace(/\/$/, "")}/v1/evaluations/${captureId}`,
-      { signal: controller.signal },
-    );
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`API ${response.status}: ${text.slice(0, 500)}`);
-    }
-    return JSON.parse(text) as EvaluationResponse;
-  } finally {
-    clearTimeout(timer);
-  }
+  const result = await apiRequest<EvaluationResponse>(
+    apiBaseUrl,
+    `/v1/evaluations/${captureId}`,
+    { token },
+  );
+  if (result === null) throw new Error(`Empty response from /v1/evaluations/${captureId}`);
+  return result;
 }
 
 const EVALUATION_RETRY_DELAY_MS = 1_500;
@@ -96,13 +81,17 @@ const EVALUATION_RETRY_DELAY_MS = 1_500;
  */
 export async function fetchEvaluationWithRetry(
   apiBaseUrl: string,
+  token: string,
   captureId: number,
 ): Promise<EvaluationResponse> {
   try {
-    return await fetchEvaluation(apiBaseUrl, captureId);
-  } catch {
+    return await fetchEvaluation(apiBaseUrl, token, captureId);
+  } catch (error) {
+    // A dead session or an empty balance fails identically on a retry --
+    // only a transient/timeout failure is worth the extra round trip.
+    if (error instanceof UnauthorizedError || error instanceof PaymentRequiredError) throw error;
     await new Promise((resolve) => setTimeout(resolve, EVALUATION_RETRY_DELAY_MS));
-    return fetchEvaluation(apiBaseUrl, captureId);
+    return fetchEvaluation(apiBaseUrl, token, captureId);
   }
 }
 
@@ -118,16 +107,19 @@ export async function fetchEvaluationWithRetry(
  */
 export async function fetchKnownIssues(
   apiBaseUrl: string,
+  token: string,
   captureId: number,
 ): Promise<KnownIssuesFetchResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), KNOWN_ISSUES_REQUEST_TIMEOUT_MS);
 
   try {
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
     const response = await fetch(
       `${apiBaseUrl.replace(/\/$/, "")}/v1/evaluations/${captureId}/known-issues`,
-      { method: "POST", signal: controller.signal },
+      { method: "POST", headers, signal: controller.signal },
     );
+    if (response.status === 401) throw new UnauthorizedError("Not signed in.");
     const text = await response.text();
     if (!response.ok) {
       throw new Error(`API ${response.status}: ${text.slice(0, 500)}`);
@@ -149,6 +141,14 @@ export async function fetchKnownIssues(
  * than to show "API 401" to somebody who thought they were signed in.
  */
 export class UnauthorizedError extends Error {}
+
+/**
+ * Raised when the backend says 402: signed in, but out of checks. Distinct
+ * from `UnauthorizedError` because the fix is different -- buy more checks,
+ * not sign in again -- and `background/index.ts` renders a different message
+ * for each.
+ */
+export class PaymentRequiredError extends Error {}
 
 /**
  * One JSON request against the API, with the session token if there is one.
@@ -205,6 +205,7 @@ async function apiRequest<T>(
       } catch {
         /* not JSON; the raw body is the best available message */
       }
+      if (response.status === 402) throw new PaymentRequiredError(detail || `API ${response.status}`);
       throw new Error(detail || `API ${response.status}`);
     }
 

@@ -21,7 +21,7 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { SavedCard } from "@/components/SavedCard";
@@ -74,13 +74,24 @@ function sortItems(items: SavedEvaluation[], order: SortOrder): SavedEvaluation[
   }
 }
 
+type ListState = "idle" | "loading" | "error" | "loaded";
+
 export default function SavedPage() {
-  const { status, signOut } = useAuth();
+  const { status, error: authError, refresh, signOut } = useAuth();
   const [items, setItems] = useState<SavedEvaluation[]>([]);
-  const [listLoaded, setListLoaded] = useState(false);
+  // Distinct from "loaded with zero items" on purpose — a fetch failure used
+  // to leave `items` at [] and render "Nothing saved yet" over an error
+  // banner at the same time, which reads as an empty account rather than a
+  // failed load.
+  const [listState, setListState] = useState<ListState>("idle");
   const [error, setError] = useState("");
-  const [removing, setRemoving] = useState<number | null>(null);
+  const [unsaveError, setUnsaveError] = useState("");
+  const [removing, setRemoving] = useState<Set<number>>(new Set());
   const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
+  // Bumped on every load and on sign-out/unmount, so a response that resolves
+  // after the session has moved on (signed out, or signed back in as someone
+  // else) is recognised as stale and never applied to state.
+  const requestIdRef = useRef(0);
 
   const sortedItems = useMemo(() => sortItems(items, sortOrder), [items, sortOrder]);
 
@@ -103,10 +114,16 @@ export default function SavedPage() {
   }, []);
 
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setListState("loading");
     try {
-      setItems(await fetchSaved());
+      const result = await fetchSaved();
+      if (requestIdRef.current !== requestId) return; // superseded — see requestIdRef above
+      setItems(result);
       setError("");
+      setListState("loaded");
     } catch (caught) {
+      if (requestIdRef.current !== requestId) return;
       if (caught instanceof NotAuthenticatedError) {
         // The cookie died between the header's check and this call. Ending the
         // shared session is what puts the sign-in form back on screen.
@@ -114,22 +131,26 @@ export default function SavedPage() {
         return;
       }
       setError(caught instanceof Error ? caught.message : "Could not load your saved list.");
-    } finally {
-      setListLoaded(true);
+      setListState("error");
     }
   }, [signOut]);
 
   // Fetch only once the session is confirmed. Firing this while auth is still
-  // `unknown` would spend a guaranteed 401 on every page load.
+  // `unknown` would spend a guaranteed 401 on every page load. The cleanup
+  // invalidates the request id on every status change (sign-out, or a
+  // different account signing in), not only on unmount — this component stays
+  // mounted across a sign-out, it just renders a different branch below.
   useEffect(() => {
     if (status !== "signed-in") return;
-    setListLoaded(false);
     void load();
+    return () => {
+      requestIdRef.current++;
+    };
   }, [status, load]);
 
   const onUnsave = async (item: SavedEvaluation) => {
-    setRemoving(item.id);
-    setError("");
+    setRemoving((current) => new Set(current).add(item.id));
+    setUnsaveError("");
     // Removed from the list only after the server confirms. An optimistic
     // removal that fails leaves the user believing something is gone when it
     // is not, and the next reload contradicts them.
@@ -141,15 +162,19 @@ export default function SavedPage() {
         await signOut();
         return;
       }
-      setError(caught instanceof Error ? caught.message : "Could not remove that.");
+      setUnsaveError(caught instanceof Error ? caught.message : "Could not remove that.");
     } finally {
-      setRemoving(null);
+      setRemoving((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
     }
   };
 
-  if (status === "unknown" || (status === "signed-in" && !listLoaded)) {
+  if (status === "unknown") {
     return (
-      <main className="wrap page">
+      <main className="wrap page" id="main">
         <div className="state">
           <p>Loading…</p>
         </div>
@@ -157,18 +182,43 @@ export default function SavedPage() {
     );
   }
 
+  if (status === "error") {
+    return (
+      <main className="wrap page" id="main">
+        <header className="page-head">
+          <h1 className="page-h1">Saved evaluations</h1>
+        </header>
+        <div className="state" role="alert">
+          <h2>Couldn&rsquo;t reach Curbside</h2>
+          <p>{authError || "Something went wrong checking whether you're signed in."}</p>
+          <button type="button" className="btn btn--ghost" onClick={() => void refresh()}>
+            Retry
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (status !== "signed-in") {
     return (
-      <main className="wrap page">
+      <main className="wrap page" id="main">
+        <header className="page-head">
+          <h1 className="page-h1">Saved evaluations</h1>
+          <p className="page-lede">Sign in to see the listings you&rsquo;ve saved.</p>
+        </header>
         {/* No `onSignedIn` needed: verifying updates the shared auth state,
             and the effect above loads the list when that flips. */}
-        <SignIn initialEmail={linkParams.email} initialCode={linkParams.code} />
+        <SignIn
+          initialEmail={linkParams.email}
+          initialCode={linkParams.code}
+          heading="Sign in"
+        />
       </main>
     );
   }
 
   return (
-    <main className="wrap page">
+    <main className="wrap page" id="main">
       <header className="page-head">
         <h1 className="page-h1">Saved evaluations</h1>
         <p className="page-lede">
@@ -178,9 +228,23 @@ export default function SavedPage() {
         </p>
       </header>
 
-      {error && <div className="error-banner">{error}</div>}
+      {(listState === "idle" || listState === "loading") && (
+        <div className="state">
+          <p>Loading your saved list…</p>
+        </div>
+      )}
 
-      {items.length === 0 ? (
+      {listState === "error" && (
+        <div className="state" role="alert">
+          <h2>Couldn&rsquo;t load your saved list</h2>
+          <p>{error}</p>
+          <button type="button" className="btn btn--ghost" onClick={() => void load()}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {listState === "loaded" && items.length === 0 && (
         <div className="state">
           <h2>Nothing saved yet</h2>
           <p>
@@ -188,8 +252,15 @@ export default function SavedPage() {
             panel. Saved evaluations show up here.
           </p>
         </div>
-      ) : (
+      )}
+
+      {listState === "loaded" && items.length > 0 && (
         <>
+          {unsaveError && (
+            <div className="error-banner" role="alert">
+              {unsaveError}
+            </div>
+          )}
           <div className="sort-row">
             <label htmlFor="sort-order">Sort</label>
             <select
@@ -208,7 +279,12 @@ export default function SavedPage() {
 
           <ul className="cards">
             {sortedItems.map((item) => (
-              <SavedCard key={item.id} item={item} busy={removing === item.id} onUnsave={onUnsave} />
+              <SavedCard
+                key={item.id}
+                item={item}
+                busy={removing.has(item.id)}
+                onUnsave={onUnsave}
+              />
             ))}
           </ul>
         </>

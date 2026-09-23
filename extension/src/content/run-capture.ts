@@ -121,6 +121,12 @@ export interface CaptureOutcome {
   message: string;
   compCount: number;
   extractionOk: boolean;
+  /** The background worker had no session (never signed in, or one that
+   * expired mid-run). `content/index.ts` shows the sign-in gate rather than
+   * a plain error card. */
+  signedOut?: boolean;
+  /** Signed in, but out of checks. `message` already names the fix. */
+  outOfChecks?: boolean;
 }
 
 export async function runCapture(onStatus: StatusListener = () => {}): Promise<CaptureOutcome> {
@@ -585,6 +591,8 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
       message: result?.error ?? "No response from the extension background worker.",
       compCount: comps.length,
       extractionOk: false,
+      signedOut: result && "signedOut" in result ? result.signedOut : undefined,
+      outOfChecks: result && "outOfChecks" in result ? result.outOfChecks : undefined,
     };
   }
 
@@ -617,6 +625,7 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
         `(${evaluation?.error ?? "no response from the extension background worker"}).`,
       compCount: comps.length,
       extractionOk: response.extraction_ok,
+      signedOut: evaluation && "signedOut" in evaluation ? evaluation.signedOut : undefined,
     };
   }
 

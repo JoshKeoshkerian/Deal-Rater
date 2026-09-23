@@ -16,7 +16,13 @@
 
 import { extractCompCards } from "../extract/comp-card";
 import { extractTargetListing } from "../extract/listing";
-import type { BackgroundToContent, HarvestResult, HarvestTargetResult } from "../shared/messages";
+import type {
+  AuthStateResult,
+  BackgroundToContent,
+  HarvestResult,
+  HarvestTargetResult,
+} from "../shared/messages";
+import { sendToBackground } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
 import { runCapture } from "./run-capture";
 import { findSendButtonAnchor } from "./send-anchor";
@@ -37,19 +43,48 @@ function isSearchPage(): boolean {
   return /\/marketplace\/(search|category)/.test(location.pathname);
 }
 
+/**
+ * A check now requires a session (billing needs an identity to charge and to
+ * own what it charged for -- `backend/app/api/captures.py`). Checked up
+ * front rather than only relying on the backend's 401, so a signed-out click
+ * shows the sign-in form immediately instead of running the whole
+ * extraction/comp-search pipeline first only to fail at the very last step.
+ *
+ * Fails OPEN on its own failure (a broken message channel, say): the backend
+ * is the actual authority on whether a session is valid, and `outcome.
+ * signedOut` below catches that case too. This check exists to skip wasted
+ * work for the common case, not to be the only gate.
+ */
+async function isSignedIn(): Promise<boolean> {
+  const result = await sendToBackground<AuthStateResult>({ type: "AUTH_STATE" }).catch(
+    (): AuthStateResult => ({ ok: true, signedIn: true, email: "" }),
+  );
+  return !result.ok || result.signedIn;
+}
+
 async function handleClick(): Promise<void> {
   if (running || !button) return;
+
+  if (!(await isSignedIn())) {
+    button.showSignIn(() => void handleClick());
+    return;
+  }
+
   running = true;
   button.setBusy(true);
 
   try {
     const outcome = await runCapture((message, stage) => button?.setProgress(message, stage));
-    button.setStatus(outcome.message, outcome.ok ? "info" : "error");
+    if (outcome.signedOut) {
+      button?.showSignIn(() => void handleClick());
+    } else {
+      button?.setStatus(outcome.message, outcome.ok ? "info" : "error");
+    }
   } catch (error) {
-    button.setStatus(error instanceof Error ? error.message : String(error), "error");
+    button?.setStatus(error instanceof Error ? error.message : String(error), "error");
   } finally {
     running = false;
-    button.setBusy(false);
+    button?.setBusy(false);
   }
 }
 

@@ -2,18 +2,19 @@
  * What Curbside charges. ONE DEFINITION, read by the landing page's pricing
  * strip, the /pricing table and the /account page.
  *
- * NOTHING HERE TALKS TO A PAYMENT PROCESSOR, and nothing here is a source of
- * truth the server agrees with. There is no billing code in the backend at all
- * — no Stripe, no products, no balance column, no webhook. This file exists so
- * the payments UI can be looked at and argued about before any of that is
- * built. When a processor is chosen, each plan below gains its price id and
- * `lib/billing.ts` gets deleted rather than adapted.
+ * THE BACKEND IS THE SOURCE OF TRUTH FOR PRICE IDS, NOT THIS FILE. This is
+ * display copy plus a `PlanId` a checkout request names by string --
+ * `backend/app/billing/plans.py` is the mirror that actually maps a plan id
+ * to a Stripe price and validates what the frontend sends. If the two ever
+ * disagree on price, this file is wrong: `POST /v1/billing/checkout` charges
+ * whatever the backend's copy of the price says, never what the client claims.
  *
  * Prices in CENTS, integers. A float dollar amount is a rounding bug waiting
- * for a discount code, and the API this eventually talks to will want cents.
+ * for a discount code.
  */
 
-/** Free evaluations granted on install, before anything is charged. */
+/** Free evaluations granted at sign-up, before anything is charged. Mirrors
+ * `backend/app/billing/plans.py`'s `FREE_EVALUATIONS` -- keep both in sync. */
 export const FREE_EVALUATIONS = 10;
 
 export type PlanId = "pack-10" | "pack-20" | "unlimited-monthly";

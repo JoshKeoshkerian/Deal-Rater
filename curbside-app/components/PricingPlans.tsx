@@ -1,25 +1,34 @@
 "use client";
 
 /**
- * The three plan cards and the not-yet-live checkout.
+ * The three plan cards and the real checkout behind them.
  *
- * THE BUTTONS DO NOT BUY ANYTHING and the dialog they open says so in its first
- * sentence. This is the deliberate shape of a payments section built before a
- * payment processor: the layout, the copy and the price ladder are the parts
- * worth reviewing now, and a button that quietly did nothing would be a worse
- * lie than one that explains itself.
- *
- * When a processor lands, the click handler becomes the call that creates a
- * checkout session and `ComingSoonDialog` is deleted.
+ * Clicking a plan while signed in starts a Stripe Checkout Session
+ * server-side and redirects there directly -- no Stripe.js on this page at
+ * all, see `lib/api.ts`'s `createCheckoutSession`. Clicking one while signed
+ * out shows the same sign-in form used elsewhere on the site first, and
+ * `onSignedIn` continues straight into checkout for the plan that was
+ * clicked, so signing in completes the action rather than leaving the user
+ * to click the plan a second time.
  */
 
 import { useState } from "react";
 
-import { ComingSoonDialog } from "@/components/ComingSoonDialog";
+import { Modal } from "@/components/Modal";
 import { useAuth } from "@/components/AuthProvider";
-import { FREE_EVALUATIONS, PLANS, formatPrice, perCheckPrice, type Plan } from "@/lib/plans";
+import { SignIn } from "@/components/SignIn";
+import { ApiError, createCheckoutSession } from "@/lib/api";
+import { PLANS, formatPrice, perCheckPrice, type Plan } from "@/lib/plans";
 
-function PlanCard({ plan, onSelect }: { plan: Plan; onSelect: (plan: Plan) => void }) {
+function PlanCard({
+  plan,
+  busy,
+  onSelect,
+}: {
+  plan: Plan;
+  busy: boolean;
+  onSelect: (plan: Plan) => void;
+}) {
   const unit = perCheckPrice(plan);
   return (
     <div className={`plan${plan.featured ? " plan--featured" : ""}`}>
@@ -38,6 +47,7 @@ function PlanCard({ plan, onSelect }: { plan: Plan; onSelect: (plan: Plan) => vo
       <button
         type="button"
         className={`btn plan__btn${plan.featured ? "" : " btn--ghost"}`}
+        disabled={busy}
         onClick={() => onSelect(plan)}
       >
         {plan.interval === "month" ? "Subscribe" : `Buy ${plan.name.toLowerCase()}`}
@@ -47,36 +57,70 @@ function PlanCard({ plan, onSelect }: { plan: Plan; onSelect: (plan: Plan) => vo
 }
 
 export function PricingPlans() {
-  const { status, user } = useAuth();
-  const [selected, setSelected] = useState<Plan | null>(null);
+  const { status } = useAuth();
+  const [pendingSignIn, setPendingSignIn] = useState<Plan | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const startCheckout = async (plan: Plan) => {
+    setBusy(true);
+    setError(null);
+    try {
+      window.location.href = await createCheckoutSession(plan.id);
+      // No `setBusy(false)` on success: the page is navigating away, and
+      // re-enabling the buttons for the instant before that happens would
+      // just invite a second click during the redirect.
+    } catch (caught) {
+      setBusy(false);
+      const message =
+        caught instanceof ApiError && caught.status === 503
+          ? "Payments aren't switched on for this deployment yet."
+          : caught instanceof Error
+            ? caught.message
+            : "Could not start checkout.";
+      setError(message);
+    }
+  };
+
+  const onSelect = (plan: Plan) => {
+    if (status === "signed-in") {
+      void startCheckout(plan);
+    } else {
+      setPendingSignIn(plan);
+    }
+  };
 
   return (
     <>
       <div className="plans">
         {PLANS.map((plan) => (
-          <PlanCard key={plan.id} plan={plan} onSelect={setSelected} />
+          <PlanCard key={plan.id} plan={plan} busy={busy} onSelect={onSelect} />
         ))}
       </div>
 
-      {selected && (
-        <ComingSoonDialog
-          title="Payments aren’t switched on yet."
-          onClose={() => setSelected(null)}
+      {error && (
+        <Modal title="Couldn’t start checkout" onClose={() => setError(null)}>
+          <p>{error}</p>
+        </Modal>
+      )}
+
+      {pendingSignIn && (
+        <Modal
+          title="Sign in to continue"
+          onClose={() => setPendingSignIn(null)}
+          dismissLabel={null}
         >
-          <p>
-            Nothing was charged and nothing was reserved. This page exists so the plans can be read
-            and argued with before the checkout behind them is built.
-          </p>
-          <p className="modal__plan">
-            You picked <b>{selected.name}</b> &mdash; {formatPrice(selected.priceCents)}
-            {selected.interval === "month" ? " per month" : " once"}.
-          </p>
-          <p>
-            Until it is live, every install gets {FREE_EVALUATIONS} free checks and nothing is
-            metered beyond that.
-            {status === "signed-in" && user ? ` Signed in as ${user.email}.` : ""}
-          </p>
-        </ComingSoonDialog>
+          <SignIn
+            initialEmail={null}
+            initialCode={null}
+            heading={`Sign in to buy ${pendingSignIn.name}`}
+            onSignedIn={() => {
+              const plan = pendingSignIn;
+              setPendingSignIn(null);
+              void startCheckout(plan);
+            }}
+          />
+        </Modal>
       )}
     </>
   );

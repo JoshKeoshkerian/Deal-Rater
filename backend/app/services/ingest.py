@@ -53,10 +53,22 @@ class IngestResult:
     extraction_reports_written: int
 
 
-def ingest_capture(session: Session, payload: CaptureIn) -> IngestResult:
-    existing = session.scalar(
-        select(Capture).where(Capture.client_capture_id == payload.capture.client_capture_id)
+def find_existing_capture(session: Session, client_capture_id: str) -> Capture | None:
+    """Looked up by `app/api/captures.py` before deciding whether a check
+    should be billed at all -- a retried `client_capture_id` is a free replay,
+    never a second charge. Exposed separately from `ingest_capture` so the
+    billing decision does not have to wait for (or duplicate) the rest of
+    ingestion to know which case it is in.
+    """
+    return session.scalar(
+        select(Capture).where(Capture.client_capture_id == client_capture_id)
     )
+
+
+def ingest_capture(
+    session: Session, payload: CaptureIn, *, user_id: int | None = None
+) -> IngestResult:
+    existing = find_existing_capture(session, payload.capture.client_capture_id)
     if existing is not None:
         # Replays happen: a client retries after a timeout that in fact succeeded.
         # Returning the original capture keeps the observation series free of
@@ -78,6 +90,7 @@ def ingest_capture(session: Session, payload: CaptureIn) -> IngestResult:
 
     capture = Capture(
         client_capture_id=payload.capture.client_capture_id,
+        user_id=user_id,
         client_name=payload.client.name,
         client_version=payload.client.version,
         captured_at=observed_at,

@@ -38,17 +38,26 @@ export type ContentToBackground =
 
 export type BackgroundToContent = { type: "HARVEST_COMPS" } | { type: "HARVEST_TARGET" };
 
+/**
+ * `signedOut`/`outOfChecks` are additive discriminants on the failure case,
+ * not separate branches, so every existing `if (!result.ok) ...` still
+ * compiles and reads `.error` for a message; only a caller that wants to
+ * offer sign-in or a link to /pricing needs to look further. Both routes
+ * require a session now (billing needs an identity to charge and to own what
+ * it charged for), and `POST /v1/captures` is also where a check is actually
+ * billed, so it is the only one of the three that can be `outOfChecks`.
+ */
 export type SubmitCaptureResult =
   | { ok: true; response: CaptureResponse }
-  | { ok: false; error: string };
+  | { ok: false; error: string; signedOut?: true; outOfChecks?: true };
 
 export type EvaluationResult =
   | { ok: true; evaluation: EvaluationResponse }
-  | { ok: false; error: string };
+  | { ok: false; error: string; signedOut?: true };
 
 export type KnownIssuesFetchResult =
   | { ok: true; result: KnownIssuesFetchResponse }
-  | { ok: false; error: string };
+  | { ok: false; error: string; signedOut?: true };
 
 export type HarvestResult =
   | { ok: true; observations: ObservationPayload[]; issues: ExtractionIssue[] }

@@ -66,6 +66,14 @@ class Capture(Base):
     client_name: Mapped[str] = mapped_column(String(64), nullable=False)
     client_version: Mapped[str] = mapped_column(String(32), nullable=False)
 
+    # Who paid for this check, once sign-in became required to run one.
+    # NULLABLE, and NULL on every capture taken before that point -- SET NULL
+    # rather than CASCADE, because deleting an account should not take the
+    # listing's observation history with it, only the attribution to that
+    # account. `app/api/evaluations.py` uses this for the ownership check: a
+    # NULL here is still readable by anyone, matching pre-billing behaviour.
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
     captured_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     received_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
 
@@ -79,6 +87,8 @@ class Capture(Base):
     extraction_ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     observations: Mapped[list[ListingObservation]] = relationship(back_populates="capture")
+
+    __table_args__ = (Index("ix_captures_user", "user_id"),)
 
 
 class Listing(Base):
@@ -496,6 +506,110 @@ class User(Base):
     #: index. 320 is the RFC 5321 maximum.
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
     created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+
+class BillingAccount(Base):
+    """Current billing state for one user -- a CURSOR, not a source of truth.
+
+    Two things are cached here for the reason `listings.last_observed_at` is:
+    recomputing them on every request would mean summing an ever-growing
+    `credit_ledger` for every capture, or calling Stripe, just to answer "can
+    this user run a check right now."
+
+    `credit_balance` is `SUM(credit_ledger.delta)` for this user, maintained in
+    the same transaction as every ledger insert (`app/api/captures.py`,
+    `app/api/billing.py`). `subscription_status` / `current_period_end` /
+    `cancel_at_period_end` mirror Stripe's own Subscription object, kept in
+    sync by `POST /v1/billing/webhook`'s `customer.subscription.*` handlers --
+    Stripe remains the source of truth for those; this is a read-time cache
+    of it, the same relationship `vehicle_safety_lookups` has to NHTSA.
+    """
+
+    __tablename__ = "billing_accounts"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: NULL until the first checkout or portal visit creates a Stripe Customer.
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+
+    credit_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    #: NULL unless the user has ever subscribed to the unlimited plan.
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    #: Stripe's own status string: 'active', 'canceled', 'past_due', etc.
+    subscription_status: Mapped[str | None] = mapped_column(String(32))
+    subscription_plan: Mapped[str | None] = mapped_column(String(32))
+    current_period_end: Mapped[datetime | None] = mapped_column(TZDateTime)
+    #: True once cancelled but still paid up for the current period --
+    #: `/account`'s "Ends <date>, no further charges" line.
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+
+class CreditLedger(Base):
+    """Append-only. `billing_accounts.credit_balance` is a cursor over this.
+
+    One row per grant or spend: a positive `delta` is a free grant or a
+    purchased pack; a negative one is a check that spent a credit.
+    `reason` + `capture_id`/`stripe_event_id` is enough to answer "why does
+    this user have the balance they have" by reading rows, the same way
+    `known_issues_entries` answers a cost question from rows rather than a
+    trusted running total.
+
+    `stripe_event_id`'s unique index (partial -- most rows, every
+    `evaluation_spend`, have none) IS the webhook's idempotency mechanism:
+    inserting the same completed Checkout Session or paid invoice twice is
+    rejected by the constraint rather than double-granting credits on a
+    retried delivery, the same idea as `client_capture_id` on `Capture`.
+    """
+
+    __tablename__ = "credit_ledger"
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: 'free_grant' | 'pack_purchase' | 'subscription_charge' | 'evaluation_spend'
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    #: Which check spent this credit. Populated only on `evaluation_spend` rows.
+    #: SET NULL, not CASCADE, for the same reason `saved_evaluations.capture_id`
+    #: is: a ledger row is a financial record and must outlive
+    #: `app/retention.py` deleting the capture it paid for.
+    capture_id: Mapped[int | None] = mapped_column(
+        ForeignKey("captures.id", ondelete="SET NULL")
+    )
+
+    #: The Stripe event that produced a purchase-type row. See the class
+    #: docstring for why its uniqueness is load-bearing, not incidental.
+    stripe_event_id: Mapped[str | None] = mapped_column(String(255))
+
+    #: Populated on purchase-type rows only, so the account page's billing
+    #: history renders straight from this table -- no live Stripe call on
+    #: every page load, the same reasoning as `SavedEvaluation`'s snapshot.
+    amount_cents: Mapped[int | None] = mapped_column(Integer)
+    description: Mapped[str | None] = mapped_column(String(128))
+    #: `billing.PlanId`, free text rather than an FK -- there is no plans
+    #: table, `billing/plans.py` is a Python constant. Lets `GET
+    #: /v1/billing/me` answer "what did they last buy" without parsing
+    #: `description` back into a plan id.
+    plan_id: Mapped[str | None] = mapped_column(String(32))
+
+    created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    __table_args__ = (
+        Index("ix_credit_ledger_user_time", "user_id", "created_at"),
+        Index(
+            "uq_credit_ledger_stripe_event",
+            "stripe_event_id",
+            unique=True,
+            postgresql_where=text("stripe_event_id IS NOT NULL"),
+            sqlite_where=text("stripe_event_id IS NOT NULL"),
+        ),
+    )
 
 
 class MagicLinkToken(Base):

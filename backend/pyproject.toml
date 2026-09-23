@@ -26,6 +26,11 @@ dependencies = [
     # never loads it -- but it is a hard dependency rather than an extra,
     # because the feature is on by default once a key exists.
     "anthropic>=0.69",
+    # Checkout, the Billing Portal, and the webhook that keeps credit/
+    # subscription state in sync. Imported lazily in app/api/billing.py the
+    # same way `anthropic` is imported lazily in known_issues/client.py, so a
+    # deployment with no Stripe key configured never loads it.
+    "stripe>=11",
 ]
 
 [project.optional-dependencies]

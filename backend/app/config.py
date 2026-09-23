@@ -117,6 +117,19 @@ class Settings(BaseSettings):
     #: startup so this is never something to guess at.
     session_cookie_domain: str = ".curbsidescore.com"
 
+    # --- Billing (Stripe) ----------------------------------------------------
+    #
+    # Unset means checkout/portal endpoints return 503, the same posture as an
+    # unconfigured `resend_api_key` for sign-in: an endpoint that accepts a
+    # request and silently does nothing is worse than one that says so.
+    stripe_secret_key: str | None = None
+
+    # Verifies `POST /v1/billing/webhook` really came from Stripe. Unset means
+    # the webhook route refuses every event rather than trusting an unsigned
+    # payload -- this is the one route in the API that must not be open by
+    # default the way an unconfigured feature elsewhere merely turns itself off.
+    stripe_webhook_secret: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

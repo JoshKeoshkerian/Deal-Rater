@@ -37,11 +37,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_user
 from app.config import get_settings
 from app.db import get_session
 from app.evaluation import evaluate_capture
 from app.flags import read_title_status
 from app.known_issues import known_issues_reading
+from app.models import User
 from app.pricing.loader import StoredCapture, load_captures
 from app.schemas import EvaluationOut, KnownIssuesFetchOut
 from app.services.serialize import evaluation_to_schema, known_issues_reading_to_schema
@@ -49,9 +51,18 @@ from app.services.serialize import evaluation_to_schema, known_issues_reading_to
 router = APIRouter(prefix="/v1", tags=["evaluations"])
 
 
-def _load_capture(session: Session, capture_id: int) -> StoredCapture:
+def _load_capture(session: Session, capture_id: int, user: User) -> StoredCapture:
+    """Load a capture the caller is allowed to read.
+
+    Ownership, not just authentication: `user_id IS NULL` (every capture taken
+    before sign-in was required to run one) stays readable by anyone, matching
+    behaviour before billing existed. A capture with an owner is readable only
+    by that owner -- capture ids are sequential and guessable, and paying for a
+    check should not make the result readable by whoever else asks for that id
+    next.
+    """
     captures = load_captures(session, [capture_id])
-    if not captures:
+    if not captures or (captures[0].user_id is not None and captures[0].user_id != user.id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No evaluable capture with id {capture_id}",
@@ -66,9 +77,10 @@ def get_evaluation(
         False,
         description="Skip NHTSA network calls and use only cached data.",
     ),
+    user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ) -> EvaluationOut:
-    capture = _load_capture(session, capture_id)
+    capture = _load_capture(session, capture_id, user)
     evaluation = evaluate_capture(session, capture, offline=offline)
     return evaluation_to_schema(capture, evaluation)
 
@@ -80,9 +92,10 @@ def fetch_known_issues_for_capture(
         False,
         description="Cache lookup only; never calls the model even if the gate allows it.",
     ),
+    user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ) -> KnownIssuesFetchOut:
-    capture = _load_capture(session, capture_id)
+    capture = _load_capture(session, capture_id, user)
     settings = get_settings()
     title = read_title_status(capture.target_title_status)
 

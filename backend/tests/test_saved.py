@@ -56,7 +56,9 @@ def ingest(client, **kwargs) -> int:
     ],
 )
 def test_every_saved_endpoint_needs_a_session(client, method, path):
-    assert getattr(client, method)(path).status_code == 401
+    # `client`'s default header is a valid session (see conftest.py) --
+    # cleared here to exercise the actual "no session" case.
+    assert getattr(client, method)(path, headers={"Authorization": ""}).status_code == 401
 
 
 def test_a_bad_token_is_not_a_session(client):
@@ -66,10 +68,14 @@ def test_a_bad_token_is_not_a_session(client):
     assert response.status_code == 401
 
 
-def test_capture_ingest_is_still_unauthenticated(client):
-    """This change adds accounts; it does not gate the capture path. Anything
-    that quietly required a session here would break every install."""
-    assert ingest(client) > 0
+def test_capture_ingest_requires_a_session(client):
+    """Billing needs an identity to charge and to own what it charged for, so
+    -- unlike before accounts existed -- this is no longer the one anonymous
+    route left in the API."""
+    response = client.post(
+        "/v1/captures", json=capture_payload(), headers={"Authorization": ""}
+    )
+    assert response.status_code == 401
 
 
 # --- saving -----------------------------------------------------------------

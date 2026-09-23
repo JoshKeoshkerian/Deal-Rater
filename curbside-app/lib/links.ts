@@ -6,4 +6,4 @@ export const CHROME_STORE_URL =
 /** Served from `docs/privacy-policy.html`; see README for where it is hosted. */
 export const PRIVACY_URL = "/privacy";
 export const TERMS_URL = "/terms";
-export const CONTACT_EMAIL = "hello@curbsidescore.com";
+export const CONTACT_EMAIL = "support@curbsidescore.com";

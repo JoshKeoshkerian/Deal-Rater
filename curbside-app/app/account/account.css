@@ -1,10 +1,12 @@
-/* Account: preview banner, panels, the balance meter, billing history. */
+/* Account: notice banner, panels, the balance meter, billing history. */
 
-/* --- the "none of this is real" banner ------------------------------------- */
+/* --- the post-checkout confirmation banner ---------------------------------- */
 
-/* Amber, matching the landing page's `.notecard` caveats, and NOT the error
-   red: nothing is broken, it just is not built. */
-.preview-banner {
+/* Amber, matching the landing page's `.notecard` caveats -- a neutral
+   heads-up tone, not the error red. Was `.preview-banner`, for the
+   "none of this is real yet" disclaimer this page carried before billing
+   existed; kept the same look for the one banner that replaced it. */
+.notice-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -19,26 +21,8 @@
   border: 1px solid rgba(232, 180, 74, 0.3);
   border-radius: var(--radius-sm);
 }
-.preview-banner strong {
+.notice-banner strong {
   color: var(--amber);
-}
-.preview-banner__pick {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--ink-faint);
-  white-space: nowrap;
-}
-.preview-banner__pick select {
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--ink);
-  background: var(--navy-deep);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
 }
 
 /* --- panels ---------------------------------------------------------------- */
@@ -188,9 +172,6 @@
 }
 .history col.amount {
   width: 20%;
-}
-.history col.receipt {
-  width: 14%;
 }
 .history th {
   text-align: left;

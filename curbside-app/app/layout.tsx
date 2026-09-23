@@ -23,11 +23,11 @@ export const metadata: Metadata = {
     template: "%s — Curbside",
   },
   description:
-    "Check any Facebook Marketplace car listing in one click. Fair price, scam risk, and the questions a savvy buyer would ask.",
+    "Check a Facebook Marketplace car listing against comparable private-party listings, spot warning signs, and prepare better questions and an opening offer.",
   openGraph: {
     title: "Curbside — Is it the right car?",
     description:
-      "Check any Facebook Marketplace car listing in one click. Fair price, scam risk, and the questions a savvy buyer would ask.",
+      "Check a Facebook Marketplace car listing against comparable private-party listings, spot warning signs, and prepare better questions and an opening offer.",
     url: "https://curbsidescore.com",
     siteName: "Curbside",
     type: "website",
@@ -49,6 +49,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
         <AuthProvider>
           <SiteHeader />
           <div className="site-main">{children}</div>

@@ -12,6 +12,7 @@ import { BREAKDOWN_STYLES } from "./breakdown";
 import { ELEMENT_STYLES } from "./elements";
 import { HEADER_STYLES } from "./headline";
 import { SECTION_STYLES } from "./sections";
+import { SIGNIN_PANEL_STYLES } from "./signin-panel";
 import { themeVariables } from "./tokens";
 
 const SHELL = `
@@ -89,6 +90,9 @@ const TRAILING = `
   }
   .notices p:last-child { margin-bottom: 0; }
   .notices strong { color: var(--text-dim); font-weight: 700; }
+  .notices a {
+    display: inline; gap: 0; font-size: inherit; font-weight: 600;
+  }
 `;
 
 /**
@@ -103,6 +107,7 @@ ${SHELL}
 ${ELEMENT_STYLES}
 ${HEADER_STYLES}
 ${BOOKMARK_STYLES}
+${SIGNIN_PANEL_STYLES}
 ${BREAKDOWN_STYLES}
 ${SECTION_STYLES}
 ${AI_INSIGHTS_STYLES}

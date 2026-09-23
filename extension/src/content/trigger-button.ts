@@ -31,6 +31,7 @@
  * listing -- it sends a half-finished message to a stranger.
  */
 
+import { buildSignInForm, SIGNIN_PANEL_STYLES } from "./overlay/signin-panel";
 import { themeVariables } from "./overlay/tokens";
 import { CAPTURE_STEPS, stageIndex, type CaptureStage } from "./capture-stages";
 
@@ -49,7 +50,10 @@ const BUSY_LABEL = "Evaluating…";
 const RELOAD_HINT = "Reload the page and try again.";
 
 function withReloadHint(text: string): string {
-  if (/reload/i.test(text)) return text;
+  // An out-of-checks message already names the fix (buy more, at a URL) --
+  // appending "reload and try again" would be actively wrong, implying a
+  // retry could succeed where the balance alone decides that.
+  if (/reload/i.test(text) || /curbsidescore\.com/i.test(text)) return text;
   const trimmed = text.trim();
   const needsStop = trimmed.length > 0 && !/[.!?]$/.test(trimmed);
   return `${trimmed}${needsStop ? "." : ""} ${RELOAD_HINT}`.trim();
@@ -224,7 +228,7 @@ function accent(selector: string): string {
  */
 export function triggerStylesheet(selector = ":host"): string {
   const reset = selector === ":host" ? ":host { all: initial; }" : "";
-  return `${reset}\n${themeVariables(selector)}\n${accent(selector)}\n${RULES}`;
+  return `${reset}\n${themeVariables(selector)}\n${accent(selector)}\n${RULES}\n${SIGNIN_PANEL_STYLES}`;
 }
 
 export interface TriggerButton {
@@ -232,6 +236,13 @@ export interface TriggerButton {
   setProgress(message: string, stage?: CaptureStage): void;
   /** A terminal message. Clears the rail. */
   setStatus(message: string, tone?: "info" | "error"): void;
+  /**
+   * Shows the shared sign-in form in place of the status card, gating a
+   * click that needs a session (`content/index.ts`'s `handleClick`).
+   * `onDone` fires once signed in and should re-run whatever the user
+   * originally clicked; "Not now" clears the card back to empty.
+   */
+  showSignIn(onDone: () => void): void;
   setBusy(busy: boolean): void;
   remove(): void;
   addExtraAction(label: string, onClick: () => void): void;
@@ -305,13 +316,21 @@ export function mountTriggerButton(
 
   card.append(rail, progressLine);
 
+  // A separate card, not reused DOM inside `card`: the sign-in form has its
+  // own field layout, and swapping it in and out of the rail/message
+  // structure above would mean tearing that structure down and rebuilding it
+  // every time. Same class for the same width/padding/border/shadow.
+  const signinCard = document.createElement("div");
+  signinCard.className = "card";
+  signinCard.hidden = true;
+
   const button = document.createElement("button");
   button.type = "button";
   button.className = "capture";
   button.textContent = IDLE_LABEL;
   button.addEventListener("click", onClick);
 
-  panel.append(card, button);
+  panel.append(card, signinCard, button);
   shadow.append(style, panel);
   document.body.appendChild(host);
 
@@ -382,6 +401,7 @@ export function mountTriggerButton(
 
   return {
     setProgress(text, stage) {
+      signinCard.hidden = true;
       if (hideTimer) clearTimeout(hideTimer);
       clearRetry();
       clearTitle();
@@ -403,6 +423,7 @@ export function mountTriggerButton(
     },
 
     setStatus(text, tone = "info") {
+      signinCard.hidden = true;
       if (hideTimer) clearTimeout(hideTimer);
       stopClock();
       clearRetry();
@@ -433,6 +454,30 @@ export function mountTriggerButton(
           card.hidden = true;
         }, 8000);
       }
+    },
+
+    showSignIn(onDone) {
+      if (hideTimer) clearTimeout(hideTimer);
+      stopClock();
+      card.hidden = true;
+      signinCard.hidden = false;
+      buildSignInForm(
+        signinCard,
+        () => {
+          signinCard.hidden = true;
+          onDone();
+        },
+        {
+          title: "Sign in to run a check",
+          blurb:
+            "Your first checks are free. Sign in with an email code -- no password, " +
+            "no card -- and this check runs right after.",
+        },
+        () => {
+          signinCard.replaceChildren();
+          signinCard.hidden = true;
+        },
+      );
     },
 
     setBusy(busy) {

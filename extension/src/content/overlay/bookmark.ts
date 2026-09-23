@@ -52,14 +52,10 @@
  * whether somebody is signed in and whether this evaluation is saved.
  */
 
-import type {
-  AuthActionResult,
-  AuthVerifyResult,
-  ContentToBackground,
-  SavedStateResult,
-} from "../../shared/messages";
+import type { ContentToBackground, SavedStateResult } from "../../shared/messages";
 import { sendToBackground } from "../../shared/messages";
 import { el } from "./elements";
+import { buildSignInForm } from "./signin-panel";
 
 /**
  * `sendToBackground`, with synchronous throws turned into rejections.
@@ -161,150 +157,32 @@ export interface BookmarkControl {
 }
 
 /**
- * The sign-in form: an email step, then a code step.
- *
- * `onDone` fires once a session exists, and is what saves the evaluation the
- * user originally clicked on.
+ * Opens the shared sign-in form (`signin-panel.ts`) inside this control's
+ * panel element. `onDone` fires once a session exists, and is what saves the
+ * evaluation the user originally clicked on.
  */
 function buildSignIn(panel: HTMLElement, onDone: () => void): void {
-  panel.replaceChildren();
   panel.dataset["open"] = "true";
-
-  const form = el("form", "signin");
-  const title = el("p", "signin-title", "Save this evaluation");
-  // The site is named here as well as on the strip: this is where somebody
-  // decides whether handing over an email address is worth it, and "on the web"
-  // is not a thing anyone can go and look at first.
-  const blurb = el(
-    "p",
-    "signin-blurb",
-    "Saved evaluations are kept as a snapshot of what this tool said today, and you " +
-      `can read them back at ${SAVED_APP_LABEL}. No password — we email you a code.`,
+  buildSignInForm(
+    panel,
+    () => {
+      delete panel.dataset["open"];
+      onDone();
+    },
+    {
+      title: "Save this evaluation",
+      // The site is named here as well as on the strip: this is where somebody
+      // decides whether handing over an email address is worth it, and "on
+      // the web" is not a thing anyone can go and look at first.
+      blurb:
+        "Saved evaluations are kept as a snapshot of what this tool said today, and you " +
+        `can read them back at ${SAVED_APP_LABEL}. No password — we email you a code.`,
+    },
+    () => {
+      panel.replaceChildren();
+      delete panel.dataset["open"];
+    },
   );
-
-  const emailInput = el("input", "signin-input") as HTMLInputElement;
-  emailInput.type = "email";
-  emailInput.required = true;
-  emailInput.placeholder = "you@example.com";
-  emailInput.setAttribute("aria-label", "Email address");
-
-  const codeInput = el("input", "signin-input") as HTMLInputElement;
-  codeInput.type = "text";
-  codeInput.placeholder = "ABCD-2345";
-  codeInput.autocomplete = "one-time-code";
-  codeInput.setAttribute("aria-label", "Sign-in code");
-  codeInput.hidden = true;
-
-  const submit = el("button", "signin-submit", "Email me a code") as HTMLButtonElement;
-  submit.type = "submit";
-
-  const message = el("p", "signin-message");
-  // Announced rather than merely displayed: the panel is a modal, and a screen
-  // reader user who submits an email has no other way to learn it worked.
-  message.setAttribute("role", "status");
-  message.setAttribute("aria-live", "polite");
-
-  /**
-   * The spam-folder note, and why it is not part of `message`.
-   *
-   * A transactional email from a domain with almost no sending history lands in
-   * junk often enough that "it never arrived" is the most likely first-run
-   * failure this product has, and the user's only recovery is to look in a
-   * folder they were not told about. `message` is the wrong place for that: it
-   * is overwritten by "Checking…" and by every error, so the hint would vanish
-   * at exactly the moment somebody is hunting for the code. This line is
-   * separate, appears with the code field, and stays put.
-   */
-  const hint = el(
-    "p",
-    "signin-hint",
-    "Not there in a minute? Check your spam or junk folder — and mark it as not spam, " +
-      "so the next one arrives in your inbox.",
-  );
-  hint.hidden = true;
-
-  const cancel = el("button", "signin-cancel", "Not now") as HTMLButtonElement;
-  cancel.type = "button";
-  cancel.addEventListener("click", () => {
-    panel.replaceChildren();
-    delete panel.dataset["open"];
-  });
-
-  let step: "email" | "code" = "email";
-
-  const setBusy = (busy: boolean) => {
-    submit.disabled = busy;
-    emailInput.disabled = busy;
-    codeInput.disabled = busy;
-  };
-
-  const fail = (text: string) => {
-    message.textContent = text;
-    message.dataset["tone"] = "error";
-  };
-
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const email = emailInput.value.trim();
-    if (!email) return;
-
-    setBusy(true);
-    message.dataset["tone"] = "info";
-
-    if (step === "email") {
-      message.textContent = "Sending…";
-      void ask<AuthActionResult>({ type: "AUTH_REQUEST_CODE", email })
-        .then((result) => {
-          setBusy(false);
-          if (!result.ok) {
-            fail(result.error);
-            return;
-          }
-          step = "code";
-          codeInput.hidden = false;
-          codeInput.focus();
-          hint.hidden = false;
-          submit.textContent = "Sign in";
-          message.dataset["tone"] = "info";
-          message.textContent = `Code sent to ${email}. It expires shortly.`;
-        })
-        .catch(() => {
-          setBusy(false);
-          fail("Could not reach the server.");
-        });
-      return;
-    }
-
-    const code = codeInput.value.trim();
-    if (!code) {
-      setBusy(false);
-      return;
-    }
-
-    message.textContent = "Checking…";
-    void ask<AuthVerifyResult>({ type: "AUTH_VERIFY_CODE", email, code })
-      .then((result) => {
-        setBusy(false);
-        if (!result.ok) {
-          fail(result.error);
-          codeInput.select();
-          return;
-        }
-        panel.replaceChildren();
-        delete panel.dataset["open"];
-        onDone();
-      })
-      .catch(() => {
-        setBusy(false);
-        fail("Could not reach the server.");
-      });
-  });
-
-  const actions = el("div", "signin-actions");
-  actions.append(submit, cancel);
-  form.append(title, blurb, emailInput, codeInput, actions, message, hint);
-  panel.append(form);
-  emailInput.focus();
 }
 
 /**
@@ -511,6 +389,10 @@ export const BOOKMARK_STYLES = `
      URL sits in the sentence instead of standing a step above it. */
   .saved-strip-link { font-size: inherit; }
 
+  /* The form's own classes (.signin-title, .signin-input, etc.) are in
+     signin-panel.ts's SIGNIN_PANEL_STYLES, shared with trigger-button.ts's
+     sign-in gate. This is just the collapsible container specific to sitting
+     under the bookmark header. */
   .signin-panel { display: none; }
   .signin-panel[data-open="true"] {
     display: block;
@@ -518,49 +400,4 @@ export const BOOKMARK_STYLES = `
     background: var(--raised);
     border-bottom: 1px solid var(--border);
   }
-
-  .signin-title {
-    margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: 700; color: var(--text);
-  }
-  .signin-blurb {
-    margin: 0 0 var(--sp-4); font-size: var(--fs-xs); line-height: 1.5; color: var(--text-faint);
-  }
-  .signin-input {
-    display: block; width: 100%; box-sizing: border-box;
-    margin: 0 0 var(--sp-3); padding: var(--sp-3);
-    font: inherit; font-size: var(--fs-sm);
-    color: var(--text); background: var(--sheet);
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
-  }
-  .signin-input:disabled { opacity: .6; }
-
-  .signin-actions { display: flex; align-items: center; gap: var(--sp-3); }
-  .signin-submit {
-    padding: var(--sp-3) var(--sp-4);
-    font: inherit; font-size: var(--fs-sm); font-weight: 600;
-    color: var(--sheet); background: var(--text);
-    border: none; border-radius: var(--radius-sm); cursor: pointer;
-  }
-  .signin-submit:disabled { opacity: .6; cursor: default; }
-  .signin-cancel {
-    padding: var(--sp-3) var(--sp-2);
-    font: inherit; font-size: var(--fs-sm);
-    color: var(--text-faint); background: none; border: none; cursor: pointer;
-  }
-  .signin-cancel:hover { color: var(--text); }
-
-  .signin-message {
-    margin: var(--sp-3) 0 0; font-size: var(--fs-xs); line-height: 1.45;
-    color: var(--text-faint);
-  }
-  .signin-message[data-tone="error"] { color: var(--tone-adverse-text); }
-  .signin-message:empty { display: none; }
-
-  /* A step below the status line, not beside it: it is a standing note about
-     where the mail might be, and must never read as this attempt's outcome. */
-  .signin-hint {
-    margin: var(--sp-2) 0 0; font-size: var(--fs-xs); line-height: 1.45;
-    color: var(--text-faint);
-  }
-  .signin-hint[hidden] { display: none; }
 `;

@@ -11,4 +11,6 @@
     python -m app.cli.confidence_report  confidence-level, limiter, and
                                 anchor-publication distribution (docs/scoring-
                                 audit.md findings #4, #5)
+    python -m app.cli.stripe_setup  one-off: create the Stripe Products/Prices
+                                for app/billing/plans.py
 """

@@ -43,6 +43,7 @@ import {
   fetchEvaluationWithRetry,
   fetchKnownIssues,
   fetchSavedState,
+  PaymentRequiredError,
   postCapture,
   requestSignInCode,
   saveEvaluation,
@@ -58,15 +59,37 @@ const TAB_LOAD_TIMEOUT_MS = 30_000;
 const pendingHarvests = new Map<number, (tabId: number) => void>();
 
 async function handleEvaluation(captureId: number): Promise<EvaluationResult> {
+  const session = await loadSession();
+  if (!session) return { ok: false, error: "Sign in to see this evaluation.", signedOut: true };
+
   const settings = await loadSettings();
-  const evaluation = await fetchEvaluationWithRetry(settings.apiBaseUrl, captureId);
-  return { ok: true, evaluation };
+  try {
+    const evaluation = await fetchEvaluationWithRetry(settings.apiBaseUrl, session.token, captureId);
+    return { ok: true, evaluation };
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      await clearSession();
+      return { ok: false, error: "Sign in to see this evaluation.", signedOut: true };
+    }
+    return { ok: false, error: describe(error) };
+  }
 }
 
 async function handleKnownIssues(captureId: number): Promise<KnownIssuesFetchResult> {
+  const session = await loadSession();
+  if (!session) return { ok: false, error: "Sign in to see this.", signedOut: true };
+
   const settings = await loadSettings();
-  const result = await fetchKnownIssues(settings.apiBaseUrl, captureId);
-  return { ok: true, result };
+  try {
+    const result = await fetchKnownIssues(settings.apiBaseUrl, session.token, captureId);
+    return { ok: true, result };
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      await clearSession();
+      return { ok: false, error: "Sign in to see this.", signedOut: true };
+    }
+    return { ok: false, error: describe(error) };
+  }
 }
 
 chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, sendResponse) => {
@@ -160,11 +183,23 @@ chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, send
 });
 
 async function handleSubmit(payload: unknown): Promise<SubmitCaptureResult> {
+  const session = await loadSession();
+  if (!session) {
+    return { ok: false, error: "Sign in to run a check.", signedOut: true };
+  }
+
   const settings = await loadSettings();
   try {
-    const response = await postCapture(settings.apiBaseUrl, payload as never);
+    const response = await postCapture(settings.apiBaseUrl, session.token, payload as never);
     return { ok: true, response };
   } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      await clearSession();
+      return { ok: false, error: "Sign in to run a check.", signedOut: true };
+    }
+    if (error instanceof PaymentRequiredError) {
+      return { ok: false, error: describe(error), outOfChecks: true };
+    }
     return { ok: false, error: describe(error) };
   }
 }

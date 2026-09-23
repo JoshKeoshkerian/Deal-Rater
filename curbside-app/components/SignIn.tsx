@@ -23,11 +23,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import { requestSignInCode, verifySignInCode } from "@/lib/api";
+import { ApiError, requestSignInCode, verifySignInCode } from "@/lib/api";
 import type { User } from "@/lib/types";
 
 type Step = "email" | "code";
 type Tone = "info" | "error";
+
+/** Seconds a "Resend code" press disables itself for, so a stray double-click
+ *  or an impatient retry doesn't hammer the endpoint that's already rate-limited
+ *  server-side. */
+const RESEND_COOLDOWN_S = 30;
+
+function messageFor(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.status === 429) {
+    return "Too many attempts. Wait a bit before trying again.";
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 
 export function SignIn({
   initialEmail,
@@ -48,11 +60,19 @@ export function SignIn({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [tone, setTone] = useState<Tone>("info");
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const fail = useCallback((text: string) => {
     setMessage(text);
     setTone("error");
   }, []);
+
+  // Ticks the resend cooldown down to 0, one second at a time.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const id = window.setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearInterval(id);
+  }, [resendCooldown]);
 
   const verify = useCallback(
     async (withEmail: string, withCode: string) => {
@@ -68,13 +88,30 @@ export function SignIn({
         setUser(result.user);
         onSignedIn?.(result.user);
       } catch (error) {
-        fail(error instanceof Error ? error.message : "That did not work.");
+        fail(messageFor(error, "That did not work."));
       } finally {
         setBusy(false);
       }
     },
     [fail, onSignedIn, setUser],
   );
+
+  const resend = useCallback(async () => {
+    if (busy || resendCooldown > 0) return;
+    setBusy(true);
+    setTone("info");
+    setMessage("Sending a new code…");
+    try {
+      await requestSignInCode(email.trim());
+      setTone("info");
+      setMessage(`New code sent to ${email.trim()}.`);
+      setResendCooldown(RESEND_COOLDOWN_S);
+    } catch (error) {
+      fail(messageFor(error, "Could not send a new code."));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, email, fail, resendCooldown]);
 
   // The emailed link, verified once on arrival. The ref guards React 18+
   // StrictMode's deliberate double-invoke in development, which would
@@ -102,8 +139,9 @@ export function SignIn({
         setStep("code");
         setTone("info");
         setMessage(`Code sent to ${email.trim()}. It works once, and expires shortly.`);
+        setResendCooldown(RESEND_COOLDOWN_S);
       } catch (error) {
-        fail(error instanceof Error ? error.message : "Could not send that.");
+        fail(messageFor(error, "Could not send that."));
       } finally {
         setBusy(false);
       }
@@ -172,7 +210,15 @@ export function SignIn({
       </button>
 
       {step === "code" && (
-        <p className="form-note">
+        <p className="form-note code-actions">
+          <button
+            type="button"
+            className="linkish"
+            disabled={busy || resendCooldown > 0}
+            onClick={() => void resend()}
+          >
+            {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : "Resend code"}
+          </button>
           <button
             type="button"
             className="linkish"
@@ -181,6 +227,7 @@ export function SignIn({
               setStep("email");
               setCode("");
               setMessage("");
+              setResendCooldown(0);
             }}
           >
             Use a different email

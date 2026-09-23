@@ -9,7 +9,15 @@ import "./pricing.css";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: `Ten free checks on install, then packs from $7.99 or unlimited for $16.99 a month.`,
+  description: `Ten free checks when you sign in, then packs from $7.99 or unlimited for $16.99 a month.`,
+  openGraph: {
+    title: "Pricing — Curbside",
+    description: `Ten free checks when you sign in, then packs from $7.99 or unlimited for $16.99 a month.`,
+    url: "https://curbsidescore.com/pricing",
+  },
+  alternates: {
+    canonical: "/pricing",
+  },
 };
 
 /**
@@ -49,7 +57,7 @@ const FAQ = [
 
 export default function PricingPage() {
   return (
-    <main className="wrap page">
+    <main className="wrap page" id="main">
       <header className="page-head">
         <span className="lbl eyebrow">Pricing</span>
         <h1 className="page-h1">Pay for the checks you use.</h1>
@@ -61,7 +69,7 @@ export default function PricingPage() {
 
       <section className="freeband">
         <div>
-          <span className="lbl">Free on install</span>
+          <span className="lbl">Free when you sign in</span>
           <p className="freeband__num">
             {FREE_EVALUATIONS} <span>checks</span>
           </p>
