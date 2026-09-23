@@ -13,4 +13,6 @@
                                 audit.md findings #4, #5)
     python -m app.cli.stripe_setup  one-off: create the Stripe Products/Prices
                                 for app/billing/plans.py
+    python -m app.cli.comp_account  grant/revoke unlimited checks by hand,
+                                no Stripe involved
 """

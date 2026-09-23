@@ -52,11 +52,12 @@ def grant_free_credits(session: Session, user: User) -> None:
 def is_unlimited(account: BillingAccount) -> bool:
     """Whether this account bypasses the credit balance entirely right now.
 
-    Reads Stripe's status as cached on the row (kept in sync by the webhook),
-    not Stripe itself -- see `BillingAccount`'s docstring for why that cache
-    exists.
+    True for an active Stripe subscription (`subscription_status`, kept in
+    sync by the webhook -- see `BillingAccount`'s docstring for why that
+    cache exists) OR a manually comped account (`is_comped`, set by
+    `python -m app.cli.comp_account` and never touched by Stripe).
     """
-    return account.subscription_status == "active"
+    return account.subscription_status == "active" or account.is_comped
 
 
 def try_reserve_credit(session: Session, user_id: int) -> bool:

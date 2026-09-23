@@ -545,6 +545,14 @@ class BillingAccount(Base):
     #: `/account`'s "Ends <date>, no further charges" line.
     cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    #: Manually granted unlimited checks -- never set by Stripe or a webhook.
+    #: `is_unlimited()` (app/billing/ledger.py) treats this the same as an
+    #: active subscription, but it lives in its own column rather than
+    #: reusing `subscription_status` so a comped account can never be
+    #: mistaken for, or overwritten by, a real one. Set by hand via
+    #: `python -m app.cli.comp_account`.
+    is_comped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
 
 
