@@ -52,6 +52,17 @@
   padding-top: 20px;
   border-top: 1px solid var(--line-soft);
 }
+/* "Cancel subscription" opens the same Billing Portal as "Change plan" --
+   it shouldn't compete with it for attention. Small and muted at rest, the
+   way most billing pages bury this, with red reserved for hover/focus. */
+.panel__actions .linkish.danger {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.panel__actions .linkish.danger:hover,
+.panel__actions .linkish.danger:focus-visible {
+  color: var(--danger);
+}
 
 .deflist {
   margin: 0;
