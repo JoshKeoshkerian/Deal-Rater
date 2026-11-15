@@ -42,6 +42,10 @@
   color: var(--text-2);
 }
 
+.welcome__demo {
+  margin-top: 22px;
+}
+
 .welcome__steps {
   list-style: none;
   margin: 48px 0 0;

@@ -7,3 +7,7 @@ export const CHROME_STORE_URL =
 export const PRIVACY_URL = "/privacy";
 export const TERMS_URL = "/terms";
 export const CONTACT_EMAIL = "support@curbsidescore.com";
+
+/** The "Curbside: How it works" demo on YouTube (@CurbsideScores). */
+export const DEMO_VIDEO_ID = "CEtO2R7D0hg";
+export const DEMO_VIDEO_URL = `https://www.youtube.com/watch?v=${DEMO_VIDEO_ID}`;

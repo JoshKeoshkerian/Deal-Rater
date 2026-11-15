@@ -694,3 +694,124 @@ img {
 .modal .btn {
   margin-top: 8px;
 }
+
+/* --- demo video (landing page, welcome page) -------------------------- */
+
+.demo__wrap {
+  max-width: 960px;
+  margin: 48px auto 0;
+}
+.demo__frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #0b141d;
+  box-shadow:
+    0 50px 100px -30px rgba(8, 29, 54, 0.3),
+    0 30px 60px -30px rgba(8, 29, 54, 0.25);
+}
+.demo__wrap .demo__frame {
+  outline: 1px solid var(--border);
+  outline-offset: 8px;
+}
+.demo__poster {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: none;
+}
+.demo__poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s ease, filter 0.3s ease;
+}
+.demo__poster:hover img {
+  transform: scale(1.02);
+  filter: brightness(0.92);
+}
+.demo__play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  padding-left: 4px;
+  color: #fff;
+  background: var(--brand);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow:
+    0 0 0 10px rgba(255, 255, 255, 0.22),
+    0 18px 40px -10px rgba(0, 0, 0, 0.6);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.demo__poster:hover .demo__play {
+  transform: translate(-50%, -50%) scale(1.06);
+  background: var(--brand-hover);
+}
+@media (max-width: 560px) {
+  .demo__play {
+    width: 64px;
+    height: 64px;
+  }
+  .demo__wrap .demo__frame {
+    outline-offset: 4px;
+  }
+}
+.demo__poster:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: -3px;
+}
+.demo__iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* The hero's "Watch the demo" button and its dialog. */
+.demo-btn__icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding-left: 2px;
+  color: #fff;
+  background: var(--navy);
+  border-radius: 50%;
+}
+.demo-scrim {
+  background: rgba(4, 12, 22, 0.82);
+}
+.demo-dialog {
+  position: relative;
+  width: min(1100px, 100%);
+}
+.demo-dialog__close {
+  display: block;
+  margin: 0 0 12px auto;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.demo-dialog__close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.demo__frame--dialog {
+  border-radius: 14px;
+}

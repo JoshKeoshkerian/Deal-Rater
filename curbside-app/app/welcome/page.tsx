@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { DemoVideoButton } from "@/components/DemoVideo";
 import { CONTACT_EMAIL } from "@/lib/links";
 import { GUEST_FREE_EVALUATIONS, SIGNUP_BONUS_EVALUATIONS } from "@/lib/plans";
 
@@ -52,6 +53,11 @@ export default function WelcomePage() {
           <p className="welcome__lede">
             {firstFree} is free, with no sign-up. It takes about a minute.
           </p>
+          <div className="welcome__demo">
+            <DemoVideoButton className="btn btn--ghost" location="welcome">
+              Prefer to watch first? See the demo
+            </DemoVideoButton>
+          </div>
         </header>
 
         <ol className="welcome__steps">

@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { CopyLinkButton } from "@/components/CopyLinkButton";
+import { DemoVideo, DemoVideoButton } from "@/components/DemoVideo";
 import { InstallButton } from "@/components/InstallButton";
 import { ShowcaseShots } from "@/components/ShowcaseShots";
 import { CONTACT_EMAIL } from "@/lib/links";
@@ -350,9 +351,7 @@ export default function LandingPage() {
               <InstallButton location="hero" className="btn btn--big">
                 Add to Chrome &mdash; it&rsquo;s free
               </InstallButton>
-              <a className="btn btn--ghost btn--big" href="#how">
-                See how it works
-              </a>
+              <DemoVideoButton location="hero" />
             </div>
             <ul className="hero__checks">
               <li>
@@ -390,8 +389,30 @@ export default function LandingPage() {
         </ul>
       </section>
 
+      {/* ---------- demo video ---------- */}
+      <section className="sec demo" id="demo">
+        <div className="wrap">
+          <div className="sechead sechead--center">
+            <p className="lbl">See it in action</p>
+            <h2 className="sectitle">One click. The whole picture.</h2>
+            <p className="secbody">
+              One click on a Marketplace car: the price against comparable listings, the red flags,
+              and what to ask before you go.
+            </p>
+          </div>
+          <div className="demo__wrap">
+            <DemoVideo location="demo-section" />
+          </div>
+          <div className="sec__cta">
+            <InstallButton location="demo-section" className="btn btn--big">
+              Add to Chrome &mdash; try it free
+            </InstallButton>
+          </div>
+        </div>
+      </section>
+
       {/* ---------- problem / difference ---------- */}
-      <section className="sec" id="why">
+      <section className="sec sec--subtle" id="why">
         <div className="wrap why">
           <div className="sechead">
             <p className="lbl">Why Curbside</p>
@@ -433,7 +454,7 @@ export default function LandingPage() {
       </section>
 
       {/* ---------- how it works ---------- */}
-      <section className="sec sec--subtle" id="how">
+      <section className="sec" id="how">
         <div className="wrap">
           <div className="sechead sechead--center">
             <p className="lbl">How it works</p>
@@ -459,7 +480,7 @@ export default function LandingPage() {
       </section>
 
       {/* ---------- features ---------- */}
-      <section className="sec" id="features">
+      <section className="sec sec--subtle" id="features">
         <div className="wrap">
           <div className="sechead sechead--center">
             <p className="lbl">What you get</p>
@@ -484,7 +505,7 @@ export default function LandingPage() {
       </section>
 
       {/* ---------- examples ---------- */}
-      <section className="sec sec--subtle showcase" id="examples">
+      <section className="sec showcase" id="examples">
         <div className="wrap wrap--wide">
           <div className="sechead sechead--center">
             <p className="lbl">Real results</p>
@@ -499,7 +520,7 @@ export default function LandingPage() {
       </section>
 
       {/* ---------- pricing ---------- */}
-      <section className="sec" id="pricing">
+      <section className="sec sec--subtle" id="pricing">
         <div className="wrap">
           <div className="sechead sechead--center">
             <p className="lbl">Pricing</p>
@@ -549,7 +570,7 @@ export default function LandingPage() {
       </section>
 
       {/* ---------- FAQ ---------- */}
-      <section className="sec sec--subtle" id="faq">
+      <section className="sec" id="faq">
         <div className="wrap faq-wrap">
           <div className="sechead">
             <p className="lbl">FAQ</p>
