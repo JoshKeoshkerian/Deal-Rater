@@ -11,6 +11,19 @@ evaluations and account, in one Next.js app.
 | `/saved`   | Login gate, then the signed-in user's saved cards | no      |
 | `/account` | Plan, remaining checks, billing history           | no      |
 
+## Design and ad tracking
+
+Light theme only (white background), one typeface (Inter, self-hosted via
+`next/font`). Tokens are in `app/globals.css`; `--brand` is a darker shade of
+the logo green so white button text passes WCAG AA.
+
+Every "Add to Chrome" link is `components/InstallButton.tsx`. It forwards
+`utm_source` / `utm_medium` / `utm_campaign` from the landing URL (kept for the
+session) to the Chrome Web Store link, so store analytics can separate ad
+installs from organic ones, and sends a Vercel Analytics `install_click` event
+with a `location` prop (`hero`, `header`, `final`, ...) to compare CTAs. Use
+UTM-tagged URLs in every ad.
+
 ## This used to be two sites
 
 `curbside-site/` was a static `index.html` on `curbsidescore.com`; this app was

@@ -16,13 +16,13 @@
   margin-bottom: 28px;
   font-size: 13.5px;
   line-height: 1.55;
-  color: var(--ink-dim);
-  background: rgba(232, 180, 74, 0.08);
-  border: 1px solid rgba(232, 180, 74, 0.3);
+  color: var(--text-2);
+  background: var(--brand-soft);
+  border: 1px solid rgba(11, 127, 94, 0.3);
   border-radius: var(--radius-sm);
 }
 .notice-banner strong {
-  color: var(--amber);
+  color: var(--brand);
 }
 
 /* --- panels ---------------------------------------------------------------- */
@@ -30,17 +30,16 @@
 .panel {
   padding: 24px 26px;
   margin-bottom: 18px;
-  background: var(--navy-raised);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
 }
 .panel__title {
-  font-size: 13px;
-  font-family: var(--font-mono);
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
   margin-bottom: 18px;
 }
 .panel__actions {
@@ -50,14 +49,14 @@
   flex-wrap: wrap;
   margin-top: 22px;
   padding-top: 20px;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--border);
 }
 /* "Cancel subscription" opens the same Billing Portal as "Change plan" --
    it shouldn't compete with it for attention. Small and muted at rest, the
    way most billing pages bury this, with red reserved for hover/focus. */
 .panel__actions .linkish.danger {
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--text-3);
 }
 .panel__actions .linkish.danger:hover,
 .panel__actions .linkish.danger:focus-visible {
@@ -83,7 +82,7 @@
 }
 .deflist dt {
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--text-3);
 }
 .deflist dd {
   margin: 0;
@@ -113,26 +112,27 @@
 .planrow__sub {
   margin: 6px 0 0;
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--text-3);
 }
 
 .balance {
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 32px;
-  font-weight: 600;
-  color: var(--lime);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text);
   margin: 10px 0 0;
   line-height: 1.1;
 }
 .balance--unlimited {
   font-size: 24px;
-  color: var(--teal-bright);
+  color: var(--brand);
 }
 .balance__of {
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 400;
-  color: var(--ink-faint);
+  color: var(--text-3);
 }
 
 /* `<meter>` styles differently in every engine, so the element is reset to a
@@ -146,17 +146,17 @@
   appearance: none;
   border: none;
   border-radius: var(--radius-pill);
-  background: rgba(234, 241, 248, 0.1);
+  background: #e6ebf1;
   overflow: hidden;
 }
 .balance__meter::-webkit-meter-bar {
-  background: rgba(234, 241, 248, 0.1);
+  background: #e6ebf1;
   border: none;
   border-radius: var(--radius-pill);
 }
 .balance__meter::-webkit-meter-optimum-value,
 .balance__meter::-webkit-meter-suboptimum-value {
-  background: var(--lime);
+  background: var(--brand);
   border-radius: var(--radius-pill);
 }
 .balance__meter::-webkit-meter-even-less-good-value {
@@ -164,7 +164,7 @@
   border-radius: var(--radius-pill);
 }
 .balance__meter::-moz-meter-bar {
-  background: var(--lime);
+  background: var(--brand);
   border-radius: var(--radius-pill);
 }
 
@@ -186,19 +186,16 @@
 }
 .history th {
   text-align: left;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-3);
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 .history td {
   padding: 12px 0;
-  border-bottom: 1px solid var(--line-soft);
-  color: var(--ink-dim);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
 }
 .history tr:last-child td {
   border-bottom: none;
@@ -208,8 +205,8 @@
 .history .num {
   text-align: right;
   padding-right: 28px;
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .history td.num {
-  color: var(--ink);
+  color: var(--text);
 }

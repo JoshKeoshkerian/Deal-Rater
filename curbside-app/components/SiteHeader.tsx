@@ -24,7 +24,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { BrandMark } from "@/components/BrandMark";
 import { useAuth } from "@/components/AuthProvider";
-import { CHROME_STORE_URL } from "@/lib/links";
+import { InstallButton } from "@/components/InstallButton";
 
 export function SiteHeader() {
   const { user, status, signOut, signOutError } = useAuth();
@@ -61,11 +61,8 @@ export function SiteHeader() {
       <Link href="/#how" className="nav-link" onClick={closeMenu} ref={linkRef}>
         How it works
       </Link>
-      <Link href="/#what" className="nav-link" onClick={closeMenu}>
-        What it checks
-      </Link>
-      <Link href="/#trust" className="nav-link" onClick={closeMenu}>
-        Trust &amp; limits
+      <Link href="/#features" className="nav-link" onClick={closeMenu}>
+        Features
       </Link>
       <Link
         href="/pricing"
@@ -74,6 +71,9 @@ export function SiteHeader() {
         onClick={closeMenu}
       >
         Pricing
+      </Link>
+      <Link href="/#faq" className="nav-link" onClick={closeMenu}>
+        FAQ
       </Link>
       {signedIn && (
         <>
@@ -109,6 +109,7 @@ export function SiteHeader() {
         <div className="navlinks">
           {nav()}
 
+          <span className="nav-divider" aria-hidden="true" />
           {/* `status === "unknown"` renders neither state: the first paint of a
               marketing page should not flash "Sign in" at somebody who is. */}
           {status === "signed-out" || status === "error" ? (
@@ -127,9 +128,9 @@ export function SiteHeader() {
             </span>
           )}
 
-          <a className="btn btn--sm" href={CHROME_STORE_URL} target="_blank" rel="noopener">
-            Add to Chrome
-          </a>
+          <InstallButton location="header" className="btn btn--sm" icon={false}>
+            Add to Chrome &mdash; it&rsquo;s free
+          </InstallButton>
         </div>
 
         <button
@@ -171,9 +172,9 @@ export function SiteHeader() {
             )}
             {/* The install CTA lives in `.navlinks`, which is display:none at
                 this width, so the mobile menu needs its own copy. */}
-            <a className="btn btn--sm" href={CHROME_STORE_URL} target="_blank" rel="noopener">
-              Add to Chrome
-            </a>
+            <InstallButton location="mobile-menu" className="btn btn--sm" icon={false}>
+              Add to Chrome &mdash; it&rsquo;s free
+            </InstallButton>
           </div>
         </div>
       )}

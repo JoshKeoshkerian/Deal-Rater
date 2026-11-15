@@ -4,7 +4,7 @@
   max-width: 44em;
 }
 .prose .updated {
-  color: var(--ink-faint);
+  color: var(--text-3);
   font-size: 13px;
   margin: 8px 0 28px;
 }
@@ -18,19 +18,19 @@
   margin: 0 0 14px;
   font-size: 16px;
   line-height: 1.65;
-  color: var(--ink-dim);
+  color: var(--text-2);
 }
 .prose strong {
-  color: var(--ink);
+  color: var(--text);
 }
 .prose a {
-  color: var(--teal-bright);
+  color: var(--brand);
 }
 .prose code {
   font-family: var(--font-mono);
   font-size: 0.88em;
   padding: 1px 5px;
   border-radius: 4px;
-  background: var(--navy-raised);
-  color: var(--ink);
+  background: var(--bg-subtle);
+  color: var(--text);
 }

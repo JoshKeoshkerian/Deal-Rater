@@ -1,11 +1,39 @@
 import { Analytics } from "@vercel/analytics/next";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { Inter, Unbounded } from "next/font/google";
 
 import { AuthProvider } from "@/components/AuthProvider";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 
 import "./globals.css";
+
+/**
+ * One typeface, self-hosted by next/font so there is no render-blocking
+ * request to Google Fonts and no layout shift when it swaps in — both of
+ * which cost landing-page conversions on paid traffic.
+ */
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
+
+/**
+ * Display face for headlines, prices and the wordmark: Unbounded, the closest
+ * Google Fonts match to Hagrid (wide, geometric). Body text stays Inter —
+ * a face this wide is tiring at paragraph length.
+ */
+const unbounded = Unbounded({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-unbounded",
+});
+
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+  colorScheme: "light",
+};
 
 /**
  * ONE SITE NOW. The marketing page and the signed-in area used to be two Vercel
@@ -20,13 +48,13 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL("https://curbsidescore.com"),
   title: {
-    default: "Curbside — Is it the right car?",
+    default: "Curbside — Is that Marketplace car a good deal?",
     template: "%s — Curbside",
   },
   description:
     "Check a Facebook Marketplace car listing against comparable private-party listings, spot warning signs, and prepare better questions and an opening offer.",
   openGraph: {
-    title: "Curbside — Is it the right car?",
+    title: "Curbside — Is that Marketplace car a good deal?",
     description:
       "Check a Facebook Marketplace car listing against comparable private-party listings, spot warning signs, and prepare better questions and an opening offer.",
     url: "https://curbsidescore.com",
@@ -37,18 +65,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        {/* Archivo is loaded on its variable width axis, because the landing
-            page's headings set `font-variation-settings: "wdth"`. The old app
-            layout requested static weights, which silently ignored that. */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang="en" className={`${inter.variable} ${unbounded.variable}`}>
       <body>
         <a href="#main" className="skip-link">
           Skip to content

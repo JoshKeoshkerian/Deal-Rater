@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { PricingPlans } from "@/components/PricingPlans";
 import { FREE_EVALUATIONS } from "@/lib/plans";
-import { CHROME_STORE_URL } from "@/lib/links";
+import { InstallButton } from "@/components/InstallButton";
 
 import "./pricing.css";
 
@@ -60,10 +60,10 @@ export default function PricingPage() {
     <main className="wrap page" id="main">
       <header className="page-head">
         <span className="lbl eyebrow">Pricing</span>
-        <h1 className="page-h1">Pay for the checks you use.</h1>
+        <h1 className="page-h1">Start free. Pay only for what you use.</h1>
         <p className="page-lede">
-          Your first {FREE_EVALUATIONS} checks are free, and no card is asked for. After that,
-          buy a pack that never expires or go unlimited for the month you&rsquo;re shopping.
+          Your first {FREE_EVALUATIONS} checks are free, with no credit card. After that, buy a
+          pack that never expires or go unlimited for the month you&rsquo;re shopping.
         </p>
       </header>
 
@@ -79,9 +79,9 @@ export default function PricingPage() {
           brief and alternatives that a paid check returns. Enough listings to find out whether
           the number is worth anything to you.
         </p>
-        <a className="btn btn--ghost" href={CHROME_STORE_URL} target="_blank" rel="noopener">
-          Add to Chrome
-        </a>
+        <InstallButton location="pricing-page-free" className="btn">
+          Add to Chrome &mdash; free
+        </InstallButton>
       </section>
 
       <PricingPlans />
@@ -103,15 +103,14 @@ export default function PricingPage() {
         </div>
       </section>
 
-      {/* The same two caveats the landing page and the saved list carry. A
-          pricing page is exactly where a beta signal must not quietly become a
+      {/* The caveats the footer and the saved list also carry. A pricing page
+          is exactly where an informational score must not quietly become a
           product claim. */}
       <section className="notices">
         <p>
-          <strong>Beta signal, not a rating.</strong> The weights and the discount curve are
-          starting hypotheses that have not been checked against hand-evaluated listings yet. This
-          is an informational analysis of a listing, not a purchase recommendation, and never a
-          substitute for a pre-purchase inspection or a vehicle history report.
+          <strong>Informational, not an appraisal.</strong> Curbside&rsquo;s score is an analysis
+          of a listing, not a purchase recommendation, and never a substitute for a pre-purchase
+          inspection or a vehicle history report.
         </p>
         <p>
           Marketplace shows asking prices, not sale prices. Every figure Curbside produces describes
