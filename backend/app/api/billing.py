@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_user
+from app.auth.dependencies import require_account
 from app.billing import (
     get_account_by_subscription_id,
     get_or_create_account,
@@ -60,7 +60,7 @@ def _require_stripe_configured() -> None:
 
 @router.get("/billing/me", response_model=BillingMeOut)
 def billing_me(
-    user: User = Depends(require_user),
+    user: User = Depends(require_account),
     session: Session = Depends(get_session),
 ) -> BillingMeOut:
     account = get_or_create_account(session, user.id)
@@ -105,7 +105,7 @@ def billing_me(
 @router.post("/billing/checkout", response_model=CheckoutOut)
 def create_checkout(
     payload: CheckoutIn,
-    user: User = Depends(require_user),
+    user: User = Depends(require_account),
     session: Session = Depends(get_session),
 ) -> CheckoutOut:
     _require_stripe_configured()
@@ -142,7 +142,7 @@ def create_checkout(
 
 @router.post("/billing/portal", response_model=PortalOut)
 def create_portal(
-    user: User = Depends(require_user),
+    user: User = Depends(require_account),
     session: Session = Depends(get_session),
 ) -> PortalOut:
     _require_stripe_configured()

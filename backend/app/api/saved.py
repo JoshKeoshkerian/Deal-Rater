@@ -74,7 +74,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_user
+from app.auth.dependencies import require_account
 from app.db import get_session
 from app.evaluation import evaluate_capture
 from app.models import ListingObservation, SavedEvaluation, User
@@ -173,7 +173,7 @@ def _to_schema(row: SavedEvaluation) -> SavedEvaluationOut:
 @router.get("/evaluations/{capture_id}/save", response_model=SavedStateOut)
 def get_saved_state(
     capture_id: int,
-    user: User = Depends(require_user),
+    user: User = Depends(require_account),
     session: Session = Depends(get_session),
 ) -> SavedStateOut:
     """The bookmark button's initial state.
@@ -212,7 +212,7 @@ def save_evaluation(
         False,
         description="Skip NHTSA network calls and use only cached data.",
     ),
-    user: User = Depends(require_user),
+    user: User = Depends(require_account),
     session: Session = Depends(get_session),
 ) -> SavedEvaluationOut:
     """Save, idempotently, keyed on the vehicle.
@@ -283,7 +283,7 @@ def save_evaluation(
 @router.delete("/evaluations/{capture_id}/save", status_code=status.HTTP_204_NO_CONTENT)
 def unsave_evaluation(
     capture_id: int,
-    user: User = Depends(require_user),
+    user: User = Depends(require_account),
     session: Session = Depends(get_session),
 ) -> None:
     """Unsave.
@@ -304,7 +304,7 @@ def unsave_evaluation(
 
 @router.get("/users/me/saved", response_model=SavedListOut)
 def list_saved(
-    user: User = Depends(require_user),
+    user: User = Depends(require_account),
     session: Session = Depends(get_session),
 ) -> SavedListOut:
     """Everything this user has saved, most recent first.

@@ -31,7 +31,7 @@
  * listing -- it sends a half-finished message to a stranger.
  */
 
-import { buildSignInForm, SIGNIN_PANEL_STYLES } from "./overlay/signin-panel";
+import { buildSignInForm, SIGNIN_PANEL_STYLES, type SignInCopy } from "./overlay/signin-panel";
 import { themeVariables } from "./overlay/tokens";
 import { CAPTURE_STEPS, stageIndex, type CaptureStage } from "./capture-stages";
 
@@ -242,7 +242,7 @@ export interface TriggerButton {
    * `onDone` fires once signed in and should re-run whatever the user
    * originally clicked; "Not now" clears the card back to empty.
    */
-  showSignIn(onDone: () => void): void;
+  showSignIn(onDone: () => void, copy?: SignInCopy): void;
   setBusy(busy: boolean): void;
   remove(): void;
   addExtraAction(label: string, onClick: () => void): void;
@@ -456,7 +456,7 @@ export function mountTriggerButton(
       }
     },
 
-    showSignIn(onDone) {
+    showSignIn(onDone, copy) {
       if (hideTimer) clearTimeout(hideTimer);
       stopClock();
       card.hidden = true;
@@ -467,11 +467,11 @@ export function mountTriggerButton(
           signinCard.hidden = true;
           onDone();
         },
-        {
+        copy ?? {
           title: "Sign in to run a check",
           blurb:
-            "Your first checks are free. Sign in with an email code -- no password, " +
-            "no card -- and this check runs right after.",
+            "Sign in with an email code -- no password, no card -- and this check runs " +
+            "right after.",
         },
         () => {
           signinCard.replaceChildren();

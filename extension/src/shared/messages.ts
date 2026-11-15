@@ -29,6 +29,10 @@ export type ContentToBackground =
   // The content script never holds the session token; it asks for an outcome.
   // See `shared/session.ts`.
   | { type: "AUTH_STATE" }
+  // Sent on an Evaluate click, before any extraction work: makes sure a
+  // session exists (fetching a guest pass for a first-time user) and says
+  // whether the check can run or needs an email first.
+  | { type: "ENSURE_SESSION" }
   | { type: "AUTH_REQUEST_CODE"; email: string }
   | { type: "AUTH_VERIFY_CODE"; email: string; code: string }
   | { type: "AUTH_SIGN_OUT" }
@@ -49,7 +53,34 @@ export type BackgroundToContent = { type: "HARVEST_COMPS" } | { type: "HARVEST_T
  */
 export type SubmitCaptureResult =
   | { ok: true; response: CaptureResponse }
-  | { ok: false; error: string; signedOut?: true; outOfChecks?: true };
+  | {
+      ok: false;
+      error: string;
+      signedOut?: true;
+      outOfChecks?: true;
+      /** A guest spent their free check: show sign-in framed as "get more
+       * free checks", not as an expired session. Always with `signedOut`. */
+      guestUsed?: true;
+      signupBonus?: number;
+    };
+
+/**
+ * Whether an Evaluate click can go ahead.
+ *
+ * `ready: false` comes with what to show instead: `guest-used` (the free
+ * guest check is spent -- sign up for more) or `sign-in` (no guest pass was
+ * available: rate limited, switched off, or unreachable).
+ */
+export type EnsureSessionResult =
+  | { ok: true; ready: true }
+  | {
+      ok: true;
+      ready: false;
+      reason: "guest-used" | "sign-in";
+      message?: string;
+      signupBonus?: number;
+    }
+  | { ok: false; error: string };
 
 export type EvaluationResult =
   | { ok: true; evaluation: EvaluationResponse }
@@ -109,7 +140,9 @@ export type AuthVerifyResult =
  * `overlay/bookmark.ts` for what is done about it.
  */
 export type SavedStateResult =
-  | { ok: true; signedIn: false }
+  /** `guest` means a check ran on a guest session: the overlay shows the
+   * "save this and get N more free checks" prompt instead of a plain star. */
+  | { ok: true; signedIn: false; guest?: true; signupBonus?: number }
   | { ok: true; signedIn: true; saved: boolean; stale?: boolean }
   | { ok: false; error: string };
 

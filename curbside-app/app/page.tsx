@@ -6,7 +6,13 @@ import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { InstallButton } from "@/components/InstallButton";
 import { ShowcaseShots } from "@/components/ShowcaseShots";
 import { CONTACT_EMAIL } from "@/lib/links";
-import { PLANS, FREE_EVALUATIONS, formatPrice, perCheckPrice } from "@/lib/plans";
+import {
+  PLANS,
+  FREE_EVALUATIONS,
+  SIGNUP_BONUS_EVALUATIONS,
+  formatPrice,
+  perCheckPrice,
+} from "@/lib/plans";
 
 import "./landing.css";
 
@@ -157,7 +163,7 @@ const TRUST = [
 const STEPS = [
   {
     title: "Add Curbside to Chrome",
-    body: "One click from the Chrome Web Store. Sign in with your email to unlock your free checks.",
+    body: "One click from the Chrome Web Store. No account needed — your first check runs without signing up.",
   },
   {
     title: "Open any car on Marketplace",
@@ -229,7 +235,7 @@ const SHOTS = [
 const FAQ = [
   {
     q: "Is Curbside free?",
-    a: `Your first ${FREE_EVALUATIONS} checks are free when you sign in, with no credit card. After that, buy a pack of checks that never expires (from ${formatPrice(
+    a: `Your first check is free with no sign-up at all. Add your email and you get ${SIGNUP_BONUS_EVALUATIONS} more free — ${FREE_EVALUATIONS} in total, no credit card. After that, buy a pack of checks that never expires (from ${formatPrice(
       PLANS[0].priceCents,
     )}) or go unlimited for ${formatPrice(PLANS[2].priceCents)} a month while you’re shopping.`,
   },
@@ -350,7 +356,7 @@ export default function LandingPage() {
             </div>
             <ul className="hero__checks">
               <li>
-                <Check /> {FREE_EVALUATIONS} free checks
+                <Check /> No sign-up to try
               </li>
               <li>
                 <Check /> No credit card
@@ -446,7 +452,7 @@ export default function LandingPage() {
           </ol>
           <div className="sec__cta">
             <InstallButton location="how-it-works" className="btn btn--big">
-              Add to Chrome &mdash; {FREE_EVALUATIONS} free checks
+              Add to Chrome &mdash; try it free
             </InstallButton>
           </div>
         </div>
@@ -511,7 +517,10 @@ export default function LandingPage() {
               <p className="tier__price">
                 $0 <span>{FREE_EVALUATIONS} checks</span>
               </p>
-              <p className="tier__note">The full evaluation, not a trial version. No card needed.</p>
+              <p className="tier__note">
+                First check with no sign-up, then {SIGNUP_BONUS_EVALUATIONS} more with your email. The
+                full evaluation, no card.
+              </p>
               <InstallButton location="pricing-free" className="btn tier__btn" icon={false}>
                 Add to Chrome
               </InstallButton>
@@ -574,7 +583,7 @@ export default function LandingPage() {
               Add to Chrome &mdash; it&rsquo;s free
             </InstallButton>
             <p className="final__meta">
-              {FREE_EVALUATIONS} free checks &middot; No credit card &middot; Desktop Chrome
+              No sign-up to try &middot; No credit card &middot; Desktop Chrome
             </p>
           </div>
         </div>

@@ -15,7 +15,14 @@
 
 /** Free evaluations granted at sign-up, before anything is charged. Mirrors
  * `backend/app/billing/plans.py`'s `FREE_EVALUATIONS` -- keep both in sync. */
-export const FREE_EVALUATIONS = 10;
+export const FREE_EVALUATIONS = 3;
+
+/** Of those, how many run with no sign-up at all (a guest session). Mirrors
+ * `backend/app/billing/plans.py`'s `GUEST_FREE_EVALUATIONS`. */
+export const GUEST_FREE_EVALUATIONS = 1;
+
+/** How many more free checks entering an email adds after the guest check. */
+export const SIGNUP_BONUS_EVALUATIONS = FREE_EVALUATIONS - GUEST_FREE_EVALUATIONS;
 
 export type PlanId = "pack-10" | "pack-20" | "unlimited-monthly";
 

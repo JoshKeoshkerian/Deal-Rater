@@ -100,6 +100,8 @@ type SaveState =
   | "unknown"
   /** Nobody is signed in on this install. */
   | "signed-out"
+  /** This check ran on a guest session: saving is the sign-up prompt. */
+  | "guest"
   | "not-saved"
   | "saved"
   /** A request is in flight. */
@@ -108,6 +110,7 @@ type SaveState =
 const GLYPH: Record<SaveState, string> = {
   unknown: "☆",
   "signed-out": "☆",
+  guest: "☆",
   "not-saved": "☆",
   saved: "★",
   busy: "☆",
@@ -117,6 +120,7 @@ const GLYPH: Record<SaveState, string> = {
 const WORD: Record<SaveState, string> = {
   unknown: "Save",
   "signed-out": "Save",
+  guest: "Save",
   "not-saved": "Save",
   saved: "Saved",
   busy: "Save",
@@ -125,6 +129,7 @@ const WORD: Record<SaveState, string> = {
 const LABEL: Record<SaveState, string> = {
   unknown: "Save this evaluation",
   "signed-out": "Save this evaluation",
+  guest: "Save this evaluation and get more free checks",
   "not-saved": "Save this evaluation",
   saved: "Saved — click to remove",
   busy: "Working…",
@@ -147,6 +152,11 @@ const STRIP_LEAD: Record<"saved" | "unsaved" | "refreshed", string> = {
   refreshed: "Saved already — updated just now to these figures, at",
 };
 
+/** "2 more free checks", or "more free checks" if the number is unknown. */
+function moreChecks(bonus: number): string {
+  return bonus > 0 ? `${bonus} more free check${bonus === 1 ? "" : "s"}` : "more free checks";
+}
+
 export interface BookmarkControl {
   /** Goes in the header, beside the theme toggle. */
   button: HTMLElement;
@@ -161,7 +171,7 @@ export interface BookmarkControl {
  * panel element. `onDone` fires once a session exists, and is what saves the
  * evaluation the user originally clicked on.
  */
-function buildSignIn(panel: HTMLElement, onDone: () => void): void {
+function buildSignIn(panel: HTMLElement, onDone: () => void, guestBonus: number | null): void {
   panel.dataset["open"] = "true";
   buildSignInForm(
     panel,
@@ -169,15 +179,24 @@ function buildSignIn(panel: HTMLElement, onDone: () => void): void {
       delete panel.dataset["open"];
       onDone();
     },
-    {
-      title: "Save this evaluation",
-      // The site is named here as well as on the strip: this is where somebody
-      // decides whether handing over an email address is worth it, and "on
-      // the web" is not a thing anyone can go and look at first.
-      blurb:
-        "Saved evaluations are kept as a snapshot of what this tool said today, and you " +
-        `can read them back at ${SAVED_APP_LABEL}. No password — we email you a code.`,
-    },
+    guestBonus !== null
+      ? {
+          // The guest's sign-up moment: they have just seen a result, so the
+          // offer is concrete -- keep this one, and get more like it.
+          title: `Save this car and get ${moreChecks(guestBonus)}`,
+          blurb:
+            `Enter your email and this evaluation is saved to read back any time at ` +
+            `${SAVED_APP_LABEL}. No password, no card — we email you a code.`,
+        }
+      : {
+          title: "Save this evaluation",
+          // The site is named here as well as on the strip: this is where
+          // somebody decides whether handing over an email address is worth
+          // it, and "on the web" is not a thing anyone can go and look at first.
+          blurb:
+            "Saved evaluations are kept as a snapshot of what this tool said today, and you " +
+            `can read them back at ${SAVED_APP_LABEL}. No password — we email you a code.`,
+        },
     () => {
       panel.replaceChildren();
       delete panel.dataset["open"];
@@ -191,7 +210,13 @@ function buildSignIn(panel: HTMLElement, onDone: () => void): void {
  * The link is built once and only its lead sentence is repainted, so a state
  * change never swaps out an anchor the user might be on the way to clicking.
  */
-function buildStrip(): { node: HTMLElement; lead: HTMLElement; glyph: HTMLElement } {
+function buildStrip(): {
+  node: HTMLElement;
+  lead: HTMLElement;
+  glyph: HTMLElement;
+  link: HTMLAnchorElement;
+  cta: HTMLButtonElement;
+} {
   const node = el("div", "saved-strip");
   const glyph = el("span", "saved-strip-glyph", GLYPH["not-saved"]);
 
@@ -205,9 +230,14 @@ function buildStrip(): { node: HTMLElement; lead: HTMLElement; glyph: HTMLElemen
   link.textContent = SAVED_APP_LABEL;
   link.append(el("span", "link-arrow", "↗"));
 
+  // Guest only: the sign-up offer as a button, in place of the link.
+  const cta = el("button", "saved-strip-cta") as HTMLButtonElement;
+  cta.type = "button";
+  cta.hidden = true;
+
   text.append(lead, link);
-  node.append(glyph, text);
-  return { node, lead, glyph };
+  node.append(glyph, text, cta);
+  return { node, lead, glyph, link, cta };
 }
 
 export function buildBookmark(captureId: number): BookmarkControl {
@@ -223,6 +253,8 @@ export function buildBookmark(captureId: number): BookmarkControl {
   let state: SaveState = "unknown";
   /** Set once this render has rewritten an older saved copy. Never unset. */
   let refreshed = false;
+  /** Guest only: how many more free checks signing up adds. */
+  let signupBonus = 0;
 
   const paint = () => {
     const saved = state === "saved";
@@ -239,6 +271,17 @@ export function buildBookmark(captureId: number): BookmarkControl {
     // The strip follows the button rather than carrying a state of its own --
     // there is one fact here ("is this saved"), and two elements disagreeing
     // about it is the failure mode worth designing out.
+    if (state === "guest") {
+      strip.node.dataset["state"] = "guest";
+      strip.glyph.textContent = "★";
+      strip.lead.textContent = "Like this result? Save it to your free account.";
+      strip.link.hidden = true;
+      strip.cta.hidden = false;
+      strip.cta.textContent = `Save + get ${moreChecks(signupBonus)}`;
+      return;
+    }
+    strip.link.hidden = false;
+    strip.cta.hidden = true;
     strip.node.dataset["state"] = saved ? "saved" : "unsaved";
     strip.glyph.textContent = GLYPH[saved ? "saved" : "not-saved"];
     const lead = saved ? (refreshed ? STRIP_LEAD.refreshed : STRIP_LEAD.saved) : STRIP_LEAD.unsaved;
@@ -255,7 +298,12 @@ export function buildBookmark(captureId: number): BookmarkControl {
       button.title = result.error;
       return;
     }
-    state = !result.signedIn ? "signed-out" : result.saved ? "saved" : "not-saved";
+    if (!result.signedIn && result.guest) {
+      state = "guest";
+      signupBonus = result.signupBonus ?? 0;
+    } else {
+      state = !result.signedIn ? "signed-out" : result.saved ? "saved" : "not-saved";
+    }
     paint();
   };
 
@@ -311,13 +359,18 @@ export function buildBookmark(captureId: number): BookmarkControl {
       .catch(savedAnyway);
   };
 
+  const openSignIn = () => buildSignIn(panel, toggle, state === "guest" ? signupBonus : null);
+
   button.addEventListener("click", () => {
     if (state === "busy") return;
-    if (state === "signed-out" || state === "unknown") {
-      buildSignIn(panel, toggle);
+    if (state === "signed-out" || state === "unknown" || state === "guest") {
+      openSignIn();
       return;
     }
     toggle();
+  });
+  strip.cta.addEventListener("click", () => {
+    if (state === "guest") openSignIn();
   });
 
   paint();
@@ -388,6 +441,28 @@ export const BOOKMARK_STYLES = `
   /* Inherits the strip's size rather than the panel's default link size, so the
      URL sits in the sentence instead of standing a step above it. */
   .saved-strip-link { font-size: inherit; }
+  .saved-strip-link[hidden] { display: none; }
+
+  /* Guest: the strip becomes the sign-up offer, right under the result they
+     just read. Favourable tone because it is a gift, not a warning. */
+  .saved-strip[data-state="guest"] {
+    align-items: center;
+    background: var(--tone-favorable-surface);
+    border-bottom-color: var(--tone-favorable-border);
+    box-shadow: inset 3px 0 0 var(--tone-favorable-fill);
+  }
+  .saved-strip[data-state="guest"] .saved-strip-glyph { color: var(--tone-favorable-text); }
+  .saved-strip[data-state="guest"] .saved-strip-text { flex: 1; color: var(--text); }
+  .saved-strip-cta {
+    flex: none; margin-left: auto;
+    padding: var(--sp-2) var(--sp-3);
+    font: 650 var(--fs-xs)/1.2 var(--font-sans);
+    color: var(--sheet); background: var(--text);
+    border: none; border-radius: var(--radius-pill); cursor: pointer;
+    white-space: nowrap;
+  }
+  .saved-strip-cta:hover { opacity: .9; }
+  .saved-strip-cta[hidden] { display: none; }
 
   /* The form's own classes (.signin-title, .signin-input, etc.) are in
      signin-panel.ts's SIGNIN_PANEL_STYLES, shared with trigger-button.ts's

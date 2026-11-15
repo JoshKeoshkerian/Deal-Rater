@@ -22,7 +22,12 @@ PlanId = Literal["pack-10", "pack-20", "unlimited-monthly"]
 #: not at extension install, now that sign-in is required before the first
 #: check. Kept as a module constant, mirroring `lib/plans.ts`'s
 #: `FREE_EVALUATIONS`, so the two numbers cannot drift independently.
-FREE_EVALUATIONS = 10
+FREE_EVALUATIONS = 3
+
+#: Of `FREE_EVALUATIONS`, how many a guest gets before giving an email. A
+#: guest who then signs up is topped up to the full `FREE_EVALUATIONS`, so the
+#: lifetime free allowance is the same either way. See `User.is_guest`.
+GUEST_FREE_EVALUATIONS = 1
 
 
 @dataclass(frozen=True)

@@ -442,3 +442,69 @@ describe("signing in, because the user clicked save", () => {
     expect(panel.dataset["open"]).toBe("true");
   });
 });
+
+describe("a check that ran on a guest session", () => {
+  const guestReply = () => ({ ok: true, signedIn: false, guest: true, signupBonus: 2 });
+
+  it("turns the strip into the sign-up offer, with the number from the worker", async () => {
+    reply = guestReply;
+    const { strip } = buildBookmark(1);
+    await settle();
+
+    expect(strip.dataset["state"]).toBe("guest");
+    const cta = strip.querySelector<HTMLButtonElement>(".saved-strip-cta")!;
+    expect(cta.hidden).toBe(false);
+    expect(cta.textContent).toBe("Save + get 2 more free checks");
+    expect(strip.querySelector<HTMLAnchorElement>(".saved-strip-link")!.hidden).toBe(true);
+  });
+
+  it("opens the sign-up form from the strip, framed as the offer", async () => {
+    reply = guestReply;
+    const { strip, panel } = buildBookmark(1);
+    await settle();
+
+    strip.querySelector<HTMLButtonElement>(".saved-strip-cta")!.click();
+
+    expect(panel.dataset["open"]).toBe("true");
+    expect(panel.querySelector(".signin-title")!.textContent).toBe(
+      "Save this car and get 2 more free checks",
+    );
+  });
+
+  it("opens the same form from the star", async () => {
+    reply = guestReply;
+    const { button, panel } = buildBookmark(1);
+    await settle();
+
+    button.click();
+
+    expect(panel.querySelector(".signin-title")!.textContent).toContain("2 more free checks");
+  });
+
+  it("saves the evaluation once the code verifies", async () => {
+    reply = (message) => {
+      if (message.type === "SAVED_STATE") return guestReply();
+      if (message.type === "AUTH_REQUEST_CODE") return { ok: true };
+      if (message.type === "AUTH_VERIFY_CODE") return { ok: true, email: "a@b.co" };
+      if (message.type === "SAVE_EVALUATION") return { ok: true, signedIn: true, saved: true };
+      return { ok: false, error: "unexpected" };
+    };
+    const { button, strip, panel } = buildBookmark(7);
+    await settle();
+
+    strip.querySelector<HTMLButtonElement>(".saved-strip-cta")!.click();
+    const [email, code] = inputs(panel);
+    email!.value = "a@b.co";
+    submit(panel);
+    await settle();
+    code!.value = "ABCD-2345";
+    submit(panel);
+    await settle();
+    await settle();
+
+    expect(sent.map((m) => m.type)).toContain("SAVE_EVALUATION");
+    expect(star(button)).toBe("★");
+    expect(strip.dataset["state"]).toBe("saved");
+    expect(strip.querySelector<HTMLButtonElement>(".saved-strip-cta")!.hidden).toBe(true);
+  });
+});

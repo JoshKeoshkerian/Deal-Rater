@@ -33,6 +33,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    false,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -504,8 +505,32 @@ class User(Base):
     #: Lower-cased and stripped before it reaches here (`auth/identity.py`), so
     #: the unique constraint is doing case-insensitive work without a functional
     #: index. 320 is the RFC 5321 maximum.
-    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    #: NULL only for a guest (`is_guest`). Postgres and SQLite both allow any
+    #: number of NULLs under a unique constraint, so guests never collide.
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    #: GUEST ACCOUNTS. A first-time extension user runs their first check
+    #: without an email: `POST /v1/auth/guest` creates one of these rows,
+    #: grants `GUEST_FREE_EVALUATIONS`, and issues an ordinary session token.
+    #: Because a guest is a real user, captures, evaluations and the credit
+    #: balance need no special case. Signing in either upgrades this row in
+    #: place (new email) or merges it into the existing account
+    #: (`auth/service.py`'s `verify_code`).
+    is_guest: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    #: Salted SHA-256 of the requesting IP, guests only. Used solely to rate
+    #: limit guest creation per network; never shown, never joined to anything.
+    guest_ip_hash: Mapped[str | None] = mapped_column(String(64))
+    #: Set when a guest signed in with an email that already had an account and
+    #: was folded into it. The guest row is kept (its ledger rows reference
+    #: it) but its sessions are revoked.
+    merged_into_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    __table_args__ = (Index("ix_users_guest_created", "is_guest", "created_at"),)
 
 
 class BillingAccount(Base):

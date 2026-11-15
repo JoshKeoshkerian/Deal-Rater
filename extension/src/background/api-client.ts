@@ -219,15 +219,58 @@ export function requestSignInCode(apiBaseUrl: string, email: string): Promise<un
   return apiRequest(apiBaseUrl, "/v1/auth/sign-in", { method: "POST", body: { email } });
 }
 
+/**
+ * `guestToken`, when this install is running on a guest session, is sent as
+ * the bearer header so the backend can keep the guest's check: it upgrades
+ * the guest in place for a new email, or moves its checks into an existing
+ * account (`backend/app/auth/service.py`'s `verify_code`).
+ */
 export function verifySignInCode(
   apiBaseUrl: string,
   email: string,
   code: string,
+  guestToken?: string | null,
 ): Promise<{ token: string; user: { email: string } } | null> {
   return apiRequest(apiBaseUrl, "/v1/auth/verify", {
     method: "POST",
+    token: guestToken ?? null,
     body: { email, code, client: "extension" },
   });
+}
+
+/** Raised when the backend refuses a guest pass (rate limited or switched
+ * off). The message is user-facing; the caller falls back to sign-in. */
+export class GuestRefusedError extends Error {}
+
+/**
+ * `POST /v1/auth/guest`: a session with no email, for the first check.
+ * Only ever called from a user's Evaluate click (spec 8.1).
+ */
+export async function requestGuestSession(
+  apiBaseUrl: string,
+): Promise<{ token: string; checks_on_sign_up: number }> {
+  try {
+    const result = await apiRequest<{ token: string; checks_on_sign_up: number }>(
+      apiBaseUrl,
+      "/v1/auth/guest",
+      { method: "POST" },
+    );
+    if (!result?.token) throw new GuestRefusedError("Sign in with your email to run a check.");
+    return result;
+  } catch (error) {
+    if (error instanceof GuestRefusedError) throw error;
+    // 429 / 503 carry a readable `detail`; anything else (network) gets a
+    // generic line. Either way the next step is the same: ask for an email.
+    const readable =
+      error instanceof Error &&
+      !(error instanceof TypeError) && // fetch's own network failure
+      error.name !== "AbortError" &&
+      error.message &&
+      !error.message.startsWith("API ");
+    throw new GuestRefusedError(
+      readable ? (error as Error).message : "Sign in with your email to run a check.",
+    );
+  }
 }
 
 /**

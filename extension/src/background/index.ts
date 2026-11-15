@@ -8,7 +8,8 @@
  * It holds no timers, registers no alarms, and does nothing at all unless a
  * content script asks it to — the user-initiated constraint in spec 8.1 is a
  * property of this file's structure, and the saved-evaluations work does not
- * change that. Nothing here polls a saved listing or refreshes a stored
+ * change that. The one exception is opening the welcome page once, on first
+ * install (`onInstalled` below): it reads nothing and calls no API. Nothing here polls a saved listing or refreshes a stored
  * evaluation in the background; a saved card is a snapshot, and refreshing one
  * is a click the user makes.
  *
@@ -19,6 +20,7 @@
 
 import type {
   AuthActionResult,
+  EnsureSessionResult,
   AuthStateResult,
   AuthVerifyResult,
   BackgroundToContent,
@@ -33,9 +35,12 @@ import type {
 import {
   clearSession,
   loadSession,
+  markGuestCheckUsed,
   markWebAdoptAttempted,
+  saveGuestSession,
   saveSession,
   shouldAttemptWebAdopt,
+  type StoredSession,
 } from "../shared/session";
 import { loadSettings } from "../shared/settings";
 import {
@@ -43,8 +48,10 @@ import {
   fetchEvaluationWithRetry,
   fetchKnownIssues,
   fetchSavedState,
+  GuestRefusedError,
   PaymentRequiredError,
   postCapture,
+  requestGuestSession,
   requestSignInCode,
   saveEvaluation,
   signOut,
@@ -54,6 +61,20 @@ import {
 } from "./api-client";
 
 const TAB_LOAD_TIMEOUT_MS = 30_000;
+
+/** Shown once, right after a first install: how to run the first check. */
+const WELCOME_URL = "https://curbsidescore.com/welcome";
+
+/**
+ * Without this, a new user lands back on the Chrome Web Store page with no
+ * idea where the extension went (it has no popup, and the button only appears
+ * on a Marketplace listing). `reason === "install"` only -- never on an
+ * update, which would reopen it for every existing user on every release.
+ */
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason !== "install") return;
+  void chrome.tabs.create({ url: WELCOME_URL }).catch(() => undefined);
+});
 
 /** Tabs opened for a comp harvest, awaiting their content script's ready signal. */
 const pendingHarvests = new Map<number, (tabId: number) => void>();
@@ -138,6 +159,11 @@ chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, send
     return true;
   }
 
+  if (message?.type === "ENSURE_SESSION") {
+    handleEnsureSession().then(sendResponse).catch(failed(sendResponse));
+    return true;
+  }
+
   if (message?.type === "AUTH_STATE") {
     handleAuthState().then(sendResponse).catch(failed(sendResponse));
     return true;
@@ -182,15 +208,50 @@ chrome.runtime.onMessage.addListener((message: ContentToBackground, sender, send
   return false;
 });
 
-async function handleSubmit(payload: unknown): Promise<SubmitCaptureResult> {
-  const session = await loadSession();
-  if (!session) {
-    return { ok: false, error: "Sign in to run a check.", signedOut: true };
-  }
+/**
+ * The session a check runs on: the stored one, or a fresh guest pass for a
+ * first-time user. Called only from an Evaluate click (`ENSURE_SESSION`, and
+ * again defensively from `SUBMIT_CAPTURE`), so nothing reaches the API until
+ * somebody asks for a check -- spec 8.1 holds.
+ *
+ * Throws `GuestRefusedError` when no guest pass is available; the caller
+ * shows sign-in, which is exactly the pre-guest flow.
+ */
+async function sessionForCheck(apiBaseUrl: string): Promise<StoredSession> {
+  const existing = await loadSession();
+  if (existing) return existing;
+  const guest = await requestGuestSession(apiBaseUrl);
+  await saveGuestSession(guest.token, guest.checks_on_sign_up);
+  const stored = await loadSession();
+  if (!stored) throw new GuestRefusedError("Sign in with your email to run a check.");
+  return stored;
+}
 
+async function handleEnsureSession(): Promise<EnsureSessionResult> {
   const settings = await loadSettings();
   try {
+    const session = await sessionForCheck(settings.apiBaseUrl);
+    if (session.guest && session.guestCheckUsed) {
+      return { ok: true, ready: false, reason: "guest-used", signupBonus: session.signupBonus };
+    }
+    return { ok: true, ready: true };
+  } catch (error) {
+    return { ok: true, ready: false, reason: "sign-in", message: describe(error) };
+  }
+}
+
+async function handleSubmit(payload: unknown): Promise<SubmitCaptureResult> {
+  const settings = await loadSettings();
+  let session: StoredSession;
+  try {
+    session = await sessionForCheck(settings.apiBaseUrl);
+  } catch (error) {
+    return { ok: false, error: describe(error), signedOut: true };
+  }
+
+  try {
     const response = await postCapture(settings.apiBaseUrl, session.token, payload as never);
+    if (session.guest && !response.duplicate) await markGuestCheckUsed();
     return { ok: true, response };
   } catch (error) {
     if (error instanceof UnauthorizedError) {
@@ -198,6 +259,18 @@ async function handleSubmit(payload: unknown): Promise<SubmitCaptureResult> {
       return { ok: false, error: "Sign in to run a check.", signedOut: true };
     }
     if (error instanceof PaymentRequiredError) {
+      if (session.guest) {
+        // Kept, not cleared: the guest's check is still theirs, and signing in
+        // with this token present is what carries it into the account.
+        await markGuestCheckUsed();
+        return {
+          ok: false,
+          error: describe(error),
+          signedOut: true,
+          guestUsed: true,
+          signupBonus: session.signupBonus,
+        };
+      }
       return { ok: false, error: describe(error), outOfChecks: true };
     }
     return { ok: false, error: describe(error) };
@@ -318,7 +391,9 @@ async function maybeAdoptWebSession(apiBaseUrl: string, token: string): Promise<
 
 async function handleAuthState(): Promise<AuthStateResult> {
   const session = await loadSession();
-  return session ? { ok: true, signedIn: true, email: session.email } : { ok: true, signedIn: false };
+  return session && !session.guest
+    ? { ok: true, signedIn: true, email: session.email }
+    : { ok: true, signedIn: false };
 }
 
 async function handleRequestCode(email: string): Promise<AuthActionResult> {
@@ -333,8 +408,14 @@ async function handleRequestCode(email: string): Promise<AuthActionResult> {
 
 async function handleVerifyCode(email: string, code: string): Promise<AuthVerifyResult> {
   const settings = await loadSettings();
+  const current = await loadSession();
   try {
-    const result = await verifySignInCode(settings.apiBaseUrl, email, code);
+    const result = await verifySignInCode(
+      settings.apiBaseUrl,
+      email,
+      code,
+      current?.guest ? current.token : null,
+    );
     if (!result?.token) return { ok: false, error: "The server did not return a session." };
     await saveSession({ token: result.token, email: result.user?.email ?? email });
     // Best-effort: syncs this session to the website's cookie so
@@ -366,9 +447,15 @@ async function handleSignOut(): Promise<AuthActionResult> {
   return { ok: true };
 }
 
+/** Saving needs an email account; a guest gets the sign-up prompt instead. */
+function guestSaveState(session: StoredSession): SavedStateResult {
+  return { ok: true, signedIn: false, guest: true, signupBonus: session.signupBonus };
+}
+
 async function handleSavedState(captureId: number): Promise<SavedStateResult> {
   const session = await loadSession();
   if (!session) return { ok: true, signedIn: false };
+  if (session.guest) return guestSaveState(session);
 
   const settings = await loadSettings();
   // Started alongside the real request rather than awaited before it, so an
@@ -401,6 +488,7 @@ async function handleSavedState(captureId: number): Promise<SavedStateResult> {
 async function handleSaveToggle(captureId: number, save: boolean): Promise<SavedStateResult> {
   const session = await loadSession();
   if (!session) return { ok: true, signedIn: false };
+  if (session.guest) return guestSaveState(session);
 
   const settings = await loadSettings();
   try {

@@ -28,21 +28,32 @@ def get_or_create_account(session: Session, user_id: int) -> BillingAccount:
     return account
 
 
-def grant_free_credits(session: Session, user: User) -> None:
-    """The 10-check welcome grant. Called once, from `auth/service.py`'s
-    `verify_code`, in the same transaction that creates the `User` row.
+def grant_free_credits(
+    session: Session,
+    user: User,
+    amount: int = FREE_EVALUATIONS,
+    reason: str = "free_grant",
+) -> None:
+    """A free-check grant.
 
-    Free checks are granted at ACCOUNT CREATION now, not at extension install
-    -- sign-in is required before the first check, so the two used to be the
-    same moment for a new user and no longer have to be.
+    Three callers, all in `auth/service.py`:
+      - a brand-new account: the full `FREE_EVALUATIONS`;
+      - a new guest: `GUEST_FREE_EVALUATIONS`, reason `guest_grant`;
+      - a guest upgrading to an email account: the remainder,
+        `FREE_EVALUATIONS - GUEST_FREE_EVALUATIONS`, so the lifetime free
+        allowance is the same whichever way someone arrived.
+
+    Granted at account creation, not extension install.
     """
+    if amount <= 0:
+        return
     account = get_or_create_account(session, user.id)
-    account.credit_balance += FREE_EVALUATIONS
+    account.credit_balance += amount
     session.add(
         CreditLedger(
             user_id=user.id,
-            delta=FREE_EVALUATIONS,
-            reason="free_grant",
+            delta=amount,
+            reason=reason,
             created_at=datetime.now(UTC),
         )
     )

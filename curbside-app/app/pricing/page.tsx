@@ -2,17 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PricingPlans } from "@/components/PricingPlans";
-import { FREE_EVALUATIONS } from "@/lib/plans";
+import { FREE_EVALUATIONS, SIGNUP_BONUS_EVALUATIONS } from "@/lib/plans";
 import { InstallButton } from "@/components/InstallButton";
 
 import "./pricing.css";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: `Ten free checks when you sign in, then packs from $7.99 or unlimited for $16.99 a month.`,
+  description: `Try your first check with no sign-up, get three free in total, then packs from $7.99 or unlimited for $16.99 a month.`,
   openGraph: {
     title: "Pricing — Curbside",
-    description: `Ten free checks when you sign in, then packs from $7.99 or unlimited for $16.99 a month.`,
+    description: `Try your first check with no sign-up, get three free in total, then packs from $7.99 or unlimited for $16.99 a month.`,
     url: "https://curbsidescore.com/pricing",
   },
   alternates: {
@@ -62,22 +62,23 @@ export default function PricingPage() {
         <span className="lbl eyebrow">Pricing</span>
         <h1 className="page-h1">Start free. Pay only for what you use.</h1>
         <p className="page-lede">
-          Your first {FREE_EVALUATIONS} checks are free, with no credit card. After that, buy a
-          pack that never expires or go unlimited for the month you&rsquo;re shopping.
+          Your first check needs no sign-up, and you get {FREE_EVALUATIONS} free in total with no
+          credit card. After that, buy a pack that never expires or go unlimited for the month
+          you&rsquo;re shopping.
         </p>
       </header>
 
       <section className="freeband">
         <div>
-          <span className="lbl">Free when you sign in</span>
+          <span className="lbl">Free to start</span>
           <p className="freeband__num">
             {FREE_EVALUATIONS} <span>checks</span>
           </p>
         </div>
         <p className="freeband__note">
-          The full evaluation, not a limited one: the same price read, risk flags, negotiation
-          brief and alternatives that a paid check returns. Enough listings to find out whether
-          the number is worth anything to you.
+          The first runs with no sign-up; add your email for {SIGNUP_BONUS_EVALUATIONS} more. The
+          full evaluation, not a limited one: the same price read, risk flags, negotiation brief
+          and alternatives a paid check returns.
         </p>
         <InstallButton location="pricing-page-free" className="btn">
           Add to Chrome &mdash; free

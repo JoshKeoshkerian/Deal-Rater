@@ -73,3 +73,22 @@ def require_user(user: User | None = Depends(current_user)) -> User:
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+def require_account(user: User = Depends(require_user)) -> User:
+    """A signed-in user WITH AN EMAIL -- not a guest.
+
+    Guests (`User.is_guest`) may run and read their own checks, which is the
+    whole point of them, but anything that only makes sense with an identity
+    is behind this instead: saving evaluations (the reward for signing up),
+    billing (Stripe needs an email), the website session handoff, and
+    `/users/me`. A guest gets the same 401 a signed-out caller does, which the
+    extension already answers with the sign-in form.
+    """
+    if user.is_guest:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sign in with your email to do that.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user

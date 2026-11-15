@@ -127,6 +127,10 @@ export interface CaptureOutcome {
   signedOut?: boolean;
   /** Signed in, but out of checks. `message` already names the fix. */
   outOfChecks?: boolean;
+  /** With `signedOut`: a guest spent their free check, so sign-in is framed
+   * as "get more free checks". */
+  guestUsed?: boolean;
+  signupBonus?: number;
 }
 
 export async function runCapture(onStatus: StatusListener = () => {}): Promise<CaptureOutcome> {
@@ -593,6 +597,8 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
       extractionOk: false,
       signedOut: result && "signedOut" in result ? result.signedOut : undefined,
       outOfChecks: result && "outOfChecks" in result ? result.outOfChecks : undefined,
+      guestUsed: result && "guestUsed" in result ? result.guestUsed : undefined,
+      signupBonus: result && "signupBonus" in result ? result.signupBonus : undefined,
     };
   }
 

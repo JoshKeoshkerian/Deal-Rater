@@ -591,6 +591,20 @@ class UserOut(BaseModel):
     created_at: datetime
 
 
+class GuestSessionOut(BaseModel):
+    """`POST /v1/auth/guest`: a session with no email behind it.
+
+    `free_checks` is what the guest can run now; `checks_on_sign_up` is how
+    many more signing up adds -- the extension's "save this and get N more"
+    prompt reads it rather than hardcoding a number that lives here.
+    """
+
+    token: str
+    expires_at: datetime
+    free_checks: int
+    checks_on_sign_up: int
+
+
 class SessionOut(BaseModel):
     """What a successful verification hands back.
 

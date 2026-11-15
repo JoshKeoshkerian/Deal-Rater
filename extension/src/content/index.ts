@@ -17,13 +17,14 @@
 import { extractCompCards } from "../extract/comp-card";
 import { extractTargetListing } from "../extract/listing";
 import type {
-  AuthStateResult,
   BackgroundToContent,
+  EnsureSessionResult,
   HarvestResult,
   HarvestTargetResult,
 } from "../shared/messages";
 import { sendToBackground } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
+import type { SignInCopy } from "./overlay/signin-panel";
 import { runCapture } from "./run-capture";
 import { findSendButtonAnchor } from "./send-anchor";
 import { downloadPageSnapshot } from "./snapshot";
@@ -44,29 +45,56 @@ function isSearchPage(): boolean {
 }
 
 /**
- * A check now requires a session (billing needs an identity to charge and to
- * own what it charged for -- `backend/app/api/captures.py`). Checked up
- * front rather than only relying on the backend's 401, so a signed-out click
- * shows the sign-in form immediately instead of running the whole
- * extraction/comp-search pipeline first only to fail at the very last step.
+ * Sign-in copy for the two reasons a click can need an email. Kept here,
+ * beside the click that triggers them, so the wording matches the moment.
+ */
+function guestUsedCopy(bonus: number | undefined): SignInCopy {
+  const more = bonus && bonus > 0 ? `${bonus} more free check${bonus === 1 ? "" : "s"}` : "more free checks";
+  return {
+    title: `Get ${more}`,
+    blurb:
+      "You've used your free guest check. Enter your email to keep going — no password, " +
+      "no card. Your last result stays saved to your account, and this check runs right after.",
+  };
+}
+
+function signInCopy(reason?: string): SignInCopy {
+  return {
+    title: "Sign in to run a check",
+    blurb:
+      (reason ? `${reason} ` : "") +
+      "Sign in with an email code — no password, no card — and this check runs right after.",
+  };
+}
+
+/**
+ * Makes sure a check can run before any extraction work starts.
+ *
+ * A first-time user has no session: the background worker fetches a guest
+ * pass here, so their first check runs with no sign-up at all. Sign-in is
+ * shown up front only when that pass is spent or unavailable, rather than
+ * after running the whole extraction/comp-search pipeline into a 402.
  *
  * Fails OPEN on its own failure (a broken message channel, say): the backend
- * is the actual authority on whether a session is valid, and `outcome.
- * signedOut` below catches that case too. This check exists to skip wasted
- * work for the common case, not to be the only gate.
+ * is the authority, and `outcome.signedOut` below catches that case too.
  */
-async function isSignedIn(): Promise<boolean> {
-  const result = await sendToBackground<AuthStateResult>({ type: "AUTH_STATE" }).catch(
-    (): AuthStateResult => ({ ok: true, signedIn: true, email: "" }),
+async function ensureSession(): Promise<EnsureSessionResult> {
+  return sendToBackground<EnsureSessionResult>({ type: "ENSURE_SESSION" }).catch(
+    (): EnsureSessionResult => ({ ok: true, ready: true }),
   );
-  return !result.ok || result.signedIn;
 }
 
 async function handleClick(): Promise<void> {
   if (running || !button) return;
 
-  if (!(await isSignedIn())) {
-    button.showSignIn(() => void handleClick());
+  const prepared = await ensureSession();
+  if (prepared.ok && !prepared.ready) {
+    button.showSignIn(
+      () => void handleClick(),
+      prepared.reason === "guest-used"
+        ? guestUsedCopy(prepared.signupBonus)
+        : signInCopy(prepared.message),
+    );
     return;
   }
 
@@ -76,7 +104,10 @@ async function handleClick(): Promise<void> {
   try {
     const outcome = await runCapture((message, stage) => button?.setProgress(message, stage));
     if (outcome.signedOut) {
-      button?.showSignIn(() => void handleClick());
+      button?.showSignIn(
+        () => void handleClick(),
+        outcome.guestUsed ? guestUsedCopy(outcome.signupBonus) : signInCopy(),
+      );
     } else {
       button?.setStatus(outcome.message, outcome.ok ? "info" : "error");
     }

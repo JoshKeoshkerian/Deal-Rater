@@ -128,9 +128,12 @@ export function SiteHeader() {
             </span>
           )}
 
-          <InstallButton location="header" className="btn btn--sm" icon={false}>
-            Add to Chrome &mdash; it&rsquo;s free
-          </InstallButton>
+          {/* Not on /welcome: everyone there has just installed. */}
+          {pathname !== "/welcome" && (
+            <InstallButton location="header" className="btn btn--sm" icon={false}>
+              Add to Chrome &mdash; it&rsquo;s free
+            </InstallButton>
+          )}
         </div>
 
         <button

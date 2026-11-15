@@ -25,10 +25,19 @@ from .ledger import (
     sync_subscription_state,
     try_reserve_credit,
 )
-from .plans import FREE_EVALUATIONS, PLANS, Plan, PlanId, plan_by_id, plan_by_price_id
+from .plans import (
+    FREE_EVALUATIONS,
+    GUEST_FREE_EVALUATIONS,
+    PLANS,
+    Plan,
+    PlanId,
+    plan_by_id,
+    plan_by_price_id,
+)
 
 __all__ = [
     "FREE_EVALUATIONS",
+    "GUEST_FREE_EVALUATIONS",
     "PLANS",
     "Plan",
     "PlanId",

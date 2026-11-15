@@ -17,33 +17,84 @@
 const TOKEN_KEY = "sessionToken";
 const EMAIL_KEY = "sessionEmail";
 const ADOPTED_AT_KEY = "sessionWebAdoptedAt";
+const GUEST_KEY = "sessionGuest";
+const GUEST_USED_KEY = "sessionGuestCheckUsed";
+const SIGNUP_BONUS_KEY = "sessionGuestSignupBonus";
 
+/**
+ * A GUEST session (`backend/app/models.py`'s `User.is_guest`) is a real
+ * session token with no email behind it: the first check runs on one, so a
+ * new user sees a result before being asked for anything. It is fetched on
+ * the first Evaluate click, never on install.
+ */
 export interface StoredSession {
   token: string;
-  /** Shown in the signed-in state so the user can tell which account this is. */
+  /** Shown in the signed-in state so the user can tell which account this is.
+   * Empty for a guest. */
   email: string;
+  guest: boolean;
+  /** Guest only: the free check has been spent, so the next click should ask
+   * for an email up front instead of running the whole capture into a 402. */
+  guestCheckUsed: boolean;
+  /** Guest only: how many more free checks signing up adds (from the
+   * backend, so the prompt never hardcodes a number that lives there). */
+  signupBonus: number;
 }
 
 export async function loadSession(): Promise<StoredSession | null> {
-  const stored = await chrome.storage.local.get([TOKEN_KEY, EMAIL_KEY]);
+  const stored = await chrome.storage.local.get([
+    TOKEN_KEY,
+    EMAIL_KEY,
+    GUEST_KEY,
+    GUEST_USED_KEY,
+    SIGNUP_BONUS_KEY,
+  ]);
   const token = stored[TOKEN_KEY] as string | undefined;
-  const email = stored[EMAIL_KEY] as string | undefined;
   if (!token) return null;
-  return { token, email: email ?? "" };
+  return {
+    token,
+    email: (stored[EMAIL_KEY] as string | undefined) ?? "",
+    guest: stored[GUEST_KEY] === true,
+    guestCheckUsed: stored[GUEST_USED_KEY] === true,
+    signupBonus: (stored[SIGNUP_BONUS_KEY] as number | undefined) ?? 0,
+  };
 }
 
-export async function saveSession(session: StoredSession): Promise<void> {
+/** A signed-in (email) session. Replaces any guest session on this install. */
+export async function saveSession(session: { token: string; email: string }): Promise<void> {
+  await chrome.storage.local.remove([GUEST_KEY, GUEST_USED_KEY, SIGNUP_BONUS_KEY]);
   await chrome.storage.local.set({
     [TOKEN_KEY]: session.token,
     [EMAIL_KEY]: session.email,
   });
 }
 
+export async function saveGuestSession(token: string, signupBonus: number): Promise<void> {
+  await chrome.storage.local.set({
+    [TOKEN_KEY]: token,
+    [EMAIL_KEY]: "",
+    [GUEST_KEY]: true,
+    [GUEST_USED_KEY]: false,
+    [SIGNUP_BONUS_KEY]: signupBonus,
+  });
+}
+
+export async function markGuestCheckUsed(): Promise<void> {
+  await chrome.storage.local.set({ [GUEST_USED_KEY]: true });
+}
+
 export async function clearSession(): Promise<void> {
   // The adopt marker travels with the session it describes: a later sign-in
   // (possibly a different address) must not inherit an old timestamp and be
   // wrongly throttled out of adopting its own, new session.
-  await chrome.storage.local.remove([TOKEN_KEY, EMAIL_KEY, ADOPTED_AT_KEY]);
+  await chrome.storage.local.remove([
+    TOKEN_KEY,
+    EMAIL_KEY,
+    ADOPTED_AT_KEY,
+    GUEST_KEY,
+    GUEST_USED_KEY,
+    SIGNUP_BONUS_KEY,
+  ]);
 }
 
 //: Once a day. `SAVED_STATE` fires on every overlay render

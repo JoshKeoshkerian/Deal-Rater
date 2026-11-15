@@ -92,6 +92,25 @@ class Settings(BaseSettings):
     # is disproportionately annoying, and the token is revocable server-side.
     session_ttl_days: int = 90
 
+    # --- Guest checks (first check without an email) -------------------------
+    #
+    # See `User.is_guest`. Each guest check costs real money (comp regression,
+    # NHTSA, optionally the LLM call), and a guest pass is free to obtain, so
+    # creation is limited twice: per network, and in total per day.
+    #
+    # Kill switch: False makes `POST /v1/auth/guest` answer 503, and the
+    # extension falls back to asking for an email before the first check.
+    guest_checks_enabled: bool = True
+    # Guest passes one IP address may obtain per rolling 24 hours. Above 1 so
+    # a shared household or office network is not locked out after one person.
+    guest_max_per_ip_per_day: int = 3
+    # Guest passes issued across ALL networks per rolling 24 hours. A ceiling
+    # on the worst-case bill if the per-IP limit is evaded (rotating proxies).
+    guest_max_per_day: int = 500
+    # Salt for `users.guest_ip_hash`. Set it in production: an unsalted hash of
+    # an IPv4 address is trivially reversible.
+    guest_ip_salt: str = ""
+
     # --- Cookie transport (website) -----------------------------------------
     #
     # The website's session. `api.curbsidescore.com` and `app.curbsidescore.com`

@@ -20,6 +20,13 @@ OUT_OF_CHECKS_DETAIL = (
     "You're out of checks. Buy more at curbsidescore.com/pricing to keep evaluating."
 )
 
+#: A guest who has used their free check. Still a 402 (the request was valid,
+#: the balance is empty), but the next step is signing up, not paying -- the
+#: extension recognises a guest session and shows the sign-in form instead.
+GUEST_OUT_OF_CHECKS_DETAIL = (
+    "You've used your free guest check. Sign in with your email to get more free checks."
+)
+
 
 @router.post("/captures", response_model=CaptureOut, status_code=status.HTTP_201_CREATED)
 def post_capture(
@@ -47,7 +54,8 @@ def post_capture(
         account = get_or_create_account(session, user.id)
         unlimited = is_unlimited(account)
         if not unlimited and not try_reserve_credit(session, user.id):
-            raise HTTPException(status_code=402, detail=OUT_OF_CHECKS_DETAIL)
+            detail = GUEST_OUT_OF_CHECKS_DETAIL if user.is_guest else OUT_OF_CHECKS_DETAIL
+            raise HTTPException(status_code=402, detail=detail)
     else:
         unlimited = True  # irrelevant on a replay -- nothing is charged either way
 

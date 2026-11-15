@@ -32,19 +32,29 @@ from sqlalchemy.orm import Session
 
 from app.auth import (
     AuthError,
+    GuestLimitError,
     bearer_token,
+    create_guest,
     request_sign_in,
     resolve_session,
     revoke_session,
     session_token,
     verify_code,
 )
-from app.auth.dependencies import require_user
+from app.auth.dependencies import require_account
 from app.auth.mailer import MailerError, send_sign_in_email
+from app.billing import FREE_EVALUATIONS, GUEST_FREE_EVALUATIONS
 from app.config import get_settings
 from app.db import get_session
 from app.models import User
-from app.schemas import SessionOut, SignInRequestIn, SignInRequestOut, UserOut, VerifyCodeIn
+from app.schemas import (
+    GuestSessionOut,
+    SessionOut,
+    SignInRequestIn,
+    SignInRequestOut,
+    UserOut,
+    VerifyCodeIn,
+)
 
 router = APIRouter(prefix="/v1", tags=["auth"])
 
@@ -113,13 +123,68 @@ def sign_in(payload: SignInRequestIn, session: Session = Depends(get_session)) -
     )
 
 
+def _client_ip(request: Request) -> str | None:
+    """The caller's address, for guest rate limiting only.
+
+    Behind the hosting proxy, `request.client` is the proxy. The proxy APPENDS
+    the address it saw to `X-Forwarded-For`, so the last entry is the one a
+    caller cannot forge; earlier entries are whatever the caller sent.
+    """
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        last = forwarded.split(",")[-1].strip()
+        if last:
+            return last
+    return request.client.host if request.client else None
+
+
+@router.post("/auth/guest", response_model=GuestSessionOut)
+def guest(request: Request, session: Session = Depends(get_session)) -> GuestSessionOut:
+    """A guest session: run the first check without an email.
+
+    Called by the extension's service worker on a user's first Evaluate click
+    when no session is stored -- never on install, so nothing reaches this API
+    until somebody asks for a check (spec 8.1). The token behaves like any
+    other session; `require_account` keeps it away from saving and billing.
+
+    503 when switched off and 429 past a rate limit. Both mean "ask for an
+    email instead", which the extension does -- the pre-guest flow.
+    """
+    settings = get_settings()
+    if not settings.guest_checks_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Sign in with your email to run a check.",
+        )
+    try:
+        issued = create_guest(session, settings, ip=_client_ip(request))
+    except GuestLimitError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(error)) from error
+
+    session.commit()
+    return GuestSessionOut(
+        token=issued.token,
+        expires_at=issued.expires_at,
+        free_checks=GUEST_FREE_EVALUATIONS,
+        checks_on_sign_up=FREE_EVALUATIONS - GUEST_FREE_EVALUATIONS,
+    )
+
+
 @router.post("/auth/verify", response_model=SessionOut)
 def verify(
     payload: VerifyCodeIn,
+    request: Request,
     response: Response,
     session: Session = Depends(get_session),
 ) -> SessionOut:
     settings = get_settings()
+    # A guest signing in sends its guest token as a bearer header, so its
+    # check can be kept (upgrade) or moved (merge). Any other session on the
+    # request is ignored here -- signing in never changes another account.
+    token = bearer_token(request)
+    presented = resolve_session(session, token) if token else None
+    guest_user = presented if presented is not None and presented.is_guest else None
     try:
         issued = verify_code(
             session,
@@ -127,6 +192,7 @@ def verify(
             email=payload.email,
             code=payload.code,
             client=payload.client,
+            guest=guest_user,
         )
     except AuthError as error:
         # Committed rather than rolled back: a wrong code increments the
@@ -197,7 +263,8 @@ def adopt_session(
         )
 
     user = resolve_session(session, token)
-    if user is None:
+    # A guest has no email for the website to show and nothing there to use.
+    if user is None or user.is_guest:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Sign in to do that.",
@@ -216,7 +283,7 @@ def sign_out(
 ) -> None:
     """Revoke the presented session.
 
-    Deliberately NOT behind `require_user`: signing out with a token that is
+    Deliberately NOT behind `require_account`: signing out with a token that is
     already expired or revoked should be a no-op that succeeds, not a 401 that
     leaves the client unsure whether it is still signed in.
     """
@@ -241,5 +308,5 @@ def sign_out(
 
 
 @router.get("/users/me", response_model=UserOut)
-def me(user: User = Depends(require_user)) -> UserOut:
+def me(user: User = Depends(require_account)) -> UserOut:
     return UserOut(id=user.id, email=user.email, created_at=user.created_at)
