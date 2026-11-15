@@ -42,9 +42,9 @@ const source = resolve(here, "curbside-mark.svg");
 const CHROME =
   process.env["CHROME_PATH"] ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-/** Brand colours, restated here for the OG card's background only. */
-const NAVY = "#081D36";
-const LIME = "#C2E85C";
+/** Colours for the OG card only: the site's ink and brand green. */
+const INK = "#0B1B2E";
+const BRAND = "#0B7F5E";
 
 const work = mkdtempSync(resolve(tmpdir(), "curbside-brand-"));
 
@@ -112,6 +112,21 @@ function icon(size, out) {
 }
 
 /**
+ * The iOS home-screen icon. NOT transparent: iOS fills transparency with
+ * black, which would put the white disc inside a black square. Rendered on a
+ * full white square instead (iOS rounds the corners itself), with the mark
+ * inset slightly so the car sits where it does on the disc.
+ */
+function appleIcon(size, out) {
+  mkdirSync(dirname(out), { recursive: true });
+  shot(
+    `<!doctype html><html style="margin:0"><body style="margin:0;line-height:0;background:#fff">${mark(size)}</body></html>`,
+    { width: size, height: size, out, transparent: false },
+  );
+  return out;
+}
+
+/**
  * An .ico wrapping PNGs, which is what every browser released this century
  * reads. The legacy BMP-in-ICO encoding is not worth writing by hand.
  *
@@ -156,9 +171,9 @@ function ico(pngPaths, out) {
  * up when somebody pastes the URL into a message, which is the one place an
  * icon's absence reads as "this link might be junk".
  *
- * Archivo is fetched because the site's headings use it; the fallback stack is
- * there so a machine with no network still produces a usable card rather than
- * failing the whole run.
+ * Unbounded and Inter are fetched because the site uses them; the fallback
+ * stack is there so a machine with no network still produces a usable card
+ * rather than failing the whole run.
  */
 function ogCard(out) {
   const html = `<!doctype html>
@@ -166,21 +181,22 @@ function ogCard(out) {
   <head>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600&family=Unbounded:wght@700&display=swap" rel="stylesheet">
   </head>
-  <body style="margin:0;width:1200px;height:630px;background:${NAVY};
-               font-family:Archivo,-apple-system,'Helvetica Neue',Arial,sans-serif;
-               display:flex;flex-direction:column;justify-content:center;gap:36px;padding:0 96px;
+  <body style="margin:0;width:1200px;height:630px;
+               background:radial-gradient(900px 500px at 85% -10%, rgba(22,164,125,.14), transparent 60%), #F6F8FA;
+               font-family:Inter,-apple-system,'Helvetica Neue',Arial,sans-serif;
+               display:flex;flex-direction:column;justify-content:center;gap:34px;padding:0 96px;
                box-sizing:border-box">
     <div style="display:flex;align-items:center;gap:28px;line-height:0">
-      ${mark(112)}
-      <span style="font-size:88px;font-weight:800;letter-spacing:-.02em;color:#fff;line-height:1">Curbside</span>
+      <span style="display:block;flex:none;width:120px;height:120px;border-radius:50%;box-shadow:0 14px 34px -12px rgba(11,27,46,.3)">${mark(120)}</span>
+      <span style="font-family:Unbounded,Inter,sans-serif;font-size:76px;font-weight:700;letter-spacing:-.03em;color:${INK};line-height:1">Curbside</span>
     </div>
-    <p style="margin:0;font-size:44px;font-weight:600;line-height:1.25;color:#fff;max-width:22ch">
-      Is it the right car?
+    <p style="margin:0;font-family:Unbounded,Inter,sans-serif;font-size:50px;font-weight:700;letter-spacing:-.02em;line-height:1.2;color:${INK};max-width:20ch">
+      Is that Marketplace car a good deal?
     </p>
-    <p style="margin:0;font-size:30px;font-weight:500;line-height:1.4;color:${LIME};max-width:34ch">
-      Check any Facebook Marketplace car listing in one click.
+    <p style="margin:0;font-size:30px;font-weight:600;line-height:1.4;color:${BRAND};max-width:40ch">
+      Check any Facebook Marketplace listing in one click. Try it free.
     </p>
   </body>
 </html>`;
@@ -204,7 +220,7 @@ for (const size of [16, 32, 48, 128]) {
 // Next emits them from the filenames.
 const app = resolve(root, "curbside-app/app");
 written.push(markFile(resolve(app, "icon.svg")));
-written.push(icon(180, resolve(app, "apple-icon.png")));
+written.push(appleIcon(180, resolve(app, "apple-icon.png")));
 written.push(ogCard(resolve(app, "opengraph-image.png")));
 
 // The .ico is assembled from throwaway renders rather than from the extension's
@@ -216,7 +232,7 @@ written.push(ico(icoParts, resolve(app, "favicon.ico")));
 // move (see curbside-site/README.md). Plain files, linked by hand in its <head>.
 const site = resolve(root, "curbside-site");
 written.push(markFile(resolve(site, "icon.svg")));
-written.push(icon(180, resolve(site, "apple-touch-icon.png")));
+written.push(appleIcon(180, resolve(site, "apple-touch-icon.png")));
 written.push(ico(icoParts, resolve(site, "favicon.ico")));
 
 rmSync(work, { recursive: true, force: true });

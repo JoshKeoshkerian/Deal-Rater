@@ -16,7 +16,7 @@ export function SiteFooter() {
         <div className="footer-top">
           <div className="footer-brand">
             <Link className="brand-link" href="/">
-              <BrandMark size={26} />
+              <BrandMark id="brand-footer" height={22} />
               <span className="brandname">Curbside</span>
             </Link>
             <p>

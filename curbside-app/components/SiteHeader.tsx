@@ -102,7 +102,7 @@ export function SiteHeader() {
     <nav className="nav">
       <div className="wrap nav-inner">
         <Link className="brand-link" href="/">
-          <BrandMark />
+          <BrandMark id="brand-header" height={24} />
           <span className="brandname">Curbside</span>
         </Link>
 
