@@ -231,11 +231,14 @@ export function verifySignInCode(
   email: string,
   code: string,
   guestToken?: string | null,
+  installId?: string | null,
 ): Promise<{ token: string; user: { email: string } } | null> {
   return apiRequest(apiBaseUrl, "/v1/auth/verify", {
     method: "POST",
     token: guestToken ?? null,
-    body: { email, code, client: "extension" },
+    // `install_id` links the account to the install it came from, so a
+    // purchase can be traced to the ad that drove the install.
+    body: { email, code, client: "extension", ...(installId ? { install_id: installId } : {}) },
     // So the website's `curbside_ref` cookie (set from a `?ref=` share link,
     // scoped to `.curbsidescore.com`) travels with this call: it is how a
     // referral survives the trip through the Chrome Web Store. The backend

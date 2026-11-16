@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.attribution import link_install
 from app.auth.dependencies import require_user
 from app.billing import (
     get_or_create_account,
@@ -79,6 +80,7 @@ def post_capture(
 
     charged = free_reason is None
     result = ingest_capture(session, payload, user_id=user.id)
+    link_install(user, payload.install_id)
     if charged:
         record_evaluation_spend(session, user.id, result.capture.id)
     session.commit()

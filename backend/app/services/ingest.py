@@ -93,6 +93,7 @@ def ingest_capture(
         user_id=user_id,
         client_name=payload.client.name,
         client_version=payload.client.version,
+        install_id=payload.install_id,
         captured_at=observed_at,
         received_at=now,
         comp_search_query=payload.capture.comp_search_query,

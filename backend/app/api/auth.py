@@ -198,6 +198,7 @@ def verify(
             # credentials so that cookie reaches here from it too.
             referral_code=payload.referral_code
             or request.cookies.get(settings.referral_cookie_name),
+            install_id=payload.install_id,
         )
     except AuthError as error:
         # Committed rather than rolled back: a wrong code increments the

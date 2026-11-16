@@ -111,6 +111,8 @@ export interface CapturePayload {
   target: ObservationPayload;
   comps: ObservationPayload[];
   extraction_report: ExtractionIssue[];
+  /** Added by the service worker, never the content script (`shared/install.ts`). */
+  install_id?: string;
 }
 
 export interface CaptureResponse {

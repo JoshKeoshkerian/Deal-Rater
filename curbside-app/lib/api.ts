@@ -17,6 +17,7 @@
  * therefore a question only the server can answer — hence `fetchMe`.
  */
 
+import type { InstallAttribution } from "./attribution";
 import type { BillingState } from "./billing";
 import type { PlanId } from "./plans";
 import type { ReferralState, SavedEvaluation, User } from "./types";
@@ -152,4 +153,9 @@ export async function openBillingPortal(): Promise<string> {
 /** The signed-in user's share link and progress. Mints the code on first call. */
 export function fetchReferrals(): Promise<ReferralState | null> {
   return request<ReferralState>("/v1/referrals/me");
+}
+
+/** `POST /v1/attribution`: which ad (if any) drove this extension install. */
+export function reportInstall(body: InstallAttribution): Promise<unknown> {
+  return request("/v1/attribution", { method: "POST", body });
 }

@@ -8,6 +8,7 @@ that a browser extension exists; a paste-a-URL web client posts the same shape.
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -23,6 +24,22 @@ MileageUnit = Literal["mi", "km"]
 # 17 characters, I/O/Q excluded (spec 4.2).
 VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
 SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def lenient_install_id(value: object) -> str | None:
+    """An extension install id, or None if absent or malformed.
+
+    Lenient on purpose where it rides along on something else (a capture, a
+    sign-in): attribution is never worth failing a check or a sign-in over.
+    `POST /v1/attribution`, whose whole job it is, validates strictly instead.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
 
 # Loose upper bound; a model year can lead the calendar year.
 MIN_MODEL_YEAR = 1900
@@ -162,6 +179,13 @@ class CaptureIn(BaseModel):
     target: ObservationIn
     comps: list[ObservationIn] = Field(default_factory=list)
     extraction_report: list[ExtractionIssueIn] = Field(default_factory=list)
+    #: The client's random per-install id, for acquisition attribution
+    #: (`installs`). Optional; a malformed value is dropped, not rejected.
+    install_id: str | None = None
+
+    _install_id = field_validator("install_id", mode="before")(
+        lambda v: lenient_install_id(v)
+    )
 
     @field_validator("target")
     @classmethod
@@ -598,6 +622,13 @@ class VerifyCodeIn(BaseModel):
     #: it in a cookie that `POST /v1/auth/verify` reads as the fallback. Only
     #: honoured when this verification CREATES an account.
     referral_code: Annotated[str | None, Field(max_length=32)] = None
+    #: The extension's install id, linked to the account the first time it is
+    #: known (`users.install_id`). Optional; a malformed value is dropped.
+    install_id: str | None = None
+
+    _install_id = field_validator("install_id", mode="before")(
+        lambda v: lenient_install_id(v)
+    )
 
 
 class UserOut(BaseModel):
@@ -750,3 +781,42 @@ class ReferralsMeOut(BaseModel):
     #: People who signed up with this code but haven't signed in through the
     #: extension yet -- nothing has been credited for them.
     pending: int
+
+
+UTM_MAX_LENGTH = 255
+
+
+class AttributionIn(BaseModel):
+    """`POST /v1/attribution`: which ad (if any) drove an extension install.
+
+    Sent by the website's welcome page, which the extension opens once on first
+    install with `?install_id=`. UTMs come from the site's first-touch store;
+    all-null means organic/direct. Over-long values are truncated, not
+    rejected: a long campaign name is not a reason to lose the install.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    install_id: uuid.UUID
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+    utm_content: str | None = None
+    utm_term: str | None = None
+    landed_at: datetime | None = None
+
+    @field_validator(
+        "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", mode="before"
+    )
+    @classmethod
+    def _cap(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        text = str(v).strip()[:UTM_MAX_LENGTH]
+        return text or None
+
+
+class AttributionOut(BaseModel):
+    install_id: str
+    #: False when this install was already recorded (first report wins).
+    created: bool

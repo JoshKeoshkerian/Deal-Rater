@@ -119,11 +119,19 @@ export default function PrivacyPage() {
         yours, not the extension&rsquo;s, and you should understand it before using Curbside.
       </p>
 
-      <h2>Advertising measurement on this website</h2>
+      <h2>Advertising measurement</h2>
       <p>
         This website (not the extension) uses the Quora Pixel to measure the performance of our
         Quora ads, recording page views and clicks on our Chrome Web Store link, and we do not send
         Quora your email address or any other information you give us.
+      </p>
+      <p>
+        When you install the extension it creates a random install ID, not derived from your device,
+        browser or Facebook account, which our welcome page records together with the ad campaign
+        tags (if any) from the link that first brought you to this website; the extension then
+        includes that ID with each check you run and links it to your account if you sign in, so we
+        can measure which campaigns lead to installs, checks and purchases, and it is never shared
+        with any third party.
       </p>
 
       <h2>Contact</h2>

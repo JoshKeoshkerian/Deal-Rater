@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { DemoVideoButton } from "@/components/DemoVideo";
+import { InstallAttribution } from "@/components/InstallAttribution";
 import { CONTACT_EMAIL } from "@/lib/links";
 import { GUEST_FREE_EVALUATIONS, SIGNUP_BONUS_EVALUATIONS } from "@/lib/plans";
 
@@ -34,6 +35,7 @@ export default function WelcomePage() {
 
   return (
     <main className="welcome" id="main">
+      <InstallAttribution />
       <div className="wrap welcome__inner">
         <header className="welcome__head">
           <p className="welcome__pill">

@@ -34,6 +34,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     false,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -75,6 +76,13 @@ class Capture(Base):
     # NULL here is still readable by anyone, matching pre-billing behaviour.
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
+    #: ACQUISITION ATTRIBUTION. The extension's random per-install id
+    #: (`installs.install_id`), sent with every capture by an extension new
+    #: enough to have one. NULL for older installs and other clients. Not a
+    #: foreign key: a capture can arrive before (or without) the welcome page's
+    #: attribution POST, and losing a check over that would be absurd.
+    install_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False))
+
     captured_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
     received_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
 
@@ -89,7 +97,10 @@ class Capture(Base):
 
     observations: Mapped[list[ListingObservation]] = relationship(back_populates="capture")
 
-    __table_args__ = (Index("ix_captures_user", "user_id"),)
+    __table_args__ = (
+        Index("ix_captures_user", "user_id"),
+        Index("ix_captures_install", "install_id"),
+    )
 
 
 class Listing(Base):
@@ -546,9 +557,16 @@ class User(Base):
     #: Stays NULL if the referrer was already at the cap.
     referral_rewarded_at: Mapped[datetime | None] = mapped_column(TZDateTime)
 
+    #: ACQUISITION ATTRIBUTION. The extension install this account first came
+    #: from (`installs.install_id`), so purchases can be joined back to the ad
+    #: that drove the install. Set once, the first time it is known: on sign-in,
+    #: on a capture, or carried over from a merged guest. Never overwritten.
+    install_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False))
+
     __table_args__ = (
         Index("ix_users_guest_created", "is_guest", "created_at"),
         Index("ix_users_referred_by", "referred_by_user_id"),
+        Index("ix_users_install", "install_id"),
     )
 
 
@@ -840,6 +858,39 @@ class SavedEvaluation(Base):
         ),
         Index("ix_saved_user_time", "user_id", "saved_at"),
     )
+
+
+class Install(Base):
+    """One extension install and the ad (if any) that drove it.
+
+    Written by `POST /v1/attribution` from the welcome page the extension opens
+    once on first install. `install_id` is a random UUID minted in the
+    extension; the UTMs are the website's first touch (`cs_utm`, set by
+    `curbside-app/public/utm.js`). All-NULL UTMs mean organic/direct.
+
+    Deliberately no user, email, IP or device data: this table answers "which
+    campaign brought installs", and joins to `captures.install_id` and
+    `users.install_id` answer what those installs did next. See the
+    `funnel_by_source` view (migration 0014).
+    """
+
+    __tablename__ = "installs"
+
+    install_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    utm_source: Mapped[str | None] = mapped_column(String(255))
+    utm_medium: Mapped[str | None] = mapped_column(String(255))
+    utm_campaign: Mapped[str | None] = mapped_column(String(255))
+    utm_content: Mapped[str | None] = mapped_column(String(255))
+    utm_term: Mapped[str | None] = mapped_column(String(255))
+    #: When the visitor first landed on the website from the ad (the `cs_utm`
+    #: timestamp). Client-supplied, so approximate; NULL when organic.
+    landed_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+    #: When the welcome page reported this install: effectively install time.
+    installed_at: Mapped[datetime] = mapped_column(
+        TZDateTime, nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_installs_campaign_content", "utm_campaign", "utm_content"),)
 
 
 class ExtractionReport(Base):

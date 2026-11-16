@@ -9,7 +9,8 @@
  * content script asks it to — the user-initiated constraint in spec 8.1 is a
  * property of this file's structure, and the saved-evaluations work does not
  * change that. The one exception is opening the welcome page once, on first
- * install (`onInstalled` below): it reads nothing and calls no API. Nothing here polls a saved listing or refreshes a stored
+ * install (`onInstalled` below): it mints a random install id (`shared/
+ * install.ts`), reads nothing, and calls no API itself. Nothing here polls a saved listing or refreshes a stored
  * evaluation in the background; a saved card is a snapshot, and refreshing one
  * is a click the user makes.
  *
@@ -32,6 +33,7 @@ import type {
   SavedStateResult,
   SubmitCaptureResult,
 } from "../shared/messages";
+import { createInstallId, loadInstallId } from "../shared/install";
 import {
   clearSession,
   loadSession,
@@ -74,7 +76,15 @@ const WELCOME_URL = "https://curbsidescore.com/welcome";
  */
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason !== "install") return;
-  void chrome.tabs.create({ url: WELCOME_URL }).catch(() => undefined);
+  void (async () => {
+    // The welcome page reports this id with the ad that drove the install
+    // (`backend/app/attribution.py`). If storage fails, still welcome them.
+    const installId = await createInstallId().catch(() => null);
+    const url = installId
+      ? `${WELCOME_URL}?install_id=${encodeURIComponent(installId)}`
+      : WELCOME_URL;
+    await chrome.tabs.create({ url });
+  })().catch(() => undefined);
 });
 
 /** Tabs opened for a comp harvest, awaiting their content script's ready signal. */
@@ -252,7 +262,11 @@ async function handleSubmit(payload: unknown): Promise<SubmitCaptureResult> {
   }
 
   try {
-    const response = await postCapture(settings.apiBaseUrl, session.token, payload as never);
+    // The install id rides on the envelope, added here rather than by the
+    // content script: only the worker reads it, like the session token.
+    const installId = await loadInstallId().catch(() => null);
+    const body = installId ? { ...(payload as object), install_id: installId } : payload;
+    const response = await postCapture(settings.apiBaseUrl, session.token, body as never);
     // Only a check that actually spent the guest's credit uses it up. A
     // backend older than 0.3.2 has no `charged`, so fall back to the old rule.
     const spent = response.charged ?? !response.duplicate;
@@ -420,6 +434,7 @@ async function handleVerifyCode(email: string, code: string): Promise<AuthVerify
       email,
       code,
       current?.guest ? current.token : null,
+      await loadInstallId().catch(() => null),
     );
     if (!result?.token) return { ok: false, error: "The server did not return a session." };
     await saveSession({ token: result.token, email: result.user?.email ?? email });

@@ -13,14 +13,14 @@ drift apart by each growing their own copy of a check.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-
-import hashlib
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.attribution import link_install
 from app.billing import FREE_EVALUATIONS, GUEST_FREE_EVALUATIONS, grant_free_credits
 from app.config import Settings
 from app.models import AuthSession, Capture, MagicLinkToken, SavedEvaluation, User
@@ -112,6 +112,7 @@ def verify_code(
     client: str = "unknown",
     guest: User | None = None,
     referral_code: str | None = None,
+    install_id: str | None = None,
 ) -> IssuedSession:
     """Exchange a code for a session, creating the account on first success.
 
@@ -185,6 +186,7 @@ def verify_code(
     elif live_guest is not None and live_guest.id != user.id:
         _merge_guest(session, live_guest, into=user, now=now)
 
+    link_install(user, install_id)
     if created:
         attach_referrer(session, user, referral_code)
     if client == "extension":
@@ -250,6 +252,7 @@ def _merge_guest(session: Session, guest: User, *, into: User, now: datetime) ->
         .values(revoked_at=now)
     )
     guest.merged_into_user_id = into.id
+    link_install(into, guest.install_id)
     session.flush()
 
 
