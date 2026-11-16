@@ -48,6 +48,9 @@ export function SiteFooter() {
               <h2>Company</h2>
               <ul>
                 <li>
+                  <Link href="/blog">Blog</Link>
+                </li>
+                <li>
                   <Link href="/#faq">FAQ</Link>
                 </li>
                 <li>
