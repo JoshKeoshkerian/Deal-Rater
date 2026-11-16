@@ -1,6 +1,7 @@
 import { Analytics } from "@vercel/analytics/next";
 import type { Metadata, Viewport } from "next";
 import { Inter, Unbounded } from "next/font/google";
+import Script from "next/script";
 
 import { AuthProvider } from "@/components/AuthProvider";
 import { ReferralCapture } from "@/components/ReferralCapture";
@@ -64,9 +65,25 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Quora Pixel base code, verbatim from Quora (DO NOT MODIFY). Base code only:
+ * no Advanced Match, nothing personal is sent. The Web Store click conversion
+ * ('Generic') is fired from public/utm.js.
+ */
+const QUORA_PIXEL = `!function(q,e,v,n,t,s){if(q.qp) return; n=q.qp=function(){n.qp?n.qp.apply(n,arguments):n.queue.push(arguments);}; n.queue=[];t=document.createElement(e);t.async=!0;t.src=v; s=document.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t,s);}(window, 'script', 'https://a.quora.com/qevents.js');
+qp('init', '4ed58c68faa94daf9ccfb8610831bacd');
+qp('track', 'ViewContent');`;
+const QUORA_NOSCRIPT = `<img height="1" width="1" style="display:none" src="https://q.quora.com/_/ad/4ed58c68faa94daf9ccfb8610831bacd/pixel?tag=ViewContent&noscript=1"/>`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${unbounded.variable}`}>
+      <head>
+        {/* Quora Pixel Code (JS Helper) */}
+        <script dangerouslySetInnerHTML={{ __html: QUORA_PIXEL }} />
+        <noscript dangerouslySetInnerHTML={{ __html: QUORA_NOSCRIPT }} />
+        {/* End of Quora Pixel Code */}
+      </head>
       <body>
         <a href="#main" className="skip-link">
           Skip to content
@@ -78,6 +95,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </AuthProvider>
         <ReferralCapture />
         <Analytics />
+        {/* UTM pass-through onto Chrome Web Store links (public/utm.js). */}
+        <Script src="/utm.js" strategy="afterInteractive" />
       </body>
     </html>
   );
