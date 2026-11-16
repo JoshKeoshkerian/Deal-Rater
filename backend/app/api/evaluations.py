@@ -38,6 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_user
+from app.billing import refund_evaluation
 from app.config import get_settings
 from app.db import get_session
 from app.evaluation import evaluate_capture
@@ -82,7 +83,16 @@ def get_evaluation(
 ) -> EvaluationOut:
     capture = _load_capture(session, capture_id, user)
     evaluation = evaluate_capture(session, capture, offline=offline)
-    return evaluation_to_schema(capture, evaluation)
+    out = evaluation_to_schema(capture, evaluation)
+
+    # "This vehicle cannot be priced confidently" (the overlay's unreliable
+    # state, `headlineState` in the extension) is not an answer worth paying
+    # for, so the credit that check spent goes back. Same threshold as the
+    # overlay: confidence low or none. Idempotent across refetches.
+    if out.pricing.confidence in ("low", "none") and capture.user_id == user.id:
+        out.check_refunded = refund_evaluation(session, user.id, capture_id)
+        session.commit()
+    return out
 
 
 @router.post("/evaluations/{capture_id}/known-issues", response_model=KnownIssuesFetchOut)

@@ -187,6 +187,13 @@ class CaptureOut(BaseModel):
     observations_written: int
     extraction_reports_written: int
     extraction_ok: bool
+    #: Whether this check spent a credit. False on an unlimited plan and for
+    #: every reason in `free_reason`.
+    charged: bool = False
+    #: Why a check was free: 'replay' (a retried request), 'repeat' (this user
+    #: already checked this listing), 'not_vehicle' (nothing identifies a
+    #: vehicle), or 'unlimited'. None when charged.
+    free_reason: str | None = None
 
 
 class FieldHealth(BaseModel):
@@ -535,6 +542,10 @@ class EvaluationOut(BaseModel):
     #: A missing value on an old snapshot correctly means "this evaluation
     #: predates AI Insights being deferrable," i.e. not pending.
     known_issues_pending: bool = False
+    #: True when this fetch gave back the credit the check spent, because the
+    #: vehicle could not be priced confidently (confidence low or none). The
+    #: overlay says so. Defaults False for the same snapshot reason as above.
+    check_refunded: bool = False
     #: Additive, not part of spec 7's numbered order (build step 12): KBB and
     #: Consumer Reports links. Always exactly two entries -- no minimum-comp
     #: or confidence gate, since this reads only year/make/model.

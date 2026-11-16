@@ -212,6 +212,7 @@ export default function SavedPage() {
           initialEmail={linkParams.email}
           initialCode={linkParams.code}
           heading="Sign in"
+          blurb="Use the email you signed up with in the extension. We'll send you a code — no password needed."
         />
       </main>
     );

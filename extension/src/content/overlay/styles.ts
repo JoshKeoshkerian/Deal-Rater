@@ -79,6 +79,14 @@ const SHELL = `
 
 /** The footer: liability and beta notices, with no section of its own. */
 const TRAILING = `
+  /* "This check didn't count" -- under the header, favourable tone. */
+  .free-check-note {
+    margin: 0; padding: var(--sp-3) var(--sp-6);
+    font-size: var(--fs-sm); line-height: 1.5; font-weight: 600;
+    color: var(--tone-favorable-on-surface);
+    background: var(--tone-favorable-surface);
+    border-bottom: 1px solid var(--tone-favorable-border);
+  }
   .notices {
     padding: var(--sp-5) var(--sp-6) var(--sp-7);
     background: var(--raised);

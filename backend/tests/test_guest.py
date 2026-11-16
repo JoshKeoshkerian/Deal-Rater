@@ -16,7 +16,7 @@ from app.billing import FREE_EVALUATIONS, GUEST_FREE_EVALUATIONS
 from app.config import Settings
 from app.models import BillingAccount, Capture, SavedEvaluation, User
 
-from .conftest import capture_payload
+from .conftest import capture_payload, observation
 
 
 @pytest.fixture
@@ -127,7 +127,10 @@ def test_the_kill_switch_refuses_guests(client, settings):
 # --- what a guest can and cannot do -----------------------------------------
 
 
-def test_a_guest_runs_one_check_and_reads_it_then_hits_a_402(client, session):
+def test_a_guest_runs_one_check_and_reads_it_then_hits_a_402(client, session, monkeypatch):
+    from .test_check_billing import pin_confidence
+
+    pin_confidence(monkeypatch, "high")  # a real answer, so the check is kept
     headers = new_guest(client)
 
     first = client.post("/v1/captures", json=capture_payload(), headers=headers)
@@ -137,7 +140,9 @@ def test_a_guest_runs_one_check_and_reads_it_then_hits_a_402(client, session):
     evaluation = client.get(f"/v1/evaluations/{capture_id}", headers=headers)
     assert evaluation.status_code == 200, evaluation.text
 
-    second = client.post("/v1/captures", json=capture_payload(), headers=headers)
+    # A DIFFERENT car: re-checking the same one is free (test_check_billing.py).
+    other = observation(source_listing_id="100000000000777")
+    second = client.post("/v1/captures", json=capture_payload(target=other), headers=headers)
     assert second.status_code == 402
     assert "Sign in" in second.json()["detail"]
 

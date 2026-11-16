@@ -37,7 +37,13 @@ import type {
 import { sendToBackground } from "../shared/messages";
 import { loadSettings } from "../shared/settings";
 import { renderEvaluation } from "./overlay";
-import type { CapturePayload, ExtractionIssue, ObservationPayload } from "../shared/types";
+import type {
+  CapturePayload,
+  CaptureResponse,
+  EvaluationResponse,
+  ExtractionIssue,
+  ObservationPayload,
+} from "../shared/types";
 
 export const CLIENT_NAME = "chrome-extension";
 export const CLIENT_VERSION = "0.1.0";
@@ -635,7 +641,9 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     };
   }
 
-  renderEvaluation(evaluation.evaluation);
+  renderEvaluation(evaluation.evaluation, {
+    freeCheckNote: freeCheckNote(response, evaluation.evaluation),
+  });
 
   return {
     ok: true,
@@ -643,4 +651,22 @@ export async function runCapture(onStatus: StatusListener = () => {}): Promise<C
     compCount: comps.length,
     extractionOk: response.extraction_ok,
   };
+}
+
+/**
+ * The line telling someone this check didn't use up one of theirs. Only for
+ * the two cases a user would otherwise assume they paid for; an unlimited plan
+ * and a network replay say nothing.
+ */
+export function freeCheckNote(
+  response: CaptureResponse,
+  evaluation: EvaluationResponse,
+): string | null {
+  if (evaluation.check_refunded) {
+    return "This one\u2019s on us: we couldn\u2019t price this car confidently, so it didn\u2019t use a check.";
+  }
+  if (response.free_reason === "repeat") {
+    return "You\u2019ve checked this car before, so this didn\u2019t use a check.";
+  }
+  return null;
 }

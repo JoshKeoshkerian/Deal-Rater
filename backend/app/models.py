@@ -625,7 +625,7 @@ class CreditLedger(Base):
     )
     delta: Mapped[int] = mapped_column(Integer, nullable=False)
     #: 'free_grant' | 'guest_grant' | 'referral_reward' | 'pack_purchase' |
-    #: 'subscription_charge' | 'evaluation_spend'
+    #: 'subscription_charge' | 'evaluation_spend' | 'evaluation_refund'
     reason: Mapped[str] = mapped_column(String(32), nullable=False)
 
     #: Which check spent this credit. Populated only on `evaluation_spend` rows.

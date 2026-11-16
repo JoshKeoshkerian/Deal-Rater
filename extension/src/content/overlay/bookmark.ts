@@ -185,8 +185,9 @@ function buildSignIn(panel: HTMLElement, onDone: () => void, guestBonus: number 
           // offer is concrete -- keep this one, and get more like it.
           title: `Save this car and get ${moreChecks(guestBonus)}`,
           blurb:
-            `Enter your email and this evaluation is saved to read back any time at ` +
-            `${SAVED_APP_LABEL}. No password, no card — we email you a code.`,
+            `Add your email and this evaluation is saved to read back any time at ` +
+            `${SAVED_APP_LABEL}.`,
+          cta: guestBonus > 0 ? `Save & get ${moreChecks(guestBonus)}` : "Save this car",
         }
       : {
           title: "Save this evaluation",
@@ -195,7 +196,8 @@ function buildSignIn(panel: HTMLElement, onDone: () => void, guestBonus: number 
           // it, and "on the web" is not a thing anyone can go and look at first.
           blurb:
             "Saved evaluations are kept as a snapshot of what this tool said today, and you " +
-            `can read them back at ${SAVED_APP_LABEL}. No password — we email you a code.`,
+            `can read them back at ${SAVED_APP_LABEL}.`,
+          cta: "Save this car",
         },
     () => {
       panel.replaceChildren();

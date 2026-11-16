@@ -83,6 +83,12 @@ export async function markGuestCheckUsed(): Promise<void> {
   await chrome.storage.local.set({ [GUEST_USED_KEY]: true });
 }
 
+/** The guest's check was given back (couldn't be priced confidently), so
+ * their next Evaluate click should run, not ask for an email. */
+export async function markGuestCheckUnused(): Promise<void> {
+  await chrome.storage.local.set({ [GUEST_USED_KEY]: false });
+}
+
 export async function clearSession(): Promise<void> {
   // The adopt marker travels with the session it describes: a later sign-in
   // (possibly a different address) must not inherit an old timestamp and be

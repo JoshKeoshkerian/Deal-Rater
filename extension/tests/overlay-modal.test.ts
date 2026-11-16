@@ -16,7 +16,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderEvaluation } from "../src/content/overlay";
-import type { EvaluationResponse } from "../src/shared/types";
+import { freeCheckNote } from "../src/content/run-capture";
+import type { CaptureResponse, EvaluationResponse } from "../src/shared/types";
 
 const HOST_ID = "deal-rater-overlay";
 
@@ -451,5 +452,42 @@ describe("negotiation (spec 6.4, 7.5)", () => {
         },
       }).textContent ?? "";
     expect(body).toContain("no asking price");
+  });
+});
+
+describe("a check that didn't use up a credit", () => {
+  const response = (over: Partial<CaptureResponse> = {}): CaptureResponse => ({
+    capture_id: 1,
+    client_capture_id: "x",
+    duplicate: false,
+    listings_ingested: 1,
+    observations_written: 1,
+    extraction_reports_written: 0,
+    extraction_ok: true,
+    charged: true,
+    free_reason: null,
+    ...over,
+  });
+
+  it("says so when the vehicle couldn't be priced confidently", () => {
+    const note = freeCheckNote(response(), evaluation({ check_refunded: true }));
+    expect(note).toContain("couldn’t price this car confidently");
+  });
+
+  it("says so when the car was checked before", () => {
+    const note = freeCheckNote(response({ charged: false, free_reason: "repeat" }), evaluation());
+    expect(note).toContain("checked this car before");
+  });
+
+  it("says nothing for an ordinary paid check", () => {
+    expect(freeCheckNote(response(), evaluation())).toBeNull();
+  });
+
+  it("shows the note directly under the header", () => {
+    renderEvaluation(evaluation(), { freeCheckNote: "This didn't use a check." });
+    const sheet = document.getElementById(HOST_ID)!.shadowRoot!.querySelector(".sheet")!;
+    const note = sheet.querySelector(".free-check-note")!;
+    expect(note.textContent).toBe("This didn't use a check.");
+    expect(note.previousElementSibling!.tagName).toBe("HEADER");
   });
 });

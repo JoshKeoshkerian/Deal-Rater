@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import require_user
 from app.billing import (
     get_or_create_account,
+    has_checked_listing_before,
     is_unlimited,
     record_evaluation_spend,
     try_reserve_credit,
@@ -48,19 +49,37 @@ def post_capture(
     # the balance, rather than after ingestion: charging first and refunding
     # on a duplicate would make a transient network retry visibly cost (and
     # then un-cost) a credit.
-    replay = find_existing_capture(session, payload.capture.client_capture_id) is not None
+    # WHEN A CHECK IS FREE. Decided before touching the balance, so a free
+    # check never visibly costs (and then un-costs) a credit:
+    #   - 'replay': a retried `client_capture_id` (a timeout the original
+    #     request actually survived). `ingest_capture` returns the original
+    #     capture and writes nothing new.
+    #   - 'repeat': this user already checked this exact listing. Checking the
+    #     same car twice costs one check, not two.
+    #   - 'not_vehicle': nothing identifies a vehicle (no make, model or
+    #     year). The extension refuses these before sending; this is the
+    #     backstop for an older or different client.
+    # A check that IS charged but can't be priced confidently is refunded
+    # when its evaluation is fetched -- see `app/api/evaluations.py`.
+    target = payload.target
+    free_reason: str | None = None
+    if find_existing_capture(session, payload.capture.client_capture_id) is not None:
+        free_reason = "replay"
+    elif target.make is None and target.model is None and target.year is None:
+        free_reason = "not_vehicle"
+    elif has_checked_listing_before(
+        session, user.id, source=target.source, source_listing_id=target.source_listing_id
+    ):
+        free_reason = "repeat"
+    elif is_unlimited(get_or_create_account(session, user.id)):
+        free_reason = "unlimited"
+    elif not try_reserve_credit(session, user.id):
+        detail = GUEST_OUT_OF_CHECKS_DETAIL if user.is_guest else OUT_OF_CHECKS_DETAIL
+        raise HTTPException(status_code=402, detail=detail)
 
-    if not replay:
-        account = get_or_create_account(session, user.id)
-        unlimited = is_unlimited(account)
-        if not unlimited and not try_reserve_credit(session, user.id):
-            detail = GUEST_OUT_OF_CHECKS_DETAIL if user.is_guest else OUT_OF_CHECKS_DETAIL
-            raise HTTPException(status_code=402, detail=detail)
-    else:
-        unlimited = True  # irrelevant on a replay -- nothing is charged either way
-
+    charged = free_reason is None
     result = ingest_capture(session, payload, user_id=user.id)
-    if not replay and not unlimited:
+    if charged:
         record_evaluation_spend(session, user.id, result.capture.id)
     session.commit()
 
@@ -72,4 +91,6 @@ def post_capture(
         observations_written=result.observations_written,
         extraction_reports_written=result.extraction_reports_written,
         extraction_ok=result.capture.extraction_ok,
+        charged=charged,
+        free_reason=free_reason,
     )

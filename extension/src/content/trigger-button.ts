@@ -468,10 +468,9 @@ export function mountTriggerButton(
           onDone();
         },
         copy ?? {
-          title: "Sign in to run a check",
-          blurb:
-            "Sign in with an email code -- no password, no card -- and this check runs " +
-            "right after.",
+          title: "Check this car for free",
+          blurb: "Enter your email to get your free checks. This one runs right after.",
+          cta: "Get my free checks",
         },
         () => {
           signinCard.replaceChildren();

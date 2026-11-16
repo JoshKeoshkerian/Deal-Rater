@@ -1,37 +1,46 @@
 "use client";
 
 /**
- * The login gate: email, then the code from that email.
+ * The login gate: an EMAIL screen, then -- only once the email has actually
+ * been sent -- a CODE screen. Same flow and same principles as the
+ * extension's (`extension/src/content/overlay/signin-panel.ts`):
  *
- * The same two-step flow as the extension's, and the same backend endpoints —
- * only the transport differs. `verifySignInCode` sends `client: "web"`, which
- * is what makes the server set an httpOnly cookie instead of returning a token
- * this page would then have to hold.
+ *   - Two separate screens. The code box doesn't exist until a code does.
+ *   - One field per screen, a button that says what happens next, and a
+ *     one-click fix for common email typos.
+ *   - The code screen links to the user's webmail, and the code box submits
+ *     itself as soon as 8 characters are in (typed or pasted).
  *
- * IT ALSO HANDLES THE EMAILED LINK. `mailer.py` sends both a code to type and a
- * link to click, and the link lands here as `?email=&code=`. When those are
- * present the form skips straight to verifying, so clicking the link in a mail
- * client does what a link is expected to do rather than dumping the user on a
- * form asking for something they just clicked past.
+ * `verifySignInCode` sends `client: "web"`, which makes the server set an
+ * httpOnly cookie instead of returning a token this page would have to hold.
  *
- * A SUCCESSFUL SIGN-IN ALWAYS UPDATES THE SHARED AUTH STATE, so the header
- * flips to signed-in wherever this form was rendered. `onSignedIn` is the extra
- * thing a particular page wants afterwards — the saved list uses it to load the
- * list — and is optional because /account has nothing further to do.
+ * IT ALSO HANDLES THE EMAILED LINK. `mailer.py` sends both a code and a link,
+ * and the link lands here as `?email=&code=`; when both are present the form
+ * verifies straight away rather than asking for what they just clicked past.
+ *
+ * A successful sign-in always updates the shared auth state, so the header
+ * flips to signed-in wherever this form was rendered. `onSignedIn` is the
+ * extra thing a particular page wants afterwards.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { ApiError, requestSignInCode, verifySignInCode } from "@/lib/api";
+import {
+  CODE_LENGTH,
+  canonicalCode,
+  formatCode,
+  looksLikeEmail,
+  suggestEmail,
+  webmailFor,
+} from "@/lib/signin-helpers";
 import type { User } from "@/lib/types";
 
 type Step = "email" | "code";
 type Tone = "info" | "error";
 
-/** Seconds a "Resend code" press disables itself for, so a stray double-click
- *  or an impatient retry doesn't hammer the endpoint that's already rate-limited
- *  server-side. */
+/** Seconds "Resend code" disables itself for after a send. */
 const RESEND_COOLDOWN_S = 30;
 
 function messageFor(error: unknown, fallback: string): string {
@@ -46,17 +55,22 @@ export function SignIn({
   initialCode,
   onSignedIn,
   heading = "Your saved evaluations",
+  blurb = "Enter your email and we'll send you a code. No password needed.",
+  cta = "Continue",
 }: {
   initialEmail: string | null;
   initialCode: string | null;
   onSignedIn?: (user: User) => void;
-  /** What the form is a gate to. The two pages using it gate different things. */
+  /** What the form is a gate to. The pages using it gate different things. */
   heading?: string;
+  blurb?: string;
+  /** The email screen's button. Say what they get. */
+  cta?: string;
 }) {
   const { setUser } = useAuth();
   const [step, setStep] = useState<Step>(initialCode ? "code" : "email");
   const [email, setEmail] = useState(initialEmail ?? "");
-  const [code, setCode] = useState(initialCode ?? "");
+  const [code, setCode] = useState(initialCode ? formatCode(canonicalCode(initialCode)) : "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [tone, setTone] = useState<Tone>("info");
@@ -67,7 +81,6 @@ export function SignIn({
     setTone("error");
   }, []);
 
-  // Ticks the resend cooldown down to 0, one second at a time.
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const id = window.setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
@@ -77,8 +90,7 @@ export function SignIn({
   const verify = useCallback(
     async (withEmail: string, withCode: string) => {
       setBusy(true);
-      setTone("info");
-      setMessage("Checking…");
+      setMessage("");
       try {
         const result = await verifySignInCode(withEmail, withCode);
         if (!result?.user) {
@@ -96,28 +108,31 @@ export function SignIn({
     [fail, onSignedIn, setUser],
   );
 
-  const resend = useCallback(async () => {
-    if (busy || resendCooldown > 0) return;
-    setBusy(true);
-    setTone("info");
-    setMessage("Sending a new code…");
-    try {
-      await requestSignInCode(email.trim());
-      setTone("info");
-      setMessage(`New code sent to ${email.trim()}.`);
-      setResendCooldown(RESEND_COOLDOWN_S);
-    } catch (error) {
-      fail(messageFor(error, "Could not send a new code."));
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, email, fail, resendCooldown]);
+  const sendCode = useCallback(
+    async (to: string, resend: boolean) => {
+      setBusy(true);
+      setMessage("");
+      try {
+        await requestSignInCode(to);
+        setStep("code");
+        setCode("");
+        setResendCooldown(RESEND_COOLDOWN_S);
+        if (resend) {
+          setTone("info");
+          setMessage(`A new code is on its way to ${to}. Use the newest one.`);
+        }
+      } catch (error) {
+        fail(messageFor(error, resend ? "Could not send a new code." : "Could not send that."));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [fail],
+  );
 
-  // The emailed link, verified once on arrival. The ref guards React 18+
-  // StrictMode's deliberate double-invoke in development, which would
-  // otherwise spend the single-use code on the first call and report the
-  // second as invalid — a bug that appears only in development and looks
-  // exactly like a broken login.
+  // The emailed link, verified once on arrival. The ref guards StrictMode's
+  // double-invoke in development, which would otherwise spend the single-use
+  // code on the first call and report the second as invalid.
   const autoVerified = useRef(false);
   useEffect(() => {
     if (autoVerified.current) return;
@@ -126,118 +141,152 @@ export function SignIn({
     void verify(initialEmail, initialCode);
   }, [initialEmail, initialCode, verify]);
 
-  const onSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (busy) return;
+  const trimmed = email.trim();
+  const suggestion = step === "email" ? suggestEmail(trimmed) : null;
 
-    if (step === "email") {
-      setBusy(true);
-      setTone("info");
-      setMessage("Sending…");
-      try {
-        await requestSignInCode(email.trim());
-        setStep("code");
-        setTone("info");
-        setMessage(`Code sent to ${email.trim()}. It works once, and expires shortly.`);
-        setResendCooldown(RESEND_COOLDOWN_S);
-      } catch (error) {
-        fail(messageFor(error, "Could not send that."));
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
+  if (step === "email") {
+    return (
+      <form
+        className="signin"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (busy) return;
+          if (!looksLikeEmail(trimmed)) {
+            fail("Enter your email address, like you@example.com.");
+            return;
+          }
+          void sendCode(trimmed, false);
+        }}
+      >
+        <h2>{heading}</h2>
+        <p>{blurb}</p>
 
-    await verify(email.trim(), code.trim());
-  };
+        <label className="price-label" htmlFor="signin-email">
+          Email
+        </label>
+        <input
+          id="signin-email"
+          className="field"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          spellCheck={false}
+          autoFocus
+          placeholder="you@example.com"
+          value={email}
+          disabled={busy}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        {suggestion && (
+          <button type="button" className="linkish signin-suggest" onClick={() => setEmail(suggestion)}>
+            Did you mean <strong>{suggestion}</strong>?
+          </button>
+        )}
+
+        <button className="btn" type="submit" disabled={busy}>
+          {busy ? "Sending your code…" : cta}
+        </button>
+        <p className="signin-assurance">No password · No card · Takes 30 seconds</p>
+
+        <p className="form-note" data-tone={tone} role="status" aria-live="polite">
+          {message}
+        </p>
+      </form>
+    );
+  }
+
+  const webmail = webmailFor(trimmed);
 
   return (
-    <form className="signin" onSubmit={onSubmit}>
-      <h2>{heading}</h2>
+    <form
+      className="signin"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (busy) return;
+        const canonical = canonicalCode(code);
+        if (canonical.length < CODE_LENGTH) {
+          fail(`The code is ${CODE_LENGTH} characters, like ABCD-2345.`);
+          return;
+        }
+        void verify(trimmed, canonical);
+      }}
+    >
+      <h2>Check your email</h2>
       <p>
-        Sign in with the email you used in the extension. There is no password — we send you a
-        code.
+        We sent an {CODE_LENGTH}-character code to <strong className="signin-email">{trimmed}</strong>
+        .{" "}
+        <button
+          type="button"
+          className="linkish"
+          disabled={busy}
+          onClick={() => {
+            setStep("email");
+            setCode("");
+            setMessage("");
+            setResendCooldown(0);
+          }}
+        >
+          Change
+        </button>
       </p>
 
-      <label className="price-label" htmlFor="email">
-        Email
+      {webmail && (
+        <a className="btn btn--ghost signin-webmail" href={webmail.url} target="_blank" rel="noopener noreferrer">
+          {webmail.label} <span aria-hidden="true">↗</span>
+        </a>
+      )}
+
+      <label className="price-label" htmlFor="signin-code">
+        Code from the email
       </label>
       <input
-        id="email"
-        className="field"
-        type="email"
-        required
-        autoComplete="email"
-        placeholder="you@example.com"
-        value={email}
-        disabled={busy || step === "code"}
-        onChange={(event) => setEmail(event.target.value)}
+        id="signin-code"
+        className="field code"
+        type="text"
+        autoComplete="one-time-code"
+        autoCapitalize="characters"
+        spellCheck={false}
+        autoFocus
+        maxLength={CODE_LENGTH + 1}
+        placeholder="ABCD-2345"
+        value={code}
+        disabled={busy}
+        onChange={(event) => {
+          const canonical = canonicalCode(event.target.value);
+          setCode(formatCode(canonical));
+          if (tone === "error") setMessage("");
+          // Go as soon as the code is complete: no second button to find.
+          if (canonical.length === CODE_LENGTH && !busy) void verify(trimmed, canonical);
+        }}
       />
 
-      {step === "code" && (
-        <>
-          <label className="price-label" htmlFor="code">
-            Code from the email
-          </label>
-          <input
-            id="code"
-            className="field code"
-            type="text"
-            required
-            autoComplete="one-time-code"
-            placeholder="ABCD-2345"
-            value={code}
-            disabled={busy}
-            autoFocus
-            onChange={(event) => setCode(event.target.value)}
-          />
-
-          {/* Separate from the status line below on purpose: that line is
-              overwritten by "Checking…" and by every error, so a spam-folder
-              hint living there would disappear exactly when somebody is
-              hunting for a code that never arrived. Mail from a young sending
-              domain lands in junk often enough that this is the most likely
-              first-run failure the product has. */}
-          <p className="form-note form-note--hint">
-            Not there in a minute? Check your spam or junk folder — and mark it as not spam, so
-            the next one arrives in your inbox.
-          </p>
-        </>
-      )}
-
       <button className="btn" type="submit" disabled={busy}>
-        {step === "email" ? "Email me a code" : "Sign in"}
+        {busy ? "Signing you in…" : "Verify and continue"}
       </button>
 
-      {step === "code" && (
-        <p className="form-note code-actions">
-          <button
-            type="button"
-            className="linkish"
-            disabled={busy || resendCooldown > 0}
-            onClick={() => void resend()}
-          >
-            {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : "Resend code"}
-          </button>
-          <button
-            type="button"
-            className="linkish"
-            disabled={busy}
-            onClick={() => {
-              setStep("email");
-              setCode("");
-              setMessage("");
-              setResendCooldown(0);
-            }}
-          >
-            Use a different email
-          </button>
-        </p>
-      )}
-
-      {/* role=status so the outcome is announced, not only shown. */}
       <p className="form-note" data-tone={tone} role="status" aria-live="polite">
         {message}
+      </p>
+
+      <p className="form-note code-actions">
+        <button
+          type="button"
+          className="linkish"
+          disabled={busy || resendCooldown > 0}
+          onClick={() => void sendCode(trimmed, true)}
+        >
+          {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : "Resend code"}
+        </button>
+      </p>
+
+      {/* A standing note, not the status line: that line is overwritten by
+          every attempt, which is exactly when someone is hunting for a code
+          that landed in junk -- the most likely first-run failure. */}
+      <p className="form-note form-note--hint">
+        Not there in a minute? Check your spam or junk folder, and mark it as not spam so the
+        next one arrives in your inbox.
       </p>
     </form>
   );

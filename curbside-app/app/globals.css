@@ -637,6 +637,31 @@ img {
   margin-top: 8px;
 }
 
+/* "Did you mean …@gmail.com?" -- tucked under the email field it fixes. */
+.signin .signin-suggest {
+  display: block;
+  margin: -4px 0 12px;
+  font-size: 13px;
+  text-align: left;
+}
+.signin .signin-assurance {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--text-3);
+}
+.signin .signin-email {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.signin .signin-webmail {
+  width: 100%;
+  margin-bottom: 18px;
+}
+.field.code {
+  text-align: center;
+}
+
 .code-actions {
   display: flex;
   justify-content: space-between;

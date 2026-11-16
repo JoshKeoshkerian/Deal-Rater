@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models import BillingAccount, CreditLedger, User
+from app.models import BillingAccount, Capture, CreditLedger, Listing, ListingObservation, User
 
 from .plans import FREE_EVALUATIONS, Plan
 
@@ -101,6 +101,80 @@ def record_evaluation_spend(session: Session, user_id: int, capture_id: int) -> 
             created_at=datetime.now(UTC),
         )
     )
+
+
+def has_checked_listing_before(
+    session: Session, user_id: int, *, source: str, source_listing_id: str
+) -> bool:
+    """Whether this user already ran a check on this exact listing.
+
+    Re-checking a car you've already checked is free: the second click is
+    almost always "did anything change?" or "I closed the panel", not a new
+    purchase decision. Asked BEFORE the new capture is ingested, so the new
+    capture never counts as its own prior. A guest's captures move to the
+    account they merge into, so a check run as a guest counts too.
+    """
+    return (
+        session.scalars(
+            select(Capture.id)
+            .join(ListingObservation, ListingObservation.capture_id == Capture.id)
+            .join(Listing, Listing.id == ListingObservation.listing_id)
+            .where(
+                Capture.user_id == user_id,
+                ListingObservation.role == "target",
+                Listing.source == source,
+                Listing.source_listing_id == source_listing_id,
+            )
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
+def refund_evaluation(session: Session, user_id: int, capture_id: int) -> bool:
+    """Give back the credit a check spent, once. Returns whether this check
+    is now refunded (by this call or an earlier one), so a retried fetch can
+    still tell the user their check was free.
+
+    Used when the evaluation could not price the vehicle confidently: the
+    user got no real answer, so they shouldn't pay for one. Idempotent --
+    `GET /v1/evaluations/{id}` can be fetched any number of times (the
+    extension retries it), and only the first refunds. A check that spent
+    nothing (unlimited plan, a free repeat, a replay) has no spend row and
+    is never refunded.
+
+    The billing row is locked first (`FOR UPDATE`; a no-op on SQLite) so two
+    concurrent fetches can't both see "not refunded yet".
+    """
+    get_or_create_account(session, user_id)
+    session.execute(
+        select(BillingAccount.user_id).where(BillingAccount.user_id == user_id).with_for_update()
+    )
+    rows = session.scalars(
+        select(CreditLedger.reason).where(
+            CreditLedger.user_id == user_id,
+            CreditLedger.capture_id == capture_id,
+            CreditLedger.reason.in_(("evaluation_spend", "evaluation_refund")),
+        )
+    ).all()
+    if "evaluation_refund" in rows:
+        return True
+    if "evaluation_spend" not in rows:
+        return False
+
+    account = session.get(BillingAccount, user_id)
+    account.credit_balance += 1
+    session.add(
+        CreditLedger(
+            user_id=user_id,
+            delta=1,
+            reason="evaluation_refund",
+            capture_id=capture_id,
+            created_at=datetime.now(UTC),
+        )
+    )
+    session.flush()
+    return True
 
 
 def record_purchase(

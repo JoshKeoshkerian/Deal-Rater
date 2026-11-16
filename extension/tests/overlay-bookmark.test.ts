@@ -44,6 +44,29 @@ function inputs(panel: HTMLElement): HTMLInputElement[] {
   return Array.from(panel.querySelectorAll<HTMLInputElement>("input"));
 }
 
+function emailInput(panel: HTMLElement): HTMLInputElement {
+  return panel.querySelector<HTMLInputElement>('input[name="email"]')!;
+}
+
+/** The code box. Only exists once the email step has succeeded. */
+function codeInput(panel: HTMLElement): HTMLInputElement | null {
+  return panel.querySelector<HTMLInputElement>('input[name="code"]');
+}
+
+/** Type into the code box the way a user does: an input event per change. */
+function typeCode(panel: HTMLElement, value: string): void {
+  const box = codeInput(panel)!;
+  box.value = value;
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Fill the email and submit it, with the worker accepting the send. */
+async function sendCodeTo(panel: HTMLElement, address = "buyer@example.com"): Promise<void> {
+  emailInput(panel).value = address;
+  submit(panel);
+  await settle();
+}
+
 /**
  * The star, on its own.
  *
@@ -312,109 +335,169 @@ describe("signing in, because the user clicked save", () => {
     expect(sent.filter((m) => m.type === "SAVE_EVALUATION")).toHaveLength(0);
   });
 
-  it("asks for an email first, then a code", async () => {
+  it("shows only the email box until a code has actually been sent", async () => {
     const { button, panel } = buildBookmark(1);
     await settle();
     button.click();
 
-    const [email, code] = inputs(panel);
-    expect(code!.hidden).toBe(true);
+    // The regression: a code box on screen before any code exists.
+    expect(inputs(panel)).toHaveLength(1);
+    expect(codeInput(panel)).toBeNull();
+    expect(panel.querySelector(".signin-hint")).toBeNull();
 
     reply = () => ({ ok: true });
-    email!.value = "buyer@example.com";
-    submit(panel);
-    await settle();
+    await sendCodeTo(panel);
 
     expect(sent.at(-1)).toEqual({ type: "AUTH_REQUEST_CODE", email: "buyer@example.com" });
-    expect(code!.hidden).toBe(false);
+    expect(inputs(panel)).toHaveLength(1);
+    expect(codeInput(panel)).not.toBeNull();
+    expect(panel.textContent).toContain("Check your email");
     expect(panel.textContent).toContain("buyer@example.com");
+  });
+
+  it("stays on the email step when sending fails", async () => {
+    const { button, panel } = buildBookmark(1);
+    await settle();
+    button.click();
+
+    reply = () => ({ ok: false, error: "Could not send the sign-in email." });
+    await sendCodeTo(panel);
+
+    expect(codeInput(panel)).toBeNull();
+    expect(panel.textContent).toContain("Could not send");
+    expect(emailInput(panel).disabled).toBe(false);
+  });
+
+  it("refuses an obviously invalid address without calling the server", async () => {
+    const { button, panel } = buildBookmark(1);
+    await settle();
+    button.click();
+
+    await sendCodeTo(panel, "not-an-email");
+
+    expect(sent.filter((m) => m.type === "AUTH_REQUEST_CODE")).toHaveLength(0);
+    expect(panel.textContent).toContain("Enter your email");
+  });
+
+  it("offers a one-click fix for a mistyped domain", async () => {
+    const { button, panel } = buildBookmark(1);
+    await settle();
+    button.click();
+
+    const email = emailInput(panel);
+    email.value = "buyer@gmial.com";
+    email.dispatchEvent(new Event("input", { bubbles: true }));
+    const fix = panel.querySelector<HTMLButtonElement>(".signin-suggest")!;
+    expect(fix.hidden).toBe(false);
+    expect(fix.textContent).toContain("buyer@gmail.com");
+
+    fix.click();
+    expect(email.value).toBe("buyer@gmail.com");
+  });
+
+  it("links straight to the inbox for a known provider", async () => {
+    const { button, panel } = buildBookmark(1);
+    await settle();
+    button.click();
+
+    reply = () => ({ ok: true });
+    await sendCodeTo(panel, "buyer@gmail.com");
+
+    const open = panel.querySelector<HTMLAnchorElement>(".signin-webmail")!;
+    expect(open.textContent).toContain("Open Gmail");
+    expect(open.href).toContain("mail.google.com");
+    expect(open.target).toBe("_blank");
+  });
+
+  it("goes back to the email step, prefilled, on Change", async () => {
+    const { button, panel } = buildBookmark(1);
+    await settle();
+    button.click();
+
+    reply = () => ({ ok: true });
+    await sendCodeTo(panel);
+    panel.querySelector<HTMLButtonElement>(".signin-blurb .signin-link")!.click();
+
+    expect(codeInput(panel)).toBeNull();
+    expect(emailInput(panel).value).toBe("buyer@example.com");
   });
 
   it("says where to look when the email does not arrive", async () => {
     // Mail from a young sending domain lands in junk often enough that this is
-    // the most likely first-run failure the product has, and the user's only
-    // recovery is a folder nothing told them about.
-    const { button, panel } = buildBookmark(1);
-    await settle();
-    button.click();
-
-    const hint = panel.querySelector<HTMLElement>(".signin-hint")!;
-    expect(hint.hidden).toBe(true);
-
-    reply = () => ({ ok: true });
-    inputs(panel)[0]!.value = "buyer@example.com";
-    submit(panel);
-    await settle();
-
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toContain("spam or junk folder");
-  });
-
-  it("keeps the spam hint visible while a wrong code is being corrected", async () => {
-    // It is deliberately not part of the status line: that line is overwritten
-    // by "Checking…" and by every error, which is exactly when somebody is
-    // hunting for a code they cannot find.
+    // the most likely first-run failure the product has.
     const { button, panel } = buildBookmark(1);
     await settle();
     button.click();
 
     reply = () => ({ ok: true });
-    const [email, code] = inputs(panel);
-    email!.value = "buyer@example.com";
-    submit(panel);
-    await settle();
+    await sendCodeTo(panel);
 
-    reply = () => ({ ok: false, error: "That code is not right, or it has expired." });
-    code!.value = "WRONGCOD";
-    submit(panel);
-    await settle();
-
-    expect(panel.querySelector<HTMLElement>(".signin-hint")!.hidden).toBe(false);
+    expect(panel.querySelector(".signin-hint")!.textContent).toContain("spam or junk folder");
   });
 
-  it("saves the evaluation once the code verifies", async () => {
+  it("formats the code as it is typed and submits itself when complete", async () => {
     const { button, panel } = buildBookmark(9);
     await settle();
     button.click();
 
     reply = () => ({ ok: true });
-    const [email, code] = inputs(panel);
-    email!.value = "buyer@example.com";
-    submit(panel);
-    await settle();
+    await sendCodeTo(panel);
 
     reply = (message) =>
       message.type === "AUTH_VERIFY_CODE"
         ? { ok: true, email: "buyer@example.com" }
         : { ok: true, signedIn: true, saved: true };
-    code!.value = "abcd-2345";
-    submit(panel);
+
+    typeCode(panel, "abcd");
+    expect(codeInput(panel)!.value).toBe("ABCD");
+    expect(sent.filter((m) => m.type === "AUTH_VERIFY_CODE")).toHaveLength(0);
+
+    // A paste of the code as the email prints it, with stray whitespace.
+    typeCode(panel, " abcd-2345 ");
+    await settle();
     await settle();
 
-    // The whole point: they clicked save, so signing in finishes that action
-    // rather than handing them an empty star to click again.
+    expect(sent).toContainEqual({
+      type: "AUTH_VERIFY_CODE",
+      email: "buyer@example.com",
+      code: "ABCD2345",
+    });
+    // The whole point: they clicked save, so signing in finishes that action.
     expect(sent.at(-1)).toEqual({ type: "SAVE_EVALUATION", captureId: 9 });
     expect(star(button)).toBe("★");
     expect(panel.dataset["open"]).toBeUndefined();
   });
 
-  it("reports a bad code and stays on the code step", async () => {
+  it("explains a too-short code instead of sending it", async () => {
     const { button, panel } = buildBookmark(1);
     await settle();
     button.click();
 
     reply = () => ({ ok: true });
-    const [email, code] = inputs(panel);
-    email!.value = "buyer@example.com";
+    await sendCodeTo(panel);
+    typeCode(panel, "ABC");
     submit(panel);
     await settle();
 
+    expect(sent.filter((m) => m.type === "AUTH_VERIFY_CODE")).toHaveLength(0);
+    expect(panel.textContent).toContain("8 characters");
+  });
+
+  it("reports a bad code, keeps the spam hint, and stays on the code step", async () => {
+    const { button, panel } = buildBookmark(1);
+    await settle();
+    button.click();
+
+    reply = () => ({ ok: true });
+    await sendCodeTo(panel);
+
     reply = () => ({ ok: false, error: "That code is not right, or it has expired." });
-    code!.value = "WRONGCOD";
-    submit(panel);
+    typeCode(panel, "WRNGCDXX");
     await settle();
 
     expect(panel.textContent).toContain("not right");
+    expect(panel.querySelector(".signin-hint")).not.toBeNull();
+    expect(codeInput(panel)!.disabled).toBe(false);
     expect(panel.dataset["open"]).toBe("true");
     expect(sent.filter((m) => m.type === "SAVE_EVALUATION")).toHaveLength(0);
   });
@@ -493,12 +576,9 @@ describe("a check that ran on a guest session", () => {
     await settle();
 
     strip.querySelector<HTMLButtonElement>(".saved-strip-cta")!.click();
-    const [email, code] = inputs(panel);
-    email!.value = "a@b.co";
-    submit(panel);
-    await settle();
-    code!.value = "ABCD-2345";
-    submit(panel);
+    expect(panel.querySelector(".signin-submit")!.textContent).toBe("Save & get 2 more free checks");
+    await sendCodeTo(panel, "a@b.co");
+    typeCode(panel, "ABCD-2345");
     await settle();
     await settle();
 

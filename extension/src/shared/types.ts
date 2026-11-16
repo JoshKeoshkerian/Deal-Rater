@@ -121,6 +121,10 @@ export interface CaptureResponse {
   observations_written: number;
   extraction_reports_written: number;
   extraction_ok: boolean;
+  /** Whether this check spent a credit. Absent from a backend older than 0.3.2. */
+  charged?: boolean;
+  /** Why it was free: "replay" | "repeat" | "not_vehicle" | "unlimited". */
+  free_reason?: string | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -383,4 +387,9 @@ export interface EvaluationResponse {
     note: string | null;
   }>;
   notices: string[];
+  /**
+   * True when this fetch gave the check's credit back because the vehicle
+   * could not be priced confidently. Absent from older backends and snapshots.
+   */
+  check_refunded?: boolean;
 }

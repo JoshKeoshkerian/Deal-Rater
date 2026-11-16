@@ -49,21 +49,24 @@ function isSearchPage(): boolean {
  * beside the click that triggers them, so the wording matches the moment.
  */
 function guestUsedCopy(bonus: number | undefined): SignInCopy {
-  const more = bonus && bonus > 0 ? `${bonus} more free check${bonus === 1 ? "" : "s"}` : "more free checks";
+  const n = bonus && bonus > 0 ? bonus : null;
+  const more = n ? `${n} more free check${n === 1 ? "" : "s"}` : "more free checks";
   return {
     title: `Get ${more}`,
     blurb:
-      "You've used your free guest check. Enter your email to keep going — no password, " +
-      "no card. Your last result stays saved to your account, and this check runs right after.",
+      "You've used your free check. Add your email to keep going, and this car's check " +
+      "runs right after.",
+    cta: n ? `Get my ${n} free check${n === 1 ? "" : "s"}` : "Get my free checks",
   };
 }
 
 function signInCopy(reason?: string): SignInCopy {
   return {
-    title: "Sign in to run a check",
+    title: "Check this car for free",
     blurb:
       (reason ? `${reason} ` : "") +
-      "Sign in with an email code — no password, no card — and this check runs right after.",
+      "Enter your email to get your free checks. This one runs right after.",
+    cta: "Get my free checks",
   };
 }
 

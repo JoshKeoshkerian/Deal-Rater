@@ -35,6 +35,7 @@ import type {
 import {
   clearSession,
   loadSession,
+  markGuestCheckUnused,
   markGuestCheckUsed,
   markWebAdoptAttempted,
   saveGuestSession,
@@ -86,6 +87,7 @@ async function handleEvaluation(captureId: number): Promise<EvaluationResult> {
   const settings = await loadSettings();
   try {
     const evaluation = await fetchEvaluationWithRetry(settings.apiBaseUrl, session.token, captureId);
+    if (session.guest && evaluation.check_refunded) await markGuestCheckUnused();
     return { ok: true, evaluation };
   } catch (error) {
     if (error instanceof UnauthorizedError) {
@@ -251,7 +253,10 @@ async function handleSubmit(payload: unknown): Promise<SubmitCaptureResult> {
 
   try {
     const response = await postCapture(settings.apiBaseUrl, session.token, payload as never);
-    if (session.guest && !response.duplicate) await markGuestCheckUsed();
+    // Only a check that actually spent the guest's credit uses it up. A
+    // backend older than 0.3.2 has no `charged`, so fall back to the old rule.
+    const spent = response.charged ?? !response.duplicate;
+    if (session.guest && spent) await markGuestCheckUsed();
     return { ok: true, response };
   } catch (error) {
     if (error instanceof UnauthorizedError) {

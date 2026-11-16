@@ -114,6 +114,8 @@ export function PricingPlans() {
             initialEmail={null}
             initialCode={null}
             heading={`Sign in to buy ${pendingSignIn.name}`}
+            blurb="Your checks are added to your account, so they work in the extension right away."
+            cta="Continue to checkout"
             onSignedIn={() => {
               const plan = pendingSignIn;
               setPendingSignIn(null);

@@ -209,7 +209,16 @@ function buildExpandAll(sheet: HTMLElement): HTMLElement {
   return button;
 }
 
-export function renderEvaluation(data: EvaluationResponse): void {
+/**
+ * `freeCheckNote`: one line saying this check didn't use up a credit (a
+ * repeat of a car already checked, or refunded because it couldn't be priced
+ * confidently). Shown directly under the header so it's read before the
+ * result, not buried in the footer.
+ */
+export function renderEvaluation(
+  data: EvaluationResponse,
+  options: { freeCheckNote?: string | null } = {},
+): void {
   document.getElementById(HOST_ID)?.remove();
 
   const host = el("div");
@@ -303,6 +312,11 @@ export function renderEvaluation(data: EvaluationResponse): void {
   // chrome belonging to the header; the panel is transient and appears below it.
   const bookmark = buildBookmark(data.capture_id);
   sheet.append(buildHeader(data, close, buildThemeControl(host), bookmark.button));
+  if (options.freeCheckNote) {
+    const note = el("p", "free-check-note", options.freeCheckNote);
+    note.setAttribute("role", "status");
+    sheet.append(note);
+  }
   sheet.append(bookmark.strip, bookmark.panel);
 
   // The breakdown belongs with the headline (spec 5.2) and is the section
