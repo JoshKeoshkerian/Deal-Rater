@@ -169,7 +169,8 @@ async function apiRequest<T>(
     // Undefined leaves fetch's default ("same-origin"), which is right for
     // every one of these calls except `adoptWebSession` below -- that one
     // needs "include" so the response's `Set-Cookie` actually lands in the
-    // browser's cookie jar rather than being discarded.
+    // browser's cookie jar rather than being discarded -- and
+    // `verifySignInCode`, which needs it to SEND the referral cookie.
     credentials?: RequestCredentials;
   } = {},
 ): Promise<T | null> {
@@ -235,6 +236,12 @@ export function verifySignInCode(
     method: "POST",
     token: guestToken ?? null,
     body: { email, code, client: "extension" },
+    // So the website's `curbside_ref` cookie (set from a `?ref=` share link,
+    // scoped to `.curbsidescore.com`) travels with this call: it is how a
+    // referral survives the trip through the Chrome Web Store. The backend
+    // reads only that cookie from here -- the session is still the bearer
+    // header. See `backend/app/referrals/service.py`.
+    credentials: "include",
   });
 }
 

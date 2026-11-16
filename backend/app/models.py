@@ -530,7 +530,26 @@ class User(Base):
         ForeignKey("users.id", ondelete="SET NULL")
     )
 
-    __table_args__ = (Index("ix_users_guest_created", "is_guest", "created_at"),)
+    #: REFERRALS. This user's own share code, minted lazily the first time
+    #: `GET /v1/referrals/me` is called (`referrals/service.py`). NULL until
+    #: then -- most accounts never open the account page.
+    referral_code: Mapped[str | None] = mapped_column(String(16), unique=True)
+    #: Who referred this account. Set once, only when the account is CREATED
+    #: (a new email, or a guest upgrading in place) -- never on a sign-in to an
+    #: existing account, so a referral link cannot be applied retroactively.
+    referred_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    #: When this account's referrer was credited. Set on this account's first
+    #: EXTENSION sign-in (that is the "installed" half of "installed and signed
+    #: up"), and the reason the reward is paid at most once per referred user.
+    #: Stays NULL if the referrer was already at the cap.
+    referral_rewarded_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+
+    __table_args__ = (
+        Index("ix_users_guest_created", "is_guest", "created_at"),
+        Index("ix_users_referred_by", "referred_by_user_id"),
+    )
 
 
 class BillingAccount(Base):
@@ -605,7 +624,8 @@ class CreditLedger(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     delta: Mapped[int] = mapped_column(Integer, nullable=False)
-    #: 'free_grant' | 'pack_purchase' | 'subscription_charge' | 'evaluation_spend'
+    #: 'free_grant' | 'guest_grant' | 'referral_reward' | 'pack_purchase' |
+    #: 'subscription_charge' | 'evaluation_spend'
     reason: Mapped[str] = mapped_column(String(32), nullable=False)
 
     #: Which check spent this credit. Populated only on `evaluation_spend` rows.

@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.billing import FREE_EVALUATIONS, GUEST_FREE_EVALUATIONS, grant_free_credits
 from app.config import Settings
 from app.models import AuthSession, Capture, MagicLinkToken, SavedEvaluation, User
+from app.referrals import attach_referrer, maybe_reward_referrer
 
 from .tokens import (
     canonicalize_code,
@@ -110,6 +111,7 @@ def verify_code(
     code: str,
     client: str = "unknown",
     guest: User | None = None,
+    referral_code: str | None = None,
 ) -> IssuedSession:
     """Exchange a code for a session, creating the account on first success.
 
@@ -119,6 +121,10 @@ def verify_code(
         its captures, and tops the free allowance up to `FREE_EVALUATIONS`;
       - an email that already has an account absorbs the guest's captures and
         saved evaluations (`_merge_guest`) and gets no extra free checks.
+
+    `referral_code` is attached only when this call CREATES the account (either
+    of the first two branches below), and the referrer is credited only on an
+    extension sign-in -- see `app/referrals/service.py` for why.
     """
     normalized = normalize_email(email)
     candidate = canonicalize_code(code)
@@ -159,6 +165,7 @@ def verify_code(
     )
 
     user = session.scalars(select(User).where(User.email == normalized)).first()
+    created = user is None
     if user is None and live_guest is not None:
         # Upgrade in place: same id, so the check they already ran (and the
         # evaluation on screen) stays theirs with no data to move.
@@ -177,6 +184,11 @@ def verify_code(
         grant_free_credits(session, user)
     elif live_guest is not None and live_guest.id != user.id:
         _merge_guest(session, live_guest, into=user, now=now)
+
+    if created:
+        attach_referrer(session, user, referral_code)
+    if client == "extension":
+        maybe_reward_referrer(session, user)
 
     token = generate_session_token()
     expires_at = now + timedelta(days=settings.session_ttl_days)

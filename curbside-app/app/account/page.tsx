@@ -18,6 +18,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { Modal } from "@/components/Modal";
+import { ReferralPanel } from "@/components/ReferralPanel";
 import { SignIn } from "@/components/SignIn";
 import { billingDate, type BillingState } from "@/lib/billing";
 import { checkedOn } from "@/lib/format";
@@ -217,7 +218,12 @@ function AccountPageContent() {
                     <p className="balance">
                       {remaining ?? 0}
                       {(billing?.free_evaluations_remaining ?? 0) > 0 && (
-                        <span className="balance__of"> of your {FREE_EVALUATIONS} free</span>
+                        <span className="balance__of">
+                          {/* Referral checks can take a free balance past the sign-up allowance. */}
+                          {(remaining ?? 0) > FREE_EVALUATIONS
+                            ? " free"
+                            : ` of your ${FREE_EVALUATIONS} free`}
+                        </span>
                       )}
                     </p>
                     <meter
@@ -225,8 +231,8 @@ function AccountPageContent() {
                       min={0}
                       max={
                         (billing?.free_evaluations_remaining ?? 0) > 0
-                          ? FREE_EVALUATIONS
-                          : (plan?.evaluations ?? FREE_EVALUATIONS)
+                          ? Math.max(FREE_EVALUATIONS, remaining ?? 0)
+                          : Math.max(plan?.evaluations ?? FREE_EVALUATIONS, remaining ?? 0)
                       }
                       low={2}
                       optimum={FREE_EVALUATIONS}
@@ -278,6 +284,8 @@ function AccountPageContent() {
           </>
         )}
       </section>
+
+      <ReferralPanel />
 
       <section className="panel">
         <h2 className="panel__title">Billing history</h2>

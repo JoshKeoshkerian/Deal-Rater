@@ -193,6 +193,11 @@ def verify(
             code=payload.code,
             client=payload.client,
             guest=guest_user,
+            # Explicit body field first; otherwise the cookie the website set
+            # from a `?ref=` link. The extension sends this call with
+            # credentials so that cookie reaches here from it too.
+            referral_code=payload.referral_code
+            or request.cookies.get(settings.referral_cookie_name),
         )
     except AuthError as error:
         # Committed rather than rolled back: a wrong code increments the

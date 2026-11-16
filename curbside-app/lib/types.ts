@@ -77,3 +77,16 @@ export interface User {
   email: string;
   created_at: string;
 }
+
+/** `GET /v1/referrals/me` (`backend/app/schemas.py`'s `ReferralsMeOut`). */
+export interface ReferralState {
+  code: string;
+  url: string;
+  /** Referrals that have earned checks, at most `max_rewards`. */
+  rewarded: number;
+  max_rewards: number;
+  checks_per_referral: number;
+  checks_earned: number;
+  /** Signed up with the link but not yet signed in through the extension. */
+  pending: number;
+}

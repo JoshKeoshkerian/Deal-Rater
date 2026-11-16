@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, billing, captures, evaluations, health, saved, telemetry
+from app.api import auth, billing, captures, evaluations, health, referrals, saved, telemetry
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ app.include_router(evaluations.router)
 app.include_router(auth.router)
 app.include_router(saved.router)
 app.include_router(billing.router)
+app.include_router(referrals.router)
 
 if not settings.stripe_secret_key:
     logger.info(

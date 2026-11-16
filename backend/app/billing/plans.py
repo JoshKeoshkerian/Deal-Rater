@@ -29,6 +29,14 @@ FREE_EVALUATIONS = 3
 #: lifetime free allowance is the same either way. See `User.is_guest`.
 GUEST_FREE_EVALUATIONS = 1
 
+#: Checks credited to a referrer each time someone they referred installs the
+#: extension and signs up with an email. Mirrors `lib/plans.ts`.
+REFERRAL_REWARD_EVALUATIONS = 2
+
+#: How many referrals one account can be rewarded for, ever. So the most free
+#: checks referrals can earn is `REFERRAL_REWARD_EVALUATIONS * REFERRAL_MAX_REWARDS`.
+REFERRAL_MAX_REWARDS = 5
+
 
 @dataclass(frozen=True)
 class Plan:

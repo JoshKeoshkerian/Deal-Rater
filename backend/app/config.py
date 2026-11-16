@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     # an IPv4 address is trivially reversible.
     guest_ip_salt: str = ""
 
+    # --- Referrals ------------------------------------------------------------
+    #
+    # The website stores a `?ref=` code in this cookie, scoped to
+    # `.curbsidescore.com`, so it reaches `POST /v1/auth/verify` from either
+    # the website or the extension (which sends that call with credentials).
+    # Must match `REFERRAL_COOKIE` in `curbside-app/lib/referral.ts`.
+    referral_cookie_name: str = "curbside_ref"
+
     # --- Cookie transport (website) -----------------------------------------
     #
     # The website's session. `api.curbsidescore.com` and `app.curbsidescore.com`

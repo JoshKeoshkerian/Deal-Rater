@@ -19,7 +19,7 @@
 
 import type { BillingState } from "./billing";
 import type { PlanId } from "./plans";
-import type { SavedEvaluation, User } from "./types";
+import type { ReferralState, SavedEvaluation, User } from "./types";
 
 const API_BASE =
   process.env["NEXT_PUBLIC_API_BASE_URL"]?.replace(/\/$/, "") ?? "https://api.curbsidescore.com";
@@ -145,4 +145,11 @@ export async function openBillingPortal(): Promise<string> {
   const result = await request<{ url: string }>("/v1/billing/portal", { method: "POST" });
   if (!result) throw new ApiError("The server did not return a billing portal URL.", 0);
   return result.url;
+}
+
+// --- referrals ------------------------------------------------------------
+
+/** The signed-in user's share link and progress. Mints the code on first call. */
+export function fetchReferrals(): Promise<ReferralState | null> {
+  return request<ReferralState>("/v1/referrals/me");
 }

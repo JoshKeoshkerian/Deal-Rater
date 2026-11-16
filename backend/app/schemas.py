@@ -583,6 +583,10 @@ class VerifyCodeIn(BaseModel):
     code: Annotated[str, Field(min_length=4, max_length=32)]
     #: Observability only. Nothing branches on it -- see `AuthSession.client`.
     client: Literal["extension", "web"] = "extension"
+    #: A referrer's share code. Optional, and usually absent: the website keeps
+    #: it in a cookie that `POST /v1/auth/verify` reads as the fallback. Only
+    #: honoured when this verification CREATES an account.
+    referral_code: Annotated[str | None, Field(max_length=32)] = None
 
 
 class UserOut(BaseModel):
@@ -720,3 +724,18 @@ class CheckoutOut(BaseModel):
 
 class PortalOut(BaseModel):
     url: str
+
+
+class ReferralsMeOut(BaseModel):
+    """`GET /v1/referrals/me`: the signed-in user's share link and progress."""
+
+    code: str
+    url: str
+    #: Referrals that have earned checks so far (at most `max_rewards`).
+    rewarded: int
+    max_rewards: int
+    checks_per_referral: int
+    checks_earned: int
+    #: People who signed up with this code but haven't signed in through the
+    #: extension yet -- nothing has been credited for them.
+    pending: int

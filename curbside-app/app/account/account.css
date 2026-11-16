@@ -210,3 +210,30 @@
 .history td.num {
   color: var(--text);
 }
+
+/* --- refer a friend --------------------------------------------------------- */
+
+.referral__lede {
+  color: var(--text-2);
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+.referral__link {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.referral__input {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.referral__stats {
+  margin-top: 18px;
+}

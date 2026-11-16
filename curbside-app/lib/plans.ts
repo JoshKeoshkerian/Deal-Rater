@@ -24,6 +24,14 @@ export const GUEST_FREE_EVALUATIONS = 1;
 /** How many more free checks entering an email adds after the guest check. */
 export const SIGNUP_BONUS_EVALUATIONS = FREE_EVALUATIONS - GUEST_FREE_EVALUATIONS;
 
+/** Checks a referrer earns when someone they referred installs and signs up.
+ * Mirrors `backend/app/billing/plans.py`'s `REFERRAL_REWARD_EVALUATIONS`. */
+export const REFERRAL_REWARD_EVALUATIONS = 2;
+
+/** How many referrals one account can earn checks for. Mirrors
+ * `backend/app/billing/plans.py`'s `REFERRAL_MAX_REWARDS`. */
+export const REFERRAL_MAX_REWARDS = 5;
+
 export type PlanId = "pack-10" | "pack-20" | "unlimited-monthly";
 
 export interface Plan {

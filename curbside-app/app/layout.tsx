@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Unbounded } from "next/font/google";
 
 import { AuthProvider } from "@/components/AuthProvider";
+import { ReferralCapture } from "@/components/ReferralCapture";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 
@@ -75,6 +76,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="site-main">{children}</div>
           <SiteFooter />
         </AuthProvider>
+        <ReferralCapture />
         <Analytics />
       </body>
     </html>
