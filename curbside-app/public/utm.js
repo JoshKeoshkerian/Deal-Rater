@@ -1,15 +1,17 @@
 // UTM pass-through: carry ad attribution from the landing URL onto Chrome Web
-// Store links (first touch wins for 30 days), and fire the Quora Pixel's
-// conversion on a Web Store click. No dependencies.
+// Store links (first touch wins for 30 days), and fire the Quora and Reddit
+// pixels' conversion on a Web Store click. No dependencies.
 (function () {
   var KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"];
   var STORE = /chromewebstore\.google\.com|chrome\.google\.com\/webstore/;
   var TTL = 30 * 24 * 60 * 60 * 1000;
-  // Quora conversion: a Web Store click. Delegated, so later links count too;
+  // Ad conversions: a Web Store click. Delegated, so later links count too;
   // fire-and-forget, never blocks the navigation (store links open a new tab).
   document.addEventListener("click", function (e) {
     var a = e.target.closest && e.target.closest("a[href]");
-    if (a && STORE.test(a.href) && window.qp) qp("track", "Generic");
+    if (!a || !STORE.test(a.href)) return;
+    if (window.qp) qp("track", "Generic");
+    if (window.rdt) rdt("track", "Lead");
   }, true);
 
   var url = new URLSearchParams(location.search), fromUrl = {}, stored = null, utm = null;

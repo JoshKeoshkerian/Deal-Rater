@@ -32,7 +32,7 @@ export default function PrivacyPage() {
   return (
     <main className="wrap page prose">
       <h1 className="page-h1">Privacy policy</h1>
-      <p className="updated">Last updated: 2026-11-16</p>
+      <p className="updated">Last updated: 2026-11-18</p>
 
       <p>
         Curbside is a browser extension that evaluates a Facebook Marketplace vehicle listing you
@@ -121,9 +121,10 @@ export default function PrivacyPage() {
 
       <h2>Advertising measurement</h2>
       <p>
-        This website (not the extension) uses the Quora Pixel to measure the performance of our
-        Quora ads, recording page views and clicks on our Chrome Web Store link, and we do not send
-        Quora your email address or any other information you give us.
+        This website (not the extension) uses the Quora Pixel and the Reddit Pixel to measure the
+        performance of our Quora and Reddit ads, recording page views and clicks on our Chrome Web
+        Store link, and we do not send Quora or Reddit your email address or any other information
+        you give us.
       </p>
       <p>
         When you install the extension it creates a random install ID, not derived from your device,

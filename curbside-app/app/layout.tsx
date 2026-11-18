@@ -75,6 +75,15 @@ qp('init', '4ed58c68faa94daf9ccfb8610831bacd');
 qp('track', 'ViewContent');`;
 const QUORA_NOSCRIPT = `<img height="1" width="1" style="display:none" src="https://q.quora.com/_/ad/4ed58c68faa94daf9ccfb8610831bacd/pixel?tag=ViewContent&noscript=1"/>`;
 
+/**
+ * Reddit Pixel base code, verbatim from Reddit. Base code only: no advanced
+ * matching, nothing personal is sent. The Web Store click ('Lead') fires from
+ * public/utm.js, and a completed install ('SignUp') from the welcome page.
+ */
+const REDDIT_PIXEL = `!function(w,d){if(!w.rdt){var p=w.rdt=function(){p.sendEvent?p.sendEvent.apply(p,arguments):p.callQueue.push(arguments)};p.callQueue=[];var t=d.createElement("script");t.src="https://www.redditstatic.com/ads/pixel.js",t.async=!0;var s=d.getElementsByTagName("script")[0];s.parentNode.insertBefore(t,s)}}(window,document);
+rdt('init','a2_k1jhzhwyk0i9');
+rdt('track','PageVisit');`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${unbounded.variable}`}>
@@ -83,6 +92,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: QUORA_PIXEL }} />
         <noscript dangerouslySetInnerHTML={{ __html: QUORA_NOSCRIPT }} />
         {/* End of Quora Pixel Code */}
+        {/* Reddit Pixel */}
+        <script dangerouslySetInnerHTML={{ __html: REDDIT_PIXEL }} />
+        {/* End Reddit Pixel */}
       </head>
       <body>
         <a href="#main" className="skip-link">
